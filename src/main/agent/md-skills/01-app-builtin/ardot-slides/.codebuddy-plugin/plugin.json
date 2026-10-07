@@ -1,0 +1,24 @@
+{
+  "name": "skill-ardot-slides",
+  "version": "5.5.6-wb.38337834.g5f969292.hbc6253c2f32f",
+  "description": "WorkBuddy bundled skill resource: ardot-slides.",
+  "author": {
+    "name": "WorkBuddy"
+  },
+  "category": "skill",
+  "keywords": [
+    "workbuddy",
+    "builtin-skill",
+    "ardot-slides"
+  ],
+  "workbuddy": {
+    "kind": "builtin-skill",
+    "legacyResourceName": "ardot-slides",
+    "bundleSegments": [
+      "plugins",
+      "workbuddy-builtin",
+      "skills",
+      "ardot-slides"
+    ]
+  }
+}

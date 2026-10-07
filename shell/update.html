@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Agent</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 桌面壳（macOS）的顶栏拖拽带：整条窗口顶边都能按住拖窗口。
+       默认 display:none，只有 <html> 带 .shell-mac 时才出现（见 style.css）。 -->
+  <div id="titlebarDrag" class="titlebar-drag" aria-hidden="true"></div>
+  <div class="card">
+    <h1>Agent</h1>
+    <p class="muted" id="hint">检测到本机已经有一份旧版本。</p>
+
+    <label id="oldLabel">旧版本</label>
+    <div class="url" id="oldPath">—</div>
+
+    <label id="newLabel">当前这份</label>
+    <div class="url" id="newPath">—</div>
+
+    <p class="muted" id="note" style="margin-top:16px">
+      更新会先关闭旧版本、清空旧版本所在目录，再把当前这份搬过去并从那里重启。<br>
+      会话、设置、工作区都在数据目录里，不会被删除。
+    </p>
+
+    <div class="steps hidden" id="steps">
+      <div class="step" data-step="close"><span class="dot"></span><span class="step-text">关闭正在运行的旧版本</span></div>
+      <div class="step" data-step="copy"><span class="dot"></span><span class="step-text">替换程序文件</span></div>
+      <div class="step" data-step="clean"><span class="dot"></span><span class="step-text">清理旧版本残留</span></div>
+      <div class="step" data-step="relaunch"><span class="dot"></span><span class="step-text">启动新版本</span></div>
+    </div>
+
+    <div class="actions" id="actions">
+      <button id="update" class="primary">立即更新</button>
+      <button id="keep">用当前这份</button>
+      <button id="cancel">取消</button>
+    </div>
+
+    <div id="status" class="status"></div>
+  </div>
+  <script src="update.js"></script>
+</body>
+</html>

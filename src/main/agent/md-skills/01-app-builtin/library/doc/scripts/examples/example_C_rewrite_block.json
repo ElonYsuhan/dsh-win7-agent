@@ -1,0 +1,14 @@
+[
+  {
+    "type": "update",
+    "id": "blk_old",
+    "old_content": "<Paragraph>过期描述</Paragraph>",
+    "new_content": "<Paragraph><Mark ar=\"delete\">过期描述</Mark><Mark ar=\"insert\">改写后的内容。</Mark></Paragraph>"
+  },
+  {
+    "type": "card_op",
+    "op": "insert",
+    "summary": "改写过期描述",
+    "kind": "agent_review"
+  }
+]

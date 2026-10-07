@@ -1,0 +1,13 @@
+[
+  {
+    "type": "insert_after",
+    "id": "blk_intro",
+    "content": "<Paragraph>补充一句。</Paragraph>"
+  },
+  {
+    "type": "card_op",
+    "op": "update",
+    "discussion_id": "dis_xxx",
+    "summary": "改写引言并补充说明"
+  }
+]

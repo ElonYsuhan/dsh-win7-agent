@@ -1,0 +1,17 @@
+[
+  {
+    "type": "delete",
+    "id": "blk_old"
+  },
+  {
+    "type": "insert_after",
+    "id": "blk_old",
+    "content": "<Heading level=\"2\">改成二级标题</Heading>"
+  },
+  {
+    "type": "card_op",
+    "op": "insert",
+    "summary": "将段落改为二级标题",
+    "kind": "agent_review"
+  }
+]

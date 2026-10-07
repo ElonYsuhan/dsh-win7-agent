@@ -1,0 +1,83 @@
+{
+  "name": "dsh-win7-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Win7-compatible local Agent shell. Local workspace and local commands, remote OpenAI-compatible LLM.",
+  "main": "src/main/main.js",
+  "author": "Agent",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "check": "node scripts/check-syntax.js && node scripts/check-win7-compat.js && node scripts/settings-migration-smoke.js && node scripts/renderer-smoke.js && node scripts/ui-store-smoke.js && node scripts/self-validate-smoke.js && node scripts/service-manager-smoke.js && node scripts/installer-smoke.js && node scripts/shell-menu-smoke.js && node scripts/shell-chrome-smoke.js && node scripts/plugin-smoke.js && node scripts/agent-smoke.js && node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js",
+    "check:win7": "node scripts/check-win7-compat.js",
+    "check:renderer": "node scripts/renderer-smoke.js",
+    "check:concurrency": "node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js",
+    "check:service": "node scripts/service-manager-smoke.js",
+    "check:installer": "node scripts/installer-smoke.js",
+    "check:menu": "node scripts/shell-menu-smoke.js",
+    "check:chrome": "node scripts/shell-chrome-smoke.js",
+    "check:drag": "node scripts/shell-drag-smoke.js",
+    "check:browser": "node scripts/browser-driver-smoke.js",
+    "check:ui": "node scripts/ui-e2e-smoke.js",
+    "check:selfvalidate": "node scripts/self-validate-smoke.js",
+    "check:shellpage": "node scripts/shell-page-smoke.js",
+    "dist:win": "electron-builder --win --x64 --publish never",
+    "dist:win:portable": "electron-builder --win portable --x64 --publish never",
+    "dist:win:dir": "electron-builder --win --x64 --dir --publish never",
+    "build:desktop": "node scripts/build-desktop.js all",
+    "build:desktop:win": "node scripts/build-desktop.js win-x64",
+    "build:desktop:mac": "node scripts/build-desktop.js mac-arm64",
+    "build:desktop:linux": "node scripts/build-desktop.js linux-x64",
+    "clean:release": "node scripts/clean-release.js",
+    "clean:release:dry": "node scripts/clean-release.js --dry-run",
+    "make:icons": "python scripts/make-logo.py",
+    "smoke:context": "node scripts/context-compression-smoke.js",
+    "smoke:permission": "node scripts/permission-smoke.js",
+    "check:skills": "node scripts/plugin-smoke.js && node scripts/agent-smoke.js"
+  },
+  "devDependencies": {
+    "electron": "22.3.27",
+    "electron-builder": "24.13.3",
+    "resedit": "^3.1.0"
+  },
+  "build": {
+    "appId": "com.dsh.agent",
+    "productName": "Agent",
+    "asar": true,
+    "compression": "maximum",
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${arch}-portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

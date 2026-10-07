@@ -1,0 +1,14 @@
+[
+  {
+    "type": "update",
+    "id": "blk_selected",
+    "old_content": "<Paragraph>当前流程效率较低，建议继续优化。</Paragraph>",
+    "new_content": "<Paragraph>当前流程<Mark ar=\"delete\">效率较低</Mark><Mark ar=\"insert\">效率仍有提升空间</Mark>，建议继续优化。</Paragraph>"
+  },
+  {
+    "type": "card_op",
+    "op": "insert",
+    "summary": "根据划词内容优化表述",
+    "kind": "agent_review"
+  }
+]

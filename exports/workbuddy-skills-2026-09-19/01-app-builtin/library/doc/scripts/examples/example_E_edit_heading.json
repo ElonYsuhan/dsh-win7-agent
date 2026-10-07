@@ -1,0 +1,14 @@
+[
+  {
+    "type": "update",
+    "id": "blk_heading",
+    "old_content": "<Heading level=\"2\">旧的标题</Heading>",
+    "new_content": "<Heading level=\"2\"><Mark ar=\"delete\">旧的标题</Mark><Mark ar=\"insert\">新的标题</Mark></Heading>"
+  },
+  {
+    "type": "card_op",
+    "op": "insert",
+    "summary": "更新二级标题",
+    "kind": "agent_review"
+  }
+]

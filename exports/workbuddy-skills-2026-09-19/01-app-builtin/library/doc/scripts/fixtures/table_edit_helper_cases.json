@@ -1,0 +1,130 @@
+{
+  "_meta": {
+    "description": "table_edit_helper.py 的内建自检用例。脚本 --self-check 通过通用 runner 逐条执行。",
+    "case_shape": {
+      "name": "用例名（AssertionError 时会打出）",
+      "op": "算子名；special value 'PARSE' 表示只跑 _parse_table_content（不进 op）",
+      "table_content": "输入 <Table> 组件语法；缺省时使用 _BASE_TABLE",
+      "args": "op 参数 JSON 对象；缺省 {}",
+      "expect": "期望；三选一：",
+      "expect.cells": "期望的解析后二维 cells（list[list[str]]）",
+      "expect.contains": "期望输出的组件字符串中包含的所有子串（数组）",
+      "expect.not_contains": "期望输出的组件字符串中都不包含的子串（数组）",
+      "expect.error_code": "期望抛出 HelperError，且 code 等于该值"
+    }
+  },
+  "base_table": [
+    "<Table>",
+    "    <TableRow>",
+    "        <TableCell>",
+    "            <Paragraph>A1</Paragraph>",
+    "        </TableCell>",
+    "        <TableCell>",
+    "            <Paragraph>B1</Paragraph>",
+    "        </TableCell>",
+    "    </TableRow>",
+    "    <TableRow>",
+    "        <TableCell>",
+    "            <Paragraph>A2</Paragraph>",
+    "        </TableCell>",
+    "        <TableCell>",
+    "            <Paragraph>B2</Paragraph>",
+    "        </TableCell>",
+    "    </TableRow>",
+    "</Table>"
+  ],
+  "cases": [
+    {
+      "name": "insert_row tail",
+      "op": "insert_row",
+      "args": {"cells": ["A3", "B3"]},
+      "expect": {"cells": [["A1", "B1"], ["A2", "B2"], ["A3", "B3"]]}
+    },
+    {
+      "name": "insert_row after=0",
+      "op": "insert_row",
+      "args": {"after_row_index": 0, "cells": ["X", "Y"]},
+      "expect": {"cells": [["A1", "B1"], ["X", "Y"], ["A2", "B2"]]}
+    },
+    {
+      "name": "insert_row before=0",
+      "op": "insert_row",
+      "args": {"before_row_index": 0, "cells": ["X", "Y"]},
+      "expect": {"cells": [["X", "Y"], ["A1", "B1"], ["A2", "B2"]]}
+    },
+    {
+      "name": "delete_row 0",
+      "op": "delete_row",
+      "args": {"row_index": 0},
+      "expect": {"cells": [["A2", "B2"]]}
+    },
+    {
+      "name": "insert_column tail",
+      "op": "insert_column",
+      "args": {"cells": ["C1", "C2"]},
+      "expect": {"cells": [["A1", "B1", "C1"], ["A2", "B2", "C2"]]}
+    },
+    {
+      "name": "insert_column before=0",
+      "op": "insert_column",
+      "args": {"before_col_index": 0, "cells": ["C1", "C2"]},
+      "expect": {"cells": [["C1", "A1", "B1"], ["C2", "A2", "B2"]]}
+    },
+    {
+      "name": "delete_column 1",
+      "op": "delete_column",
+      "args": {"col_index": 1},
+      "expect": {"cells": [["A1"], ["A2"]]}
+    },
+    {
+      "name": "set_table 3x2",
+      "op": "set_table",
+      "args": {"cells": [["h1", "h2"], ["v1", "v2"], ["v3", "v4"]]},
+      "expect": {"cells": [["h1", "h2"], ["v1", "v2"], ["v3", "v4"]]}
+    },
+    {
+      "name": "insert_row col mismatch → COL_LENGTH_MISMATCH",
+      "op": "insert_row",
+      "args": {"cells": ["only-one"]},
+      "expect": {"error_code": "COL_LENGTH_MISMATCH"}
+    },
+    {
+      "name": "parse rowspan → UNSUPPORTED_SPAN",
+      "op": "PARSE",
+      "table_content_override": "rowspan",
+      "expect": {"error_code": "UNSUPPORTED_SPAN"}
+    },
+    {
+      "name": "delete_row 99 → ROW_INDEX_OUT_OF_RANGE",
+      "op": "delete_row",
+      "args": {"row_index": 99},
+      "expect": {"error_code": "ROW_INDEX_OUT_OF_RANGE"}
+    },
+    {
+      "name": "escape new text in set_table",
+      "op": "set_table",
+      "args": {"cells": [["<script>&"]]},
+      "expect": {"contains": ["&lt;script&gt;&amp;"], "not_contains": ["&amp;amp;"]}
+    },
+    {
+      "name": "preserve existing entities without double escape",
+      "op": "insert_row",
+      "table_content_override": "<Table>\n    <TableRow>\n        <TableCell>\n            <Paragraph>A &amp; B</Paragraph>\n        </TableCell>\n        <TableCell>\n            <Paragraph>&lt;tag&gt;</Paragraph>\n        </TableCell>\n    </TableRow>\n</Table>",
+      "args": {"cells": ["X", "Y"]},
+      "expect": {"contains": ["A &amp; B", "&lt;tag&gt;"], "not_contains": ["A &amp;amp; B", "&amp;lt;tag&amp;gt;"]}
+    },
+    {
+      "name": "inline rich text → UNSUPPORTED_INLINE_CONTENT",
+      "op": "insert_row",
+      "table_content_override": "<Table>\n    <TableRow>\n        <TableCell>\n            <Paragraph><Mark ar=\"format\">A1</Mark></Paragraph>\n        </TableCell>\n        <TableCell>\n            <Paragraph>B1</Paragraph>\n        </TableCell>\n    </TableRow>\n</Table>",
+      "args": {"cells": ["X", "Y"]},
+      "expect": {"error_code": "UNSUPPORTED_INLINE_CONTENT"}
+    },
+    {
+      "name": "output format: no id= / readonly= / Tab",
+      "op": "insert_row",
+      "args": {"cells": ["X", "Y"]},
+      "expect": {"not_contains": ["id=", "readonly", "\t"]}
+    }
+  ]
+}

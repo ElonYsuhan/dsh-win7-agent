@@ -1,0 +1,14 @@
+[
+  {
+    "type": "update",
+    "id": "blk_intro",
+    "old_content": "<Paragraph>大家好，这份报告我尽量说人话，讲讲我们最近搞的这些事儿。</Paragraph>",
+    "new_content": "<Paragraph><Mark ar=\"delete\">大家好，这份报告我尽量说人话，讲讲我们最近搞的这些事儿。</Mark><Mark ar=\"insert\">本报告旨在系统梳理项目现状，为后续决策提供数据支撑。</Mark></Paragraph>"
+  },
+  {
+    "type": "card_op",
+    "op": "insert",
+    "summary": "根据评论内容将引言改为正式风格",
+    "kind": "agent_review"
+  }
+]

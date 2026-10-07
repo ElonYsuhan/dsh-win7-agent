@@ -1,0 +1,118 @@
+# ==============================================================================
+# 资料库 Skill 顶层 Manifest
+# 遵循《CSIG Skill 管理与发布规范 V1.0》§5.2 字段定义
+# ==============================================================================
+
+# --- CSIG §5.2 必填字段 ---------------------------------------------------------
+name: library
+display_name: 资料库
+version: 0.5.18
+description: >-
+  Use this skill when the user wants to manage a knowledge base —
+  list / search spaces, operate on documents (doc), structured tables (database)
+  or data-driven pages (page). 资料库一站式 skill：覆盖空间管理（manage）、
+  在线文档（doc：读取含审阅标记的文档内容、提交审阅编辑）、
+  网页链接剪藏（link）、结构化数据表（database）、数据页面（page）
+  五大品类能力。
+author: csig-x2
+level: personal      # personal | product；本期作为个人级试运行，达到晋升条件后再升级
+
+# --- CSIG §5.2 可选字段（产品级强制，个人级推荐） -------------------------------
+license: ""                   # 个人级暂不强制；对外发布前由产品 Owner 补齐
+data_classification: L2       # 仅处理 ≤L2 数据；禁止 L3/L4（详见 SKILL.md §安全约束）
+
+# --- 依赖声明（参考 §5.2 dependencies） -----------------------------------------
+dependencies:
+  runtime:
+    - python>=3.8
+  external:
+    - library-backend  # 资料库服务端 API
+    - connect_open_platform    # 仅客户端模式使用；沙箱模式由 auth-proxy 注入身份
+
+# --- 子模块声明（按品类划分，与目录结构一一对应） -------------------------------
+modules:
+  - id: manage
+    title: 资料库管理
+    entry: manage/entry.md
+    capabilities:
+      - space.workspace.list-node         # 通过 space_api.py 调用
+      - space.workspace.list-user-spaces  # 通过 space_api.py 调用
+      - space.workspace.create-space      # 通过 space_api.py 调用
+      - create_folder                     # 新建空文件夹（纯容器目录节点，manage/create_folder.py）
+      - space.workspace.node-info         # 通过 space_api.py 调用
+      - space.permission.collaborators    # 查询空间或节点的协作成员
+      - space.workspace.move-node         # 通过 space_api.py 调用
+      - space.workspace.rename-node       # 通过 space_api.py 调用
+      - get_node_comments                 # 读取节点评论线与锚点（manage/get_node_comments.py）
+      - space.searcher.search-nodes       # 通过 space_api.py 调用
+      - space.searcher.search-chunks      # 后端 API；Agent 优先通过 manage/rag_search.py 调用
+
+  - id: drive
+    title: 网盘文件（drive）
+    entry: drive/entry.md
+    capabilities:
+      - upload_drive_file                 # 新建或覆盖网盘文件节点（drive/upload_drive_file.py）
+      - get_download_link                 # 获取网盘文件节点的下载链接（drive/get_download_link.py）
+
+  - id: smh
+    title: 智能媒体库（smh）
+    entry: smh/entry.md
+    capabilities:
+      - get_download_link                 # 获取历史 SMH 节点文件下载链接（smh/get_download_link.py）
+
+  - id: attachment
+    title: 节点附件（attachment）
+    entry: attachment/entry.md
+    capabilities:
+      - attachment_upload                 # 给已有节点挂附件（attachment/attachment.py upload）
+      - attachment_download               # 获取节点附件下载链接（attachment/attachment.py download）
+
+  - id: doc
+    title: 在线文档（doc）
+    entry: doc/entry.md
+    capabilities:
+      - get_doc_reviews       # 读取含审阅摘要的文档内容（doc/get_doc_reviews.py）
+      - submit_review_edit    # 提交审阅式编辑（doc/submit_review_edit.py）
+      - submit_doc_edit       # 直接编辑模式：不创建审阅卡片，直接落正文（doc/submit_doc_edit.py）
+      - create_doc            # 新建在线文档，或按 nodeBlockId 全量覆盖既有 doc（doc/create_doc.py）
+
+  - id: link
+    title: 网页链接剪藏（link）
+    entry: link/entry.md
+    capabilities:
+      - doc.create-link       # 创建 kind=link 节点并异步剪藏网页
+      - doc.get-link-content  # 查询 link 节点剪藏状态与 Markdown 正文
+
+  - id: database
+    title: 结构化数据表（database）
+    entry: database/entry.md
+    capabilities:
+      - create_database         # 创建 Database（database/create_database.py）
+      - get_database_schema     # 获取 Schema（database/get_database_schema.py）
+      - get_database_content    # 获取数据库内容（database/get_database_content.py）
+      - add_database_field      # 添加字段（database/add_database_field.py）
+      - update_database_field   # 修改字段名或类型（database/update_database_field.py）
+      - delete_database_field   # 删除字段（database/delete_database_field.py）
+      - batch_add_database_records     # 批量添加记录（database/batch_add_database_records.py）
+      - batch_update_database_records  # 批量修改记录（database/batch_update_database_records.py）
+      - batch_delete_database_records  # 批量删除记录（database/batch_delete_database_records.py）
+      - get_database_record     # 获取单条记录（database/get_database_record.py）
+      - query_database_record   # 查询记录列表（database/query_database_record.py）
+
+  - id: page
+    title: 数据页面（page）
+    entry: page/entry.md
+    capabilities:
+      - parse_html              # 解析 HTML 提取 canonical schema（page/parse_html.py）
+      - lint_schema             # Schema 硬校验（page/lint_schema.py）
+      - import_html             # 导入 HTML / ZIP（page/import_html.py）
+      - list_page_artifacts     # 查询已托管 Page 指定或最新版本产物列表（page/list_page_artifacts.py）
+      - create_page_transaction # 开启 Page 编辑事务（page/create_page_transaction.py）
+      - get_page_upload_url     # 获取事务工作区上传 URL（page/get_page_upload_url.py）
+      - commit_page_transaction # 提交 Page 编辑事务（page/commit_page_transaction.py）
+      - publish_page            # 发布 Page（page/publish_page.py）
+      - unpublish_page          # 取消发布 Page（page/unpublish_page.py）
+      - page_database_relation  # 管理 Page ↔ Database 关联 link/list/unlink（page/page_database_relation.py）
+
+# --- 生命周期阶段（CSIG §6.1） ---------------------------------------------------
+lifecycle: draft             # draft → review → released → maintaining → deprecated → archived

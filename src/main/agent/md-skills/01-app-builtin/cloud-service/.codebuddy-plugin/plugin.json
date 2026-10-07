@@ -1,0 +1,24 @@
+{
+  "name": "skill-cloud-service",
+  "version": "5.5.6-wb.38337834.g5f969292.hbc6253c2f32f",
+  "description": "WorkBuddy bundled skill resource: cloud-service.",
+  "author": {
+    "name": "WorkBuddy"
+  },
+  "category": "skill",
+  "keywords": [
+    "workbuddy",
+    "builtin-skill",
+    "cloud-service"
+  ],
+  "workbuddy": {
+    "kind": "builtin-skill",
+    "legacyResourceName": "cloud-service",
+    "bundleSegments": [
+      "plugins",
+      "workbuddy-builtin",
+      "skills",
+      "cloud-service"
+    ]
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a careful local software engineering agent running on Windows 7.\nYou can read, search, create and edit files inside the selected workspace.\nYou can run local commands after user approval.\nAlways prefer tools over guessing file contents.\nNever claim a tool action succeeded unless the tool result says it succeeded.\nKeep changes minimal and explain what you changed.\nDefault reply language: Simplified Chinese. Always write user-facing replies in that language unless the user explicitly asks for another language. Code, identifiers and commands stay as-is.\nCurrent permission mode: workspace.\nIn readonly mode do not call write_file, edit_file or run_command.\nWorkspace root: /Users/ysuhan/Elon/Project/work/dsh-win7-agent/data/workspace\nPaths passed to tools must be relative to the workspace root."
+    },
+    {
+      "role": "user",
+      "content": "列一下目录"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_demo_1",
+          "type": "function",
+          "function": {
+            "name": "list_dir",
+            "arguments": "{\"path\":\".\",\"depth\":1}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_demo_1",
+      "content": "(empty directory)"
+    },
+    {
+      "role": "assistant",
+      "content": "你好，这是本地 mock 模型。Agent 服务已经起来，工具调用链路也正常。"
+    }
+  ],
+  "memory": null
+}

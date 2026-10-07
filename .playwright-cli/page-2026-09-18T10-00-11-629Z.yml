@@ -1,0 +1,60 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - img "Agent Win7" [ref=e6]
+      - generic [ref=e7]: Agent
+      - generic [ref=e8]: Win7
+      - button "折叠侧边栏" [ref=e9] [cursor=pointer]:
+        - img [ref=e11]
+    - button "新建会话" [ref=e13] [cursor=pointer]:
+      - img [ref=e15]
+      - generic [ref=e17]: 新建会话
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20] [cursor=pointer]:
+          - generic [ref=e21]: 项目
+          - button "折叠/展开" [ref=e22]:
+            - img [ref=e24]
+          - button "新建工作区" [ref=e26]:
+            - img [ref=e28]
+        - generic [ref=e31]:
+          - generic [ref=e32] [cursor=pointer]:
+            - button "收起会话" [ref=e33]:
+              - img [ref=e34]
+            - generic "测试项目" [ref=e36]
+            - button "新建会话" [ref=e37]:
+              - img [ref=e38]
+            - button "更多" [ref=e40]:
+              - img [ref=e41]
+          - generic [ref=e46]: 暂无会话
+      - generic [ref=e47]:
+        - generic [ref=e48] [cursor=pointer]:
+          - generic [ref=e49]: 最近
+          - button "折叠/展开" [ref=e50]:
+            - img [ref=e52]
+        - generic [ref=e55] [cursor=pointer]:
+          - generic "新会话" [ref=e56]
+          - button "更多" [ref=e57]:
+            - img [ref=e58]
+    - generic [ref=e62]:
+      - generic [ref=e63]: 已连接
+      - button "设置" [ref=e64] [cursor=pointer]:
+        - img [ref=e66]
+        - generic [ref=e69]: 设置
+  - main [ref=e70]:
+    - generic [ref=e77]:
+      - generic [ref=e78]: 随心输入，Enter 发送，Shift+Enter 换行...
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - button "更多" [ref=e81] [cursor=pointer]:
+            - img [ref=e83]
+          - button "工作区内修改" [ref=e86] [cursor=pointer]:
+            - img [ref=e88]
+            - generic [ref=e91]: 工作区内修改
+            - img [ref=e93]
+        - generic [ref=e95]:
+          - button "deepseek-flash" [ref=e97] [cursor=pointer]:
+            - generic [ref=e98]: deepseek-flash
+            - img [ref=e100]
+          - button "发送" [ref=e102] [cursor=pointer]:
+            - img [ref=e104]

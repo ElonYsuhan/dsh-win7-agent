@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <link rel="stylesheet" href="vendor/xterm/xterm.css">
+  <title>Agent</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 桌面壳（macOS）的顶栏拖拽带：整条窗口顶边都能按住拖窗口。
+       默认 display:none，只有 <html> 带 .shell-mac 时才出现（见 style.css）。 -->
+  <div id="titlebarDrag" class="titlebar-drag" aria-hidden="true"></div>
+  <div id="app">
+    <!-- 折叠/展开按钮：在顶栏那一行里（macOS 上与红黄绿同高，见 style.css 的 .sidebar-toggle）。
+         放在 #app 下而不是侧边栏里 —— 折叠后整个侧边栏都不显示了，按钮必须留在外面，
+         否则折起来就再也点不回去。 -->
+    <button id="sidebarToggle" class="icon-button sidebar-toggle" title="折叠侧边栏"><span class="icon" data-icon="panel"></span></button>
+    <!-- 顶栏那一行里的页面操作：刷新整页 / 在浏览器打开并复制链接。
+         放在 #app 下（和折叠按钮同一层）—— 侧边栏折叠后也照样能用。
+         整页本来就是一个网页（桌面壳也是从本地服务 loadURL 起来的），
+         所以「刷新」就是 location.reload()；「链接」就是 location.origin。 -->
+    <div id="pageActions" class="page-actions">
+      <button id="pageRefresh" class="icon-button" title="刷新页面"><span class="icon" data-icon="refresh"></span></button>
+      <button id="pageShare" class="icon-button" title="在浏览器中打开并复制链接"><span class="icon" data-icon="external"></span></button>
+    </div>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-logo">
+          <img src="logo.png" alt="Agent" width="22" height="22">
+        </span>
+        <span class="brand-title">Agent</span>
+        <span id="brandBadge" class="brand-badge"></span>
+      </div>
+      <div class="sidebar-rail">
+        <button id="railNewSession" class="rail-button" title="&#26032;&#24314;&#20250;&#35805;"><span class="icon" data-icon="plus"></span></button>
+        <button id="railCreateWorkspace" class="rail-button" title="&#26032;&#24314;&#24037;&#20316;&#21306;"><span class="icon" data-icon="folder"></span></button>
+      </div>
+      <button id="newSession" class="primary new-session"><span class="icon" data-icon="plus"></span><span>新建会话</span></button>
+      <div id="sidebarScroll" class="sidebar-scroll">
+        <section class="sidebar-section" id="sectionProjects">
+          <div class="section-head" id="headProjects">
+            <span class="section-title">项目</span>
+            <button id="toggleProjects" class="section-toggle" title="折叠/展开"><span class="icon" data-icon="chevron"></span></button>
+            <button id="createWorkspace" class="icon-button small-icon" title="新建工作区"><span class="icon" data-icon="plus"></span></button>
+          </div>
+          <div id="projectList" class="flat-list"></div>
+        </section>
+        <section class="sidebar-section" id="sectionRecent">
+          <div class="section-head" id="headRecent">
+            <span class="section-title">最近</span>
+            <button id="toggleRecent" class="section-toggle" title="折叠/展开"><span class="icon" data-icon="chevron"></span></button>
+          </div>
+          <div id="chatList" class="flat-list"></div>
+        </section>
+      </div>
+      <div class="sidebar-footer">
+        <div id="statusLine" class="muted">就绪</div>
+        <button id="openSettings" class="footer-button"><span class="icon" data-icon="settings"></span><span>设置</span></button>
+      </div>
+    </aside>
+    <main class="main">
+      <div id="contentFrame" class="content-frame">
+        <div id="contentResizeLeft" class="content-resize-handle left"></div>
+        <div id="contentResizeRight" class="content-resize-handle right"></div>
+        <div id="messages" class="messages">
+          <div id="messagesInner" class="messages-inner"></div>
+        </div>
+      <div class="composer">
+        <div class="composer-card">
+          <div id="composerAttachments" class="composer-attachments"></div>
+          <div id="input" class="composer-input" contenteditable="true" data-placeholder="随心输入，Enter 发送，Shift+Enter 换行..."></div>
+          <!-- 只在**并发池满**（再发会被 503 拒）时才露出来。别的会话在跑但池还有空位
+               属于正常并发，不提示 —— 提示了反而像报错（用户 2026-09-19 问过这条是不是多余）。 -->
+          <div id="composerRunHint" class="composer-run-hint hidden"></div>
+          <div class="composer-toolbar">
+            <div class="toolbar-left">
+              <button id="composerMore" class="icon-button" title="更多"><span class="icon" data-icon="plus"></span></button>
+              <div class="dropdown permission-dropdown" data-permission-dropdown>
+                <button type="button" class="pill-button dropdown-trigger" title="&#26435;&#38480;&#27169;&#24335;">
+                  <span class="icon" data-permission-icon data-icon="shield-edit"></span>
+                  <span data-permission-label>&#24037;&#20316;&#21306;&#20869;&#20462;&#25913;</span>
+                  <span class="icon dropdown-chevron" data-icon="chevron"></span>
+                </button>
+                <div class="dropdown-menu hidden">
+                  <button type="button" class="dropdown-item" data-permission-option="readonly"><span class="icon" data-icon="shield-check"></span><span>&#20165;&#21487;&#26597;&#30475;</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                  <button type="button" class="dropdown-item" data-permission-option="workspace"><span class="icon" data-icon="shield-edit"></span><span>&#24037;&#20316;&#21306;&#20869;&#20462;&#25913;</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                  <button type="button" class="dropdown-item" data-permission-option="full"><span class="icon" data-icon="shield-warn"></span><span>&#23436;&#20840;&#26435;&#38480;</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                </div>
+              </div>
+            </div>
+            <div class="toolbar-right">
+              <div class="dropdown model-dropdown" id="composerModelDropdown">
+                <button id="composerModelTrigger" class="dropdown-trigger composer-model" title="&#20999;&#25442;&#27169;&#22411;"><span id="composerModelLabel">&#40664;&#35748;&#27169;&#22411;</span><span class="icon dropdown-chevron" data-icon="chevron"></span></button>
+                <div id="composerModelMenu" class="dropdown-menu hidden"></div>
+              </div>
+              <button id="send" class="send-button" title="发送"><span class="icon" data-icon="send"></span></button>
+              <button id="stop" class="send-button stop hidden" title="停止"><span class="icon" data-icon="stop"></span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+    </main>
+    <!-- 右侧文件面板的折叠/展开按钮：与左边那枚 .sidebar-toggle 左右镜像 ——
+         展开时贴在面板左缘（落在聊天区右上角），收起时回到窗口最右。 -->
+    <button id="panelToggle" class="icon-button panel-toggle" title="展开文件面板"><span class="icon" data-icon="panel-right"></span></button>
+    <!-- 右侧文件面板。收起时 .file-panel 直接 display:none，第三列宽度归零（见 style.css）。
+         面板自带两栏：左边资源管理器（目录树），右边标签页 + 预览。 -->
+    <aside id="filePanel" class="file-panel" aria-hidden="true">
+      <div class="panel-resize" id="panelResize" title="拖拽调整宽度"></div>
+      <header class="panel-head">
+        <button id="panelExplorerToggle" class="icon-button small-icon" title="显示/隐藏文件目录"><span class="icon" data-icon="folder-tree"></span></button>
+        <span id="panelTitle" class="panel-title">文件</span>
+        <div class="panel-head-actions">
+          <button id="panelVscode" class="icon-button small-icon" title="仅显示文件区"><span class="icon" data-icon="vscode"></span></button>
+          <button id="panelTerminal" class="icon-button small-icon" title="终端"><span class="icon" data-icon="terminal"></span></button>
+        </div>
+      </header>
+      <div class="panel-body">
+        <div id="panelExplorer" class="panel-explorer">
+          <div class="panel-explorer-head">
+            <span class="panel-explorer-title">资源管理器</span>
+            <button id="panelRefresh" class="icon-button small-icon" title="刷新"><span class="icon" data-icon="refresh"></span></button>
+          </div>
+          <div id="panelTree" class="panel-tree"></div>
+        </div>
+        <div class="panel-main">
+          <!-- 文件列表 | 预览 之间这条竖向分隔也支持拖宽度（面板左缘那条把手的镜像） -->
+          <div class="explorer-resize" id="explorerResize" title="拖拽调整宽度"></div>
+          <div id="panelTabs" class="panel-tabs"></div>
+          <div id="panelPreview" class="panel-preview">
+            <div class="panel-placeholder">选择一个文件预览</div>
+          </div>
+          <!-- 终端（三期）：停靠在预览区**下方**（不是整个面板换内容），
+               中间这条分隔条支持拖高度。会话在服务端常驻，关面板历史不丢。 -->
+          <div class="terminal-resize" id="terminalSplit" title="拖拽调整终端高度"></div>
+          <div id="terminalView" class="panel-terminal hidden">
+            <div class="terminal-head">
+              <div id="terminalTabs" class="terminal-tabs"></div>
+              <button id="terminalNew" class="terminal-new" title="&#26032;&#24314;&#32456;&#31471;">+</button>
+              <button id="terminalClear" class="icon-button small-icon" title="清屏"><span class="icon" data-icon="trash"></span></button>
+              <span id="terminalCwdLabel" class="terminal-cwd-label" title="当前工作目录"></span>
+            </div>
+            <!-- 目录切换（用户定稿：不要下拉框，要编号列表）—— 点编号/名字或按 ⌥+数字 切换，
+                 切换 = 顶掉旧会话在新目录重开（管道终端没法 chdir）。 -->
+            <div id="terminalDirs" class="terminal-dirs"></div>
+            <!-- xterm.js 挂载点：真终端效果（渲染/滚动/选中复制都是它管的） -->
+            <div id="terminalOut" class="terminal-out"></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+  <div id="sessionMenu" class="context-menu hidden">
+    <button id="sessionMenuRename">重命名</button>
+    <button id="sessionMenuArchive">归档会话</button>
+  </div>
+  <div id="projectMenu" class="context-menu hidden">
+    <button id="projectMenuRename">重命名</button>
+    <button id="projectMenuEdit">编辑</button>
+    <button id="projectMenuDelete" class="menu-danger">删除</button>
+  </div>
+  <div id="confirmModal" class="modal hidden">
+    <div class="modal-card small">
+      <h2 id="confirmTitle">确认</h2>
+      <div id="confirmMessage" class="muted"></div>
+      <div class="modal-actions">
+        <button id="confirmCancel">取消</button>
+        <button id="confirmOk" class="primary">确认</button>
+      </div>
+    </div>
+  </div>
+  <div id="capabilityModal" class="modal hidden">
+    <div class="modal-card small capability-modal-card">
+      <h2 id="capabilityTitle">&#33021;&#21147;&#19981;&#36275;</h2>
+      <div id="capabilityText" class="muted capability-text"></div>
+      <div class="modal-actions">
+        <button id="capabilityOk">知道了</button>
+        <button id="capabilitySettings" class="primary">去设置开启</button>
+      </div>
+    </div>
+  </div>
+  <div id="approvalModal" class="modal hidden">
+    <div class="modal-card approval-card">
+      <h2 id="approvalTitle">需要你的授权</h2>
+      <div class="approval-meta">
+        <span id="approvalKind" class="approval-kind">运行命令</span>
+        <span id="approvalSignature" class="approval-signature"></span>
+      </div>
+      <pre id="approvalDetail" class="approval-detail"></pre>
+      <div id="approvalNote" class="approval-note"></div>
+      <div class="modal-actions approval-actions">
+        <button id="approvalDeny" class="danger">拒绝</button>
+        <div class="spacer"></div>
+        <button id="approvalOnce">仅这一次</button>
+        <button id="approvalSession">本会话都允许</button>
+        <button id="approvalAlways" class="primary">始终允许</button>
+      </div>
+    </div>
+  </div>
+  <div id="textPromptModal" class="modal hidden">
+    <div class="modal-card small">
+      <h2 id="textPromptTitle">输入</h2>
+      <input id="textPromptInput" type="text">
+      <div class="modal-actions">
+        <button id="textPromptOk" class="primary">确定</button>
+        <button id="textPromptCancel">取消</button>
+      </div>
+    </div>
+  </div>
+  <div id="projectModal" class="modal hidden">
+    <div class="modal-card project-card">
+      <h2 id="projectModalTitle">新建工作区</h2>
+      <label>工作区名称
+        <input id="projectName" type="text" placeholder="例如：nexa | 核心产品">
+      </label>
+      <div class="panel-label">工作目录</div>
+      <div id="projectFolderList" class="folder-list"></div>
+      <button id="projectAddFolder">+ 添加工作目录</button>
+      <div class="modal-actions">
+        <button id="projectCancel">取消</button>
+        <button id="projectCreate" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+  <div id="dirBrowserModal" class="modal hidden">
+    <div class="modal-card dir-card">
+      <h2>选择本地目录</h2>
+      <div id="dirBrowserPath" class="path"></div>
+      <div id="dirBrowserList" class="dir-list"></div>
+      <div class="modal-actions">
+        <button id="dirBrowserUp">上级</button>
+        <button id="dirBrowserNew">新建文件夹</button>
+        <div class="spacer"></div>
+        <button id="dirBrowserSelect" class="primary">选择当前目录</button>
+        <button id="dirBrowserCancel">取消</button>
+      </div>
+    </div>
+  </div>
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card settings-card settings-layout">
+      <aside class="settings-nav">
+        <button class="settings-nav-item active" data-settings-tab="general"><span class="icon" data-icon="general"></span><span>&#36890;&#29992;</span></button>
+        <button class="settings-nav-item" data-settings-tab="model"><span class="icon" data-icon="model"></span><span>&#27169;&#22411;</span></button>
+        <button class="settings-nav-item" data-settings-tab="plugins"><span class="icon" data-icon="plugin"></span><span>&#25554;&#20214;</span></button>
+      </aside>
+      <section class="settings-content">
+        <div class="settings-content-head">
+          <h2 id="settingsTitle">&#35774;&#32622;</h2>
+          <button id="closeSettings" class="icon-button" title="&#20851;&#38381;"><span class="icon" data-icon="close"></span></button>
+        </div>
+        <div class="settings-panel" data-settings-panel="general">
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#22806;&#35266;</div><div class="settings-row-desc">&#20027;&#39064;&#19982;&#30028;&#38754;</div></div>
+            <button id="themeToggle" class="settings-value-button"><span class="icon" data-icon="theme"></span><span id="themeLabel">&#20999;&#25442;&#20027;&#39064;</span></button>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#22238;&#22797;&#35821;&#35328;</div><div class="settings-row-desc">AI &#22238;&#22797;&#20351;&#29992;&#30340;&#40664;&#35748;&#35821;&#35328;</div></div>
+            <div class="dropdown reply-language-dropdown" data-reply-dropdown>
+              <button type="button" class="pill-button dropdown-trigger" title="&#22238;&#22797;&#35821;&#35328;">
+                <span data-reply-label>&#20013;&#25991;</span>
+                <span class="icon dropdown-chevron" data-icon="chevron"></span>
+              </button>
+              <div class="dropdown-menu hidden">
+                <button type="button" class="dropdown-item" data-reply-option="zh"><span>&#20013;&#25991;</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                <button type="button" class="dropdown-item" data-reply-option="en"><span>English</span><span class="dropdown-check icon" data-icon="check"></span></button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#26435;&#38480;</div><div class="settings-row-desc">&#36873;&#25321;&#26032;&#20250;&#35805;&#30340;&#40664;&#35748;&#26435;&#38480;&#27169;&#24335;</div></div>
+            <div class="dropdown permission-dropdown" data-permission-dropdown>
+              <button type="button" class="pill-button dropdown-trigger" title="&#26435;&#38480;&#27169;&#24335;">
+                <span class="icon" data-permission-icon data-icon="shield-edit"></span>
+                <span data-permission-label>&#24037;&#20316;&#21306;&#20869;&#20462;&#25913;</span>
+                <span class="icon dropdown-chevron" data-icon="chevron"></span>
+              </button>
+              <div class="dropdown-menu hidden">
+                <button type="button" class="dropdown-item" data-permission-option="readonly"><span class="icon" data-icon="shield-check"></span><span>&#20165;&#21487;&#26597;&#30475;</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                <button type="button" class="dropdown-item" data-permission-option="workspace"><span class="icon" data-icon="shield-edit"></span><span>&#24037;&#20316;&#21306;&#20869;&#20462;&#25913;</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                <button type="button" class="dropdown-item" data-permission-option="full"><span class="icon" data-icon="shield-warn"></span><span>&#23436;&#20840;&#26435;&#38480;</span><span class="dropdown-check icon" data-icon="check"></span></button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#26368;&#22823;&#36718;&#27425;</div><div class="settings-row-desc">&#21333;&#27425;&#20219;&#21153;&#26368;&#22810;&#24037;&#20855;&#36718;&#27425;</div></div>
+            <input id="maxIterations" type="number" min="1" max="500">
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#24182;&#21457;&#20250;&#35805;&#19978;&#38480;</div><div class="settings-row-desc">&#26368;&#22810;&#21516;&#26102;&#36305;&#20960;&#26465;&#20250;&#35805;&#65288;1-64&#65289;&#65292;&#27599;&#26465;&#19968;&#20010; agent &#23454;&#20363;</div></div>
+            <input id="maxConcurrentRuns" type="number" min="1" max="64">
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#19978;&#19979;&#25991;&#31383;&#21475; tokens</div><div class="settings-row-desc">0 = &#33258;&#21160;&#65288;&#36229;&#38480;&#26102;&#21387;&#32553;&#65289;</div></div>
+            <input id="contextWindowTokens" type="number" min="0" step="1000">
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#26368;&#22823;&#22238;&#22797; tokens</div></div>
+            <input id="maxTokens" type="number" min="0" step="256">
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#20445;&#30041;&#26368;&#36817;&#28040;&#24687;&#25968;</div></div>
+            <input id="keepRecentMessages" type="number" min="2" max="500">
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#27169;&#22411;&#35831;&#27714;&#36229;&#26102;&#65288;&#31186;&#65289;</div><div class="settings-row-desc">&#40664;&#35748; 1800 &#31186;&#65292;&#26412;&#22320;&#22823;&#27169;&#22411;&#21487;&#35843;&#21040; 3600 &#31186;</div></div>
+            <input id="requestTimeoutSeconds" type="number" min="5" max="3600" step="30">
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">&#33258;&#21160;&#21387;&#32553;&#19978;&#19979;&#25991;</div></div>
+            <input id="contextAutoCompress" type="checkbox">
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-row-title">已放行的操作</div>
+              <div class="settings-row-desc">授权时选「始终允许」记住的命令，命中后不再询问</div>
+            </div>
+            <button id="clearApprovalAllow" class="settings-value-button">全部清除</button>
+          </div>
+          <div id="approvalAllowList" class="approval-allow-list"></div>
+        </div>
+        <div class="settings-panel hidden" data-settings-panel="model">
+          <div class="model-hint">&#22635;&#20837;&#21508;&#25552;&#20379;&#26041;&#30340; API &#23494;&#38053;&#21363;&#21487;&#20351;&#29992;&#20854;&#27169;&#22411;&#12290;</div>
+          <div id="providerList" class="provider-list"></div>
+          <div class="provider-footer">
+            <button id="addModel" class="provider-add">+ &#28155;&#21152;&#27169;&#22411;</button>
+          </div>
+        </div>
+        <div class="settings-panel hidden" data-settings-panel="plugins">
+          <div class="settings-row-label"><div class="settings-row-title">&#24050;&#21152;&#36733;&#30340;&#25554;&#20214;&#19982;&#24037;&#20855;</div></div>
+          <div id="pluginList" class="muted">&#21152;&#36733;&#20013;...</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="web-bridge.js"></script>
+  <script src="markdown.js"></script>
+  <script src="highlight.js"></script>
+  <script src="icons.js"></script>
+  <!-- xterm.js 5.5.0（VS Code 终端内核，纯 JS 零依赖，vendor 内置离线）：必须在 panel.js 之前 -->
+  <script src="vendor/xterm/xterm.js"></script>
+  <script src="vendor/xterm/addon-fit.js"></script>
+  <script src="app.js"></script>
+  <!-- 面板要读 app.js 里没暴露的东西（当前会话、工作区根）都自己重新问一遍，
+       所以放在 app.js 之后加载、彼此不依赖加载顺序。 -->
+  <script src="panel.js"></script>
+</body>
+</html>

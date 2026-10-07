@@ -1,0 +1,19 @@
+[
+  {
+    "type": "update",
+    "id": "blk_intro",
+    "old_content": "<Paragraph>原始随性口吻的引言</Paragraph>",
+    "new_content": "<Paragraph><Mark ar=\"delete\">原始随性口吻的引言</Mark><Mark ar=\"insert\">统一为正式语气后的引言。</Mark></Paragraph>"
+  },
+  {
+    "type": "move",
+    "id": "blk_summary",
+    "before_id": "blk_intro"
+  },
+  {
+    "type": "card_op",
+    "op": "insert",
+    "summary": "整篇语气统一为正式风格，并按 STAR 法则重排结构",
+    "kind": "agent_review_global"
+  }
+]

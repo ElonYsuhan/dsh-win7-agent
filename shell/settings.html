@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>服务设置</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 桌面壳（macOS）的顶栏拖拽带：整条窗口顶边都能按住拖窗口。
+       默认 display:none，只有 <html> 带 .shell-mac 时才出现（见 style.css）。 -->
+  <div id="titlebarDrag" class="titlebar-drag" aria-hidden="true"></div>
+  <div class="card">
+    <h1>服务设置</h1>
+    <p class="muted">选择本地自动模式，双击即可使用；或连接内网其他机器上的服务。</p>
+
+    <label>服务模式</label>
+    <div class="mode-group" id="modeGroup">
+      <label class="mode-option">
+        <input type="radio" name="mode" value="local">
+        <span class="mode-body">
+          <span class="mode-title">本地自动（推荐）</span>
+          <span class="mode-desc">启动时自动在本机拉起 agent 服务，端口被占用会自动顺延</span>
+        </span>
+      </label>
+      <label class="mode-option">
+        <input type="radio" name="mode" value="remote">
+        <span class="mode-body">
+          <span class="mode-title">远程服务</span>
+          <span class="mode-desc">连接内网其他机器上已经运行的服务地址</span>
+        </span>
+      </label>
+    </div>
+
+    <div id="remoteBox" class="hidden">
+      <label for="serviceUrl">服务地址</label>
+      <input id="serviceUrl" type="text" placeholder="http://192.168.1.10:8080/">
+    </div>
+
+    <div id="localBox">
+      <label>当前本地服务</label>
+      <div class="url" id="localService">—</div>
+      <label>数据目录（会话、设置、工作区）</label>
+      <div class="url" id="agentHome">—</div>
+    </div>
+
+    <label id="versionLabel">程序版本</label>
+    <div class="url" id="programPath">—</div>
+
+    <div class="actions">
+      <button id="save" class="primary">保存并应用</button>
+      <button id="restart">重启本地服务</button>
+      <button id="test">在浏览器打开</button>
+      <button id="close" class="hidden">关闭</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+{
+  "baseURL": "http://127.0.0.1:11435",
+  "apiKey": "",
+  "model": "mock-model",
+  "temperature": 0.2,
+  "maxIterations": 20,
+  "autoApproveReads": true,
+  "approveWrites": false,
+  "approveCommands": true,
+  "permissionMode": "workspace",
+  "requestTimeoutMs": 120000,
+  "maxTokens": 8192,
+  "contextWindowTokens": 0,
+  "contextAutoCompress": true,
+  "contextCompressThreshold": 0.8,
+  "keepRecentMessages": 12,
+  "summaryMaxTokens": 1024,
+  "workspacePath": "/Users/ysuhan/Elon/Project/work/dsh-win7-agent/data/workspace",
+  "theme": "light",
+  "replyLanguage": "zh",
+  "disabledPlugins": [],
+  "models": [
+    {
+      "id": "default",
+      "name": "默认模型",
+      "baseURL": "http://127.0.0.1:11435",
+      "apiKey": "",
+      "model": "mock-model",
+      "protocol": "openai-completions",
+      "thinking": false,
+      "modelList": [
+        "mock-model"
+      ]
+    }
+  ],
+  "currentModelId": "default",
+  "recentWorkspaces": [
+    "/Users/ysuhan/Elon/Project/work/dsh-win7-agent/data/workspace"
+  ],
+  "thinking": false
+}

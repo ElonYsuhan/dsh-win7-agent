@@ -1,0 +1,266 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --panel: #111827;
+  --panel-2: #1f2937;
+  --border: #334155;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --error: #f87171;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 "Segoe UI", Arial, sans-serif;
+}
+
+body {
+  display: flex;
+  padding: 24px;
+}
+
+.card {
+  width: 560px;
+  max-width: 92vw;
+  /* 用 margin:auto 而不是 align-items:center，内容超高时不会裁掉顶部 */
+  margin: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+p {
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+label {
+  display: block;
+  margin: 18px 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+input[type="text"] {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px;
+  font: inherit;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 13px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  color: #082f49;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.hidden {
+  display: none;
+}
+
+.status {
+  min-height: 20px;
+  margin-top: 14px;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.status.error {
+  color: var(--error);
+}
+
+.url {
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  word-break: break-all;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* 启动进度页 */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.step .dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: transparent;
+}
+
+.step.active {
+  color: var(--text);
+}
+
+.step.active .dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  animation: step-pulse 1.2s ease-in-out infinite;
+}
+
+.step.done {
+  color: var(--text);
+}
+
+.step.done .dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.step.failed .dot {
+  border-color: var(--error);
+  background: var(--error);
+}
+
+@keyframes step-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* 服务模式选择 */
+.mode-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mode-option:hover {
+  border-color: var(--accent);
+}
+
+.mode-option input[type="radio"] {
+  flex: none;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.mode-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mode-title {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.mode-desc {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#localBox {
+  margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------
+   桌面壳（macOS）· 自绘标题栏
+   主进程藏掉了系统标题栏那条白条（shell/main.js 的 macWindowChrome()），
+   红黄绿按钮改为悬浮在左上角。壳层页面（启动页 / 设置 / 离线 / 更新）
+   因此把顶部 40px 让出来，并铺一条整宽的拖拽带 —— 原生标题栏没了，
+   整条顶边都得能按住拖窗口。高度与主界面（src/renderer/style.css 的
+   .shell-mac .titlebar-drag）保持一致 —— 两处都是 40px，改一个记得改另一个。
+   平台标记由 preload.js 打在 <html> 上；浏览器 / Windows / Linux 不受影响。
+   --------------------------------------------------------------- */
+.shell-mac body {
+  padding-top: 52px;
+}
+
+/* 顶栏拖拽带（元素在各页面的 <body> 开头），默认不参与布局 */
+.titlebar-drag {
+  display: none;
+}
+
+.shell-mac .titlebar-drag {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  z-index: 30;
+  -webkit-app-region: drag;
+}

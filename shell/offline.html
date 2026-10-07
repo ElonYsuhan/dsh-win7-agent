@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>服务连接失败</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 桌面壳（macOS）的顶栏拖拽带：整条窗口顶边都能按住拖窗口。
+       默认 display:none，只有 <html> 带 .shell-mac 时才出现（见 style.css）。 -->
+  <div id="titlebarDrag" class="titlebar-drag" aria-hidden="true"></div>
+  <div class="card">
+    <h1>服务连接失败</h1>
+    <p class="muted">当前配置的 agent 服务没有响应。</p>
+    <div class="url" id="serviceUrl"></div>
+    <div class="actions">
+      <button id="retry" class="primary">重试</button>
+      <button id="settings">服务设置</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+  <script src="offline.js"></script>
+</body>
+</html>

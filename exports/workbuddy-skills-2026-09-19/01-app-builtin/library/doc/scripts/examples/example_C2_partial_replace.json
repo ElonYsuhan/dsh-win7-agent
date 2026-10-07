@@ -1,0 +1,14 @@
+[
+  {
+    "type": "update",
+    "id": "blk_intro",
+    "old_content": "<Paragraph>产品的旧定位是……</Paragraph>",
+    "new_content": "<Paragraph>产品的<Mark ar=\"delete\">旧定位</Mark><Mark ar=\"insert\">新定位</Mark>是……</Paragraph>"
+  },
+  {
+    "type": "card_op",
+    "op": "insert",
+    "summary": "更新产品定位表述",
+    "kind": "agent_review"
+  }
+]
