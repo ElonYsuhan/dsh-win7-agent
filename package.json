@@ -1,6 +1,6 @@
 {
   "name": "dsh-win7-agent",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "Win7-compatible local Agent shell. Local workspace and local commands, remote OpenAI-compatible LLM.",
   "main": "src/main/main.js",
@@ -8,17 +8,20 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "check": "node scripts/check-syntax.js && node scripts/check-win7-compat.js && node scripts/settings-migration-smoke.js && node scripts/renderer-smoke.js && node scripts/ui-store-smoke.js && node scripts/self-validate-smoke.js && node scripts/service-manager-smoke.js && node scripts/installer-smoke.js && node scripts/shell-menu-smoke.js && node scripts/shell-chrome-smoke.js && node scripts/plugin-smoke.js && node scripts/agent-smoke.js && node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js",
+    "check": "node scripts/check-syntax.js && node scripts/check-win7-compat.js && node scripts/settings-migration-smoke.js && node scripts/renderer-smoke.js && node scripts/web-bridge-smoke.js && node scripts/platform-smoke.js && node scripts/ui-store-smoke.js && node scripts/self-validate-smoke.js && node scripts/service-manager-smoke.js && node scripts/installer-smoke.js && node scripts/shell-menu-smoke.js && node scripts/shell-chrome-smoke.js && node scripts/window-controls-smoke.js && node scripts/plugin-smoke.js && node scripts/agent-smoke.js && node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js",
     "check:win7": "node scripts/check-win7-compat.js",
-    "check:renderer": "node scripts/renderer-smoke.js",
+    "check:renderer": "node scripts/renderer-smoke.js && node scripts/web-bridge-smoke.js",
+    "check:platform": "node scripts/platform-smoke.js",
     "check:concurrency": "node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js",
     "check:service": "node scripts/service-manager-smoke.js",
     "check:installer": "node scripts/installer-smoke.js",
     "check:menu": "node scripts/shell-menu-smoke.js",
-    "check:chrome": "node scripts/shell-chrome-smoke.js",
+    "check:menu:runtime": "node scripts/shell-menu-runtime-smoke.js",
+    "check:chrome": "node scripts/shell-chrome-smoke.js && node scripts/window-controls-smoke.js",
     "check:drag": "node scripts/shell-drag-smoke.js",
     "check:browser": "node scripts/browser-driver-smoke.js",
     "check:ui": "node scripts/ui-e2e-smoke.js",
+    "check:first-chat": "node scripts/first-chat-e2e-smoke.js",
     "check:selfvalidate": "node scripts/self-validate-smoke.js",
     "check:shellpage": "node scripts/shell-page-smoke.js",
     "dist:win": "electron-builder --win --x64 --publish never",
@@ -33,7 +36,8 @@
     "make:icons": "python scripts/make-logo.py",
     "smoke:context": "node scripts/context-compression-smoke.js",
     "smoke:permission": "node scripts/permission-smoke.js",
-    "check:skills": "node scripts/plugin-smoke.js && node scripts/agent-smoke.js"
+    "check:skills": "node scripts/plugin-smoke.js && node scripts/agent-smoke.js",
+    "check:theme": "node scripts/theme-smoke.js"
   },
   "devDependencies": {
     "electron": "22.3.27",
@@ -51,6 +55,9 @@
     },
     "files": [
       "src/**/*",
+      "server/**/*",
+      "shell/menu.js",
+      "shell/window-chrome.js",
       "package.json"
     ],
     "win": {

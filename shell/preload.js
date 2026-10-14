@@ -2,53 +2,149 @@
 
 const { contextBridge, ipcRenderer } = require('electron')
 
-/**
- * macOS 去白条方案的前半截（后半截在 CSS 里）。
- *
- * 主进程用 titleBarStyle:'hidden' 藏掉了系统标题栏 —— 那条白条压在深色界面顶上
- * 像贴了张纸条。代价是红黄绿按钮改成悬浮在页面左上角，渲染层必须自己让出顶部
- * 空间、并补一块拖拽区（原生那一条没了，窗口还得能拖）。样式表按 .shell-mac 生效。
- *
- * 放在 preload 而不是渲染层脚本里，是因为壳里每个窗口都挂着它：主窗口（实际加载的
- * 是服务托管的 web UI）、设置窗口、启动页/离线页/更新页。一处打标记全覆盖。
- * 普通浏览器里没有 preload，标记不会出现，样式完全不受影响。
- */
+/* 标记桌面窗口并把原生窗口操作放在独立顶栏内。两个 preload 保持一致；
+   sandbox preload 只能 require Electron，不能 require 自定义 Node 模块。 */
 function markShellWindow() {
   const root = document.documentElement
   if (!root || !root.classList) return
   root.classList.add('shell-window')
-  if (process.platform === 'darwin') root.classList.add('shell-mac')
+  root.classList.add(process.platform === 'darwin' ? 'shell-mac' : (process.platform === 'win32' ? 'shell-win' : 'shell-linux'))
+  if (process.platform !== 'darwin') {
+    const arg = (process.argv || []).find((item) => item.indexOf('--dsh-controls-side=') === 0) || ''
+    root.classList.add(arg.slice('--dsh-controls-side='.length) === 'left' ? 'window-controls-left' : 'window-controls-right')
+  }
 }
 
-/**
- * macOS：双击顶栏缩放 / 最小化窗口 —— 原生标题栏被藏掉了，这个手势也跟着没了，
- * 得自己接回去（Electron 明确不做默认实现，见主进程 titlebarDoubleClickAction 的注释）。
- *
- * 用事件委托而不是直接绑元素：主窗口加载的是服务托管的 web UI，DOM 是页面脚本建的，
- * preload 跑的时候那些节点还不一定在。只在 mac 上接 —— Windows / Linux 的原生标题栏
- * 还在，双击由系统处理，别抢。
- */
+function setupWindowControls() {
+  const root = document.documentElement
+  const bar = document.getElementById('titlebarDrag')
+  if (!root || !bar) return
+  bar.removeAttribute('aria-hidden')
+  let maximizeButton = null
+  if (process.platform !== 'darwin') {
+    const group = document.createElement('div')
+    group.className = 'window-controls'
+    group.setAttribute('role', 'group')
+    group.setAttribute('aria-label', '窗口控制')
+    const controls = [
+      { action: 'minimize', label: '最小化窗口', icon: 'minimize' },
+      { action: 'toggle-maximize', label: '最大化窗口', icon: 'maximize' },
+      { action: 'close', label: '关闭窗口', icon: 'close' }
+    ]
+    for (const control of controls) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'window-control window-control-' + control.icon
+      button.setAttribute('data-window-action', control.action)
+      button.setAttribute('aria-label', control.label)
+      button.title = control.label
+      const icon = document.createElement('span')
+      icon.className = 'window-control-icon window-control-icon-' + control.icon
+      icon.setAttribute('aria-hidden', 'true')
+      button.appendChild(icon)
+      button.addEventListener('click', () => {
+        ipcRenderer.invoke('window:action', control.action).catch(() => {})
+      })
+      group.appendChild(button)
+      if (control.action === 'toggle-maximize') maximizeButton = button
+    }
+    bar.appendChild(group)
+  }
+  const update = (value) => {
+    if (!value) return
+    if (process.platform !== 'darwin') {
+      root.classList.toggle('window-controls-left', value.controlsSide === 'left')
+      root.classList.toggle('window-controls-right', value.controlsSide !== 'left')
+    }
+    root.classList.toggle('window-maximized', value.maximized === true)
+    root.classList.toggle('window-fullscreen', value.fullScreen === true)
+    root.classList.toggle('window-unfocused', value.focused === false)
+    if (maximizeButton) {
+      const label = value.maximized ? '还原窗口' : '最大化窗口'
+      maximizeButton.title = label
+      maximizeButton.setAttribute('aria-label', label)
+      maximizeButton.firstChild.className = 'window-control-icon window-control-icon-' + (value.maximized ? 'restore' : 'maximize')
+    }
+  }
+  ipcRenderer.on('window:state', (_event, value) => update(value))
+  ipcRenderer.invoke('window:state').then(update).catch(() => {})
+}
+
 function wireTitlebarDoubleClick() {
-  if (process.platform !== 'darwin') return
   document.addEventListener('dblclick', (event) => {
     const target = event.target
     if (!target || typeof target.closest !== 'function') return
-    // 只有拖拽区（顶栏那条带子 / 品牌行）认双击；里面的按钮之类照旧点它们自己
-    if (!target.closest('#titlebarDrag, .brand')) return
+    if (!target.closest('#titlebarDrag')) return
     if (target.closest('button, a, input, select, textarea')) return
     ipcRenderer.send('shell:titlebar-dblclick')
   })
 }
 
+/* 主界面的主题由 agent settings 决定；这里只把选择同步给宿主及辅助页。
+   启动参数用于首次绘制，异步宿主读取不覆盖主界面的 applyTheme。 */
+function wireWindowTheme() {
+  const root = document.documentElement
+  if (!root) return
+  const isTheme = (value) => value === 'light' || value === 'dark'
+  const arg = (process.argv || []).find((item) => item.indexOf('--dsh-theme=') === 0) || ''
+  const initialTheme = arg.slice('--dsh-theme='.length)
+  let theme = isTheme(initialTheme) ? initialTheme : 'dark'
+  let revision = 0
+  const ownsTheme = Boolean(document.getElementById('app'))
+  const currentTheme = root.getAttribute('data-theme')
+  if (!isTheme(currentTheme)) root.setAttribute('data-theme', theme)
+
+  const receive = (value) => {
+    if (!isTheme(value)) return
+    revision += 1
+    theme = value
+    if (!ownsTheme) root.setAttribute('data-theme', value)
+  }
+  ipcRenderer.on('window:theme', (_event, value) => receive(value))
+  const readRevision = revision
+  ipcRenderer.invoke('window:theme').then((value) => {
+    /* 用户已切换或收到广播时，忽略较早的 getter 结果。 */
+    if (revision === readRevision) receive(value)
+  }).catch(() => {})
+
+  if (!ownsTheme) return
+  const publish = () => {
+    const value = root.getAttribute('data-theme')
+    if (!isTheme(value) || value === theme) return
+    revision += 1
+    theme = value
+    ipcRenderer.send('window:theme', value)
+  }
+  const observer = new MutationObserver(publish)
+  observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
+  /* getState 很快返回时，主题可能已在 DOMContentLoaded 前应用。 */
+  if (isTheme(currentTheme)) publish()
+  window.addEventListener('beforeunload', () => observer.disconnect(), { once: true })
+}
+
+contextBridge.exposeInMainWorld('desktopWindow', {
+  platform: process.platform,
+  getState: () => ipcRenderer.invoke('window:state'),
+  action: (value) => ipcRenderer.invoke('window:action', value),
+  onState: (callback) => {
+    if (typeof callback !== 'function') return () => {}
+    const handler = (_event, value) => callback(value)
+    ipcRenderer.on('window:state', handler)
+    return () => ipcRenderer.removeListener('window:state', handler)
+  }
+})
+
 try {
   const start = () => {
     markShellWindow()
+    wireWindowTheme()
+    setupWindowControls()
     wireTitlebarDoubleClick()
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start)
   else start()
 } catch (error) {
-  // 打标记失败不影响页面本身
+  console.error('[window-chrome]', error)
 }
 
 contextBridge.exposeInMainWorld('shell', {
@@ -64,6 +160,7 @@ contextBridge.exposeInMainWorld('shell', {
   },
   pickFolder: () => ipcRenderer.invoke('shell:pick-folder'),
   openSettings: () => ipcRenderer.invoke('shell:open-settings'),
+  openPath: (target) => ipcRenderer.invoke('shell:open-path', target),
   openExternal: (target) => ipcRenderer.invoke('shell:open-external', target),
   close: () => ipcRenderer.invoke('shell:close'),
   getUpdateInfo: () => ipcRenderer.invoke('shell:get-update-info'),

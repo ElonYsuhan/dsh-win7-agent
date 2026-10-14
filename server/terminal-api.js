@@ -28,6 +28,7 @@ const MAX_SESSIONS = 8
 const DEAD_SESSION_TTL_MS = 5 * 60 * 1000
 
 const sessions = new Map()
+let nextSessionId = 0
 
 const not = (value) => value ? false : true
 
@@ -102,7 +103,7 @@ function killSession(session) {
     const pid = session.proc ? session.proc.pid : 0
     try {
       if (process.platform === "win32" && pid) {
-        spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { timeout: 5000 })
+        spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { timeout: 5000, windowsHide: true })
       } else if (pid) {
         try { process.kill(-pid, "SIGTERM") } catch (error) { try { session.proc.kill("SIGTERM") } catch (inner) {} }
       }
@@ -136,7 +137,7 @@ function makeRoom() {
 function start(cwd) {
   makeRoom()
   const where = pickCwd(cwd)
-  const id = 't' + Date.now().toString(36)
+  const id = 't' + Date.now().toString(36) + '-' + (++nextSessionId).toString(36)
   /* Windows：cmd /Q 关掉它自己的命令回显（回显在渲染层 xterm 做了，避免双显） */
   const proc = spawn(pickShell(), process.platform === 'win32' ? ['/Q'] : [], {
     cwd: where,

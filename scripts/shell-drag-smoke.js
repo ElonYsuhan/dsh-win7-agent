@@ -1,20 +1,10 @@
 #!/usr/bin/env node
 'use strict'
 
-/**
- * macOS 顶栏拖拽带的真机冒烟：拿真实 Electron 窗口 + 真实 index.html 跑一遍，
- * 量出拖拽带到底在哪儿、有没有被别的东西盖住。
- *
- * 为什么值得单独写一个：这一处我判断错过两次 ——
- *   1. 一开始只在侧边栏顶部做拖拽区，用户从窗口正上方按住拖，拖不动；
- *   2. 接着把区域挂在 CSS 伪元素（::before）上，而 Chromium 会不会把
- *      伪元素算进拖拽区并没有把握，且量不到、验不了。
- * 现在拖拽带是**真实元素**（各页面 <body> 里的 #titlebarDrag），于是可以在这里
- * 用 getBoundingClientRect 量、用 elementFromPoint 验命中 —— 盖不住才拖得动。
- *
- * 需要 Electron 运行时，所以不进 npm run check 默认链路（同 check:shellpage）。
- *   node scripts/shell-drag-smoke.js      # 或 npm run check:drag
- */
+/* Real Electron titlebar geometry, hit testing and native actions. Includes
+   macOS plus explicit Windows/Linux CSS simulations, folded sidebar, panels,
+   file-only mode, narrow windows and both themes. Existing editor, scrolling,
+   terminal and resizer regressions continue below. Uses temporary user data. */
 
 const path = require('path')
 const http = require('http')
@@ -69,35 +59,6 @@ function check(name, condition, detail) {
   return false
 }
 
-/**
- * 从主进程源码里抠一个具名函数出来 —— 真机冒烟要跑「真的那一份」，不是复刻一份。
- * 简单数括号配对即可：这两个函数里没有带花括号的字符串字面量。
- */
-function extractFunction(source, name) {
-  const head = 'function ' + name
-  const at = source.indexOf(head)
-  if (at < 0) return null
-  const open = source.indexOf('{', at)
-  if (open < 0) return null
-  const rawParams = source.slice(at + head.length, open).replace(/[()\s]/g, '')
-  const params = rawParams ? rawParams.split(',') : []
-  let depth = 0
-  for (let i = open; i < source.length; i++) {
-    if (source[i] === '{') depth++
-    else if (source[i] === '}') {
-      depth--
-      if (depth === 0) {
-        try {
-          return new Function(...params, source.slice(open + 1, i)) // eslint-disable-line no-new-func
-        } catch (error) {
-          return null
-        }
-      }
-    }
-  }
-  return null
-}
-
 /* 用 http 起一个最小静态服务：file:// 下 CSP 'self' 会挡掉脚本，
    而 index.html 是平时由内网服务托管的，这样最接近真实运行环境。 */
 /* 面板那段要真的「滚得动」，就得有一个够长的文件当预览内容。
@@ -123,214 +84,105 @@ function serveRenderer() {
   })
 }
 
-/* 在页面里跑的探针：把拖拽带的几何、层叠、命中情况一次性量出来 */
+/* Geometry is measured in real Chromium. Windows and Linux inputs below are
+   CSS simulations on the host OS, not claims of native platform validation. */
 const PROBE = `(() => {
   const band = document.getElementById('titlebarDrag');
-  if (!band) return { missing: true };
-  const html = document.documentElement;
-  html.classList.add('shell-mac');
-  const rect = band.getBoundingClientRect();
-  const cs = getComputedStyle(band);
-  const frame = document.querySelector('.content-frame');
-  const frameRect = frame ? frame.getBoundingClientRect() : null;
-  const toggle = document.getElementById('sidebarToggle');
-  const toggleRect = toggle ? toggle.getBoundingClientRect() : null;
-  const at = (x, y) => {
-    const el = document.elementFromPoint(x, y);
-    if (!el) return 'null';
-    const name = (node) => {
-      /* SVG 元素的 className 是 SVGAnimatedString，直接 String() 会得到
-         '[object SVGAnimatedString]'，得先取 baseVal。 */
-      const cls = typeof node.className === 'string'
-        ? node.className
-        : (node.className && node.className.baseVal) || '';
-      return (node.id ? '#' + node.id : '') + (cls ? '.' + String(cls).split(/\\s+/).join('.') : '');
-    };
-    /* 命中的常是按钮里那一层 svg/span，再带上最近一个有 id 的祖先 ——
-       这样断言既看得出点到了哪儿，也看得出它属于谁。 */
-    const owner = el.closest && el.closest('[id]');
-    return name(el) + (owner && owner !== el ? ' < ' + name(owner) : '');
-  };
-  const w = window.innerWidth;
-  const pageActions = document.getElementById('pageActions');
-  const paRect = pageActions ? pageActions.getBoundingClientRect() : null;
-  const center = (sel) => {
-    const el = document.querySelector(sel);
-    if (!el) return 'missing';
+  const app = document.getElementById('app');
+  if (!band || !app) return { missing: true };
+  const rect = (el) => {
+    if (!el) return null;
     const r = el.getBoundingClientRect();
-    return at(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+    const cs = getComputedStyle(el);
+    const hit = r.width && r.height ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+    return {
+      left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom),
+      w: Math.round(r.width), h: Math.round(r.height), region: cs.webkitAppRegion,
+      visible: r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden',
+      hit: Boolean(hit && (el === hit || el.contains(hit))),
+      header: Boolean(el.closest('#titlebarDrag'))
+    };
   };
+  const ids = ['sidebarToggle', 'pageRefresh', 'pageShare', 'panelToggle', 'restoreChat'];
+  const controls = Array.from(document.querySelectorAll('.window-controls button')).map((el) => Object.assign({ id: el.dataset.windowAction }, rect(el)));
+  const buttons = ids.map((id) => Object.assign({ id }, rect(document.getElementById(id)))).filter((r) => r.visible);
+  const labels = Array.from(document.querySelectorAll('.titlebar-brand, #windowTitle, .titlebar-page-title')).map((el, i) => Object.assign({ id: 'label-' + i }, rect(el))).filter((r) => r.visible);
+  const br = band.getBoundingClientRect();
+  const root = document.documentElement;
+  const native = root.classList.contains('shell-mac') ? [{ id: 'native-traffic-lights', left: 0, right: 88, top: 0, bottom: 48, w: 88, h: 48, visible: true }] : [];
+  const overlap = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
+  const items = buttons.concat(controls, labels, native);
+  const collisions = [];
+  for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+    if (overlap(items[i], items[j])) collisions.push(items[i].id + '/' + items[j].id);
+  }
+  const dragPoints = [];
+  for (let x = 100; x < innerWidth - 20; x += 25) {
+    const hit = document.elementFromPoint(x, 44);
+    if (hit && hit.closest('#titlebarDrag') && !hit.closest('button, a, input, select, textarea') && !native.some((r) => x >= r.left && x < r.right)) dragPoints.push(x);
+  }
+  const below = document.elementFromPoint(Math.round(innerWidth / 2), 49);
   const runHint = document.getElementById('composerRunHint');
+  const sidebar = document.querySelector('.sidebar');
   return {
     missing: false,
-    appRegion: cs.webkitAppRegion || cs.getPropertyValue('-webkit-app-region'),
-    display: cs.display,
-    position: cs.position,
-    zIndex: cs.zIndex,
-    rect: { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) },
-    innerWidth: w,
-    innerHeight: window.innerHeight,
-    scrollHeight: html.scrollHeight,
-    frameTop: frameRect ? Math.round(frameRect.top) : null,
-    /* 顶栏那组页面操作（刷新整页 / 转发链接）：2026-09-19 新增，
-       位置跟 .sidebar-toggle 绑在一起，同样必须压在拖拽带之上、点得到。 */
-    pageActions: paRect ? {
-      left: Math.round(paRect.left),
-      right: Math.round(paRect.right),
-      cy: Math.round(paRect.top + paRect.height / 2),
-      display: getComputedStyle(pageActions).display,
-      region: getComputedStyle(pageActions).webkitAppRegion,
-      z: Number(getComputedStyle(pageActions).zIndex),
-      refreshHit: center('#pageRefresh'),
-      shareHit: center('#pageShare')
-    } : null,
-    runHint: runHint ? { exists: true, hidden: runHint.className.indexOf('hidden') !== -1 } : { exists: false },
-    toggle: toggleRect ? {
-      top: Math.round(toggleRect.top),
-      left: Math.round(toggleRect.left),
-      cx: Math.round(toggleRect.left + toggleRect.width / 2),
-      cy: Math.round(toggleRect.top + toggleRect.height / 2),
-      bottom: Math.round(toggleRect.bottom),
-      region: getComputedStyle(toggle).webkitAppRegion,
-      z: Number(getComputedStyle(toggle).zIndex),
-      hit: at(Math.round(toggleRect.left + toggleRect.width / 2), Math.round(toggleRect.top + toggleRect.height / 2))
-    } : null,
-    sidebarWidth: Math.round((document.querySelector('.sidebar') || { getBoundingClientRect: () => ({ width: 0 }) }).getBoundingClientRect().width),
-    hitMiddleTop: at(Math.round(w / 2), 20),
-    hitOverSidebar: at(100, 20),
-    hitTopLeft: at(30, 22),
-    hitJustBelow: at(Math.round(w / 2), 46)
+    band: Object.assign(rect(band), { parentIsBody: band.parentElement === document.body, tag: band.tagName, display: getComputedStyle(band).display }),
+    app: rect(app), frame: rect(document.querySelector('.content-frame')), main: rect(document.querySelector('.main')),
+    sidebar: rect(sidebar), panel: rect(document.getElementById('filePanel')),
+    buttons, controls, collisions, dragPoints,
+    belowIsTitlebar: Boolean(below && (below.closest('#titlebarDrag') || below.closest('.window-controls'))),
+    scrollHeight: root.scrollHeight, innerWidth, innerHeight,
+    runHint: { exists: Boolean(runHint), hidden: Boolean(runHint && runHint.classList.contains('hidden')) }
   };
 })()`
 
-/* 折叠态：左侧应当整片消失，折叠按钮挪到红黄绿右边，内容区铺满整宽。
-   加分两步是因为 grid-template-columns / left 都有 0.18s 过渡 ——
-   同一个同步块里加 class 再量，量到的是动画**起点**的值。 */
 const FOLD_ON = `(() => {
-  const app = document.getElementById('app');
-  if (!app) return false;
-  app.classList.add('sidebar-collapsed');
+  document.getElementById('app').classList.add('sidebar-collapsed');
   return true;
 })()`
 
-const PROBE_COLLAPSED = `(() => {
-  const sidebar = document.querySelector('.sidebar');
-  const sidebarCs = sidebar ? getComputedStyle(sidebar) : null;
-  const main = document.querySelector('.main');
-  const toggle = document.getElementById('sidebarToggle');
-  const tr = toggle ? toggle.getBoundingClientRect() : null;
-  const at = (x, y) => {
-    const el = document.elementFromPoint(x, y);
-    if (!el) return 'null';
-    const name = (node) => {
-      /* SVG 元素的 className 是 SVGAnimatedString，直接 String() 会得到
-         '[object SVGAnimatedString]'，得先取 baseVal。 */
-      const cls = typeof node.className === 'string'
-        ? node.className
-        : (node.className && node.className.baseVal) || '';
-      return (node.id ? '#' + node.id : '') + (cls ? '.' + String(cls).split(/\\s+/).join('.') : '');
-    };
-    /* 命中的常是按钮里那一层 svg/span，再带上最近一个有 id 的祖先 ——
-       这样断言既看得出点到了哪儿，也看得出它属于谁。 */
-    const owner = el.closest && el.closest('[id]');
-    return name(el) + (owner && owner !== el ? ' < ' + name(owner) : '');
-  };
-  const w = window.innerWidth;
-  return {
-    missing: false,
-    sidebarDisplay: sidebarCs ? sidebarCs.display : 'missing',
-    sidebarVisible: sidebar ? sidebar.getBoundingClientRect().width > 0 : false,
-    mainWidth: main ? Math.round(main.getBoundingClientRect().width) : null,
-    innerWidth: w,
-    toggle: tr ? {
-      left: Math.round(tr.left),
-      cx: Math.round(tr.left + tr.width / 2),
-      cy: Math.round(tr.top + tr.height / 2),
-      hit: at(Math.round(tr.left + tr.width / 2), Math.round(tr.top + tr.height / 2))
-    } : null,
-    // 原侧边栏那一列现在的落点：应该已经是内容区，不再是侧边栏
-    hitWhereSidebarWas: at(30, 300),
-    /* 折叠后这组页面操作要挪到折叠按钮**右边**（118），
-       否则会撞上 macOS 红黄绿（占 x=16..68）。 */
-    pageActions: (() => {
-      const pa = document.getElementById('pageActions');
-      if (!pa) return null;
-      const r = pa.getBoundingClientRect();
-      return {
-        left: Math.round(r.left),
-        cx: Math.round(r.left + r.width / 2),
-        cy: Math.round(r.top + r.height / 2),
-        hit: at(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2))
-      };
-    })(),
-    railVisible: (() => {
-      const rail = document.querySelector('.sidebar-rail');
-      return rail ? rail.getBoundingClientRect().width > 0 : false;
-    })()
-  };
-})()`
-
-/* ------------------------------------------- Win / Linux 那一轮（用户 2026-09-19 明确要求过）
-   「这是 mac，至于 linux 还有 win 我不晓得效果是咋样的，因为我没法验证」。
-   渲染层对 .shell-mac **没有一行 JS 依赖**（只有 style.css 的 14 条规则），
-   所以「把 .shell-mac 摘掉」就是 Win/Linux 下完全一致的 CSS 输入 —— 真机量一遍即可。
-   在真正的 Win/Linux 上这一步是空操作（preload 本来就不加那个类），量到的就是实况。 */
-const STRIP_MAC = `(() => {
-  document.documentElement.classList.remove('shell-mac');
+const RESET_LAYOUT = `(() => {
+  const root = document.documentElement;
+  root.classList.remove('chat-hidden');
   document.getElementById('app').classList.remove('sidebar-collapsed');
-  return document.documentElement.className;
+  return true;
 })()`
 
-const ADD_MAC = `(() => {
-  document.documentElement.classList.add('shell-mac');
-  return document.documentElement.className;
-})()`
-
-/* 右侧文件面板（一期）：量两枚折叠按钮 + 面板几何。
-   把手/面板宽度都走 CSS 变量，这里只读结果，不去碰内部状态。 */
-const PROBE_PANEL = `(() => {
-  const rect = (el) => {
-    if (!el) return null;
-    const b = el.getBoundingClientRect();
-    return { left: Math.round(b.left), top: Math.round(b.top), right: Math.round(b.right),
-             bottom: Math.round(b.bottom), w: Math.round(b.width), h: Math.round(b.height),
-             cx: Math.round(b.left + b.width / 2), cy: Math.round(b.top + b.height / 2) };
-  };
-  const name = (node) => {
-    const cls = typeof node.className === 'string'
-      ? node.className
-      : (node.className && node.className.baseVal) || '';
-    return (node.id ? '#' + node.id : '') + (cls ? '.' + String(cls).split(/\\s+/).join('.') : '');
-  };
-  const at = (x, y) => {
-    const el = document.elementFromPoint(x, y);
-    if (!el) return 'null';
-    const owner = el.closest && el.closest('[id]');
-    return name(el) + (owner && owner !== el ? ' < ' + name(owner) : '');
-  };
-  const left = document.getElementById('sidebarToggle');
-  const right = document.getElementById('panelToggle');
-  const panel = document.getElementById('filePanel');
-  const main = document.querySelector('.main');
-  const handle = document.getElementById('panelResize');
-  const lr = rect(left);
-  const rr = rect(right);
-  return {
-    missing: !left || !right || !panel,
-    open: document.getElementById('app').classList.contains('panel-open'),
-    left: lr,
-    right: rr,
-    panel: rect(panel),
-    panelDisplay: panel ? getComputedStyle(panel).display : 'missing',
-    mainWidth: main ? Math.round(main.getBoundingClientRect().width) : null,
-    mainRight: main ? Math.round(main.getBoundingClientRect().right) : null,
-    innerWidth: window.innerWidth,
-    rightHit: rr ? at(rr.cx, rr.cy) : 'null',
-    resizeVisible: handle
-      ? (handle.getBoundingClientRect().width > 0 && getComputedStyle(handle).display !== 'none')
-      : false
-  };
-})()`
+function platformLayout(platform, side) {
+  const iconName = platform === 'darwin' ? 'am.png' : (platform === 'win32' ? 'aw.png' : 'al.png')
+  const logo = 'data:image/png;base64,' + fs.readFileSync(path.join(ROOT, 'assets', 'icons', iconName)).toString('base64')
+  return `(() => {
+    const root = document.documentElement;
+    root.classList.remove('shell-mac', 'window-controls-left', 'window-controls-right');
+    root.classList.add('shell-window');
+    document.querySelectorAll('.window-controls').forEach((el) => el.remove());
+    if (${JSON.stringify(platform)} === 'darwin') root.classList.add('shell-mac');
+    else {
+      root.classList.add('window-controls-' + ${JSON.stringify(side)});
+      const group = document.createElement('div');
+      group.className = 'window-controls';
+      ['minimize', 'toggle-maximize', 'close'].forEach((action) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        const iconName = action === 'toggle-maximize' ? 'maximize' : action;
+        button.className = 'window-control window-control-' + iconName;
+        button.dataset.windowAction = action;
+        button.setAttribute('aria-label', action);
+        const icon = document.createElement('span');
+        icon.className = 'window-control-icon window-control-icon-' + iconName;
+        icon.setAttribute('aria-hidden', 'true');
+        button.appendChild(icon);
+        group.appendChild(button);
+      });
+      document.getElementById('titlebarDrag').appendChild(group);
+    }
+    const logo = document.querySelector('.titlebar-brand img');
+    if (logo) logo.src = ${JSON.stringify(logo)};
+    const badge = document.getElementById('brandBadge');
+    if (badge) badge.textContent = ${JSON.stringify(platform)} === 'darwin' ? 'Mac' : (${JSON.stringify(platform)} === 'win32' ? 'Win' : 'Linux');
+    return root.className;
+  })()`
+}
 
 const PANEL_OPEN = `(() => {
   if (!window.filePanel) return false;
@@ -786,7 +638,7 @@ function dragTerminalSplit(deltaPx) {
   })()`
 }
 
-/* 「只看文件」模式：两枚折叠按钮必须退场，面板顶栏那组按钮必须点得到。
+/* File-only mode hides the sidebar action; the independent titlebar and file toolbar remain clickable.
    （2026-09-19 用户报「code 模式上方菜单都跌到一起了」—— 就是 #panelToggle
    30x30 正好压在 .panel-head 右侧那组 VS Code / 终端按钮上。） */
 const PROBE_CHAT_HIDDEN = `(() => {
@@ -818,8 +670,8 @@ const PROBE_CHAT_HIDDEN = `(() => {
   return {
     panelToggleDisplay: toggle('panelToggle'),
     sidebarToggleDisplay: toggle('sidebarToggle'),
-    /* 红黄绿占 x=16..68，顶栏得让到 80 再开始排（不然标题贴在灯上） */
-    headPaddingLeft: head ? getComputedStyle(head).paddingLeft : null,
+    /* The file toolbar starts below the independent window titlebar. */
+    headTop: head ? Math.round(head.getBoundingClientRect().top) : null,
     vscode: button('panelVscode'),
     terminal: button('panelTerminal'),
     explorerToggle: button('panelExplorerToggle'),
@@ -888,51 +740,6 @@ const FREEZE_ANIMATION = `(() => {
   return true;
 })()`
 
-const PROBE_OTHER = `(() => {
-  const band = document.getElementById('titlebarDrag');
-  const toggle = document.getElementById('sidebarToggle');
-  const title = document.querySelector('.brand-title');
-  const sidebar = document.querySelector('.sidebar');
-  const main = document.querySelector('.main');
-  const frame = document.querySelector('.content-frame');
-  const rect = (el) => {
-    if (!el) return null;
-    const b = el.getBoundingClientRect();
-    return { left: Math.round(b.left), top: Math.round(b.top), right: Math.round(b.right),
-             bottom: Math.round(b.bottom), w: Math.round(b.width), h: Math.round(b.height) };
-  };
-  const name = (node) => {
-    const cls = typeof node.className === 'string'
-      ? node.className
-      : (node.className && node.className.baseVal) || '';
-    return (node.id ? '#' + node.id : '') + (cls ? '.' + String(cls).split(/\\s+/).join('.') : '');
-  };
-  const at = (x, y) => {
-    const el = document.elementFromPoint(x, y);
-    if (!el) return 'null';
-    const owner = el.closest && el.closest('[id]');
-    return name(el) + (owner && owner !== el ? ' < ' + name(owner) : '');
-  };
-  const tr = rect(toggle);
-  return {
-    missing: !band || !toggle,
-    htmlClass: document.documentElement.className,
-    bandDisplay: band ? getComputedStyle(band).display : 'missing',
-    // 摘掉 .shell-mac 后内容区不该再白留那 40px（那是给 macOS 拖拽带让位的）
-    frameTop: frame ? Math.round(frame.getBoundingClientRect().top) : null,
-    frameMarginTop: frame ? getComputedStyle(frame).marginTop : null,
-    toggle: tr,
-    toggleRegion: toggle ? getComputedStyle(toggle).webkitAppRegion : null,
-    toggleHit: tr ? at(Math.round((tr.left + tr.right) / 2), Math.round((tr.top + tr.bottom) / 2)) : 'null',
-    // 品牌标题的右沿：按钮要落在它右边，不能压上去
-    titleRight: title ? Math.round(title.getBoundingClientRect().right) : null,
-    sidebarDisplay: sidebar ? getComputedStyle(sidebar).display : 'missing',
-    sidebarVisible: sidebar ? sidebar.getBoundingClientRect().width > 0 : false,
-    mainWidth: main ? Math.round(main.getBoundingClientRect().width) : null,
-    innerWidth: window.innerWidth
-  };
-})()`
-
 async function runInElectron() {
   const electron = require('electron')
   if (not(electron.app) || not(electron.BrowserWindow)) {
@@ -943,15 +750,19 @@ async function runInElectron() {
   const isMac = process.platform === 'darwin'
   console.log('platform: ' + process.platform + '  electron: ' + process.versions.electron)
 
-  // 被 node 重跑进来的，BrowserWindow 得等 app ready 之后才能建
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-titlebar-runtime-'))
+  electron.app.setPath('userData', temporary)
+  electron.app.disableHardwareAcceleration()
+  const chrome = require('../shell/window-chrome')
   await electron.app.whenReady()
+  electron.app.on('window-all-closed', () => {})
 
   const { server, port } = await serveRenderer()
   const win = new electron.BrowserWindow({
     width: 1000,
     height: 700,
     show: false,
-    frame: true,
+    ...chrome.windowChromeOptions(process.platform),
     webPreferences: {
       // 挂真的 preload：双击顶栏那条链路（preload 认拖拽区 → 回主进程）要端到端验
       preload: path.join(ROOT, 'src', 'main', 'preload.js'),
@@ -961,10 +772,15 @@ async function runInElectron() {
     }
   })
 
+  chrome.attachWindowChrome(win, process.platform)
+  electron.ipcMain.handle('window:state', (event) => chrome.windowState(electron.BrowserWindow.fromWebContents(event.sender), process.platform))
+  electron.ipcMain.handle('window:action', (event, action) => chrome.applyWindowAction(electron.BrowserWindow.fromWebContents(event.sender), action))
   const doubleClicks = []
   electron.ipcMain.on('shell:titlebar-dblclick', () => doubleClicks.push(Date.now()))
+  electron.ipcMain.handle('window:theme', () => 'dark')
+  electron.ipcMain.on('window:theme', () => {})
   // 真 preload 挂上后页面脚本会调这个；这里只求别在日志里刷「没有 handler」
-  electron.ipcMain.handle('app:get-state', () => ({}))
+  electron.ipcMain.handle('app:get-state', () => ({ settings: { theme: 'dark', models: [], projects: [], currentProjectId: '', approvalAllow: [] }, workspacePath: '', plugins: [], tools: [], running: false, runningSessions: [] }))
   /* 面板会问这几个。这里不止「别刷 IPC 报错」—— 还得给足内容：
      80 行目录 + 400 行文本，面板才量得出「滚动条真的出现、真的滚得动」。 */
   /* 目录切换/终端 spawn 走的是**真** terminal-api：root 路径必须是真实存在的目录，
@@ -1046,7 +862,7 @@ async function runInElectron() {
     await new Promise((resolve) => setTimeout(resolve, 250))
     const badgeText = await win.webContents.executeJavaScript(
       "(() => { const b = document.getElementById('brandBadge'); return b ? String(b.textContent).trim() : '' })()")
-    check('品牌行系统徽章显示出来了（mac 上应为 Mac）', badgeText === 'Mac', 'badge=' + badgeText)
+    check('顶栏系统徽章显示实际平台', badgeText === (isMac ? 'Mac' : (process.platform === 'win32' ? 'Win' : 'Linux')), 'badge=' + badgeText)
     /* 输入框高度链诊断（2026-09-19 用户：莫名其妙变高了）—— 量出真数字再谈修复 */
     const composer = await win.webContents.executeJavaScript(PROBE_COMPOSER)
     check('输入框高度链诊断（空输入框应 ≤60px）', composer.inputH <= 60, JSON.stringify(composer))
@@ -1063,267 +879,122 @@ async function runInElectron() {
     console.error('probe failed: ' + (error && error.message))
   }
 
-  if (not(result) || result.missing) {
-    check('页面里有 #titlebarDrag 元素', false, result ? 'missing' : 'probe failed')
-  } else {
-    check('页面里有 #titlebarDrag 元素', true)
-    check('带子显示出来了（.shell-mac 下）', result.display === 'block', result.display)
-    check('-webkit-app-region 计算值是 drag', result.appRegion === 'drag', String(result.appRegion))
-    check('定位是 fixed', result.position === 'fixed', result.position)
-    check('压在内容之上（z-index > 0）', Number(result.zIndex) > 0, String(result.zIndex))
-    check('贴在最顶（top = 0）', result.rect.y === 0, String(result.rect.y))
-    check('从最左边起（left = 0）', result.rect.x === 0, String(result.rect.x))
-    check('高度是 40px', result.rect.h === 40, String(result.rect.h))
-    check('横贯整个窗口宽度', result.rect.w === result.innerWidth, result.rect.w + ' vs ' + result.innerWidth)
-    check('没有把窗口撑出滚动条', result.scrollHeight <= result.innerHeight, result.scrollHeight + ' <= ' + result.innerHeight)
-
-    // 关键：带子要是被内容盖住，鼠标就落不到它身上，也就拖不动
-    check('窗口正中间顶部命中拖拽带', result.hitMiddleTop.indexOf('titlebar-drag') >= 0, result.hitMiddleTop)
-    check('侧边栏上方同样命中拖拽带', result.hitOverSidebar.indexOf('titlebar-drag') >= 0, result.hitOverSidebar)
-    check('紧贴红黄绿按钮右侧也命中拖拽带', result.hitTopLeft.indexOf('titlebar-drag') >= 0, result.hitTopLeft)
-    check('带子下沿之外不再是拖拽带', result.hitJustBelow.indexOf('titlebar-drag') < 0, result.hitJustBelow)
-
-    // 内容区让开 40px ⇒ 带子下面压着的是空白，不会吞掉消息区的点击
-    check('内容区顶部让开了带子高度', result.frameTop !== null && result.frameTop >= result.rect.h,
-      'frameTop=' + result.frameTop + ' bar=' + result.rect.h)
-
-    /* 折叠按钮 2026-09-19 改成「待在顶栏那一行里」（跟红黄绿同高），
-       不再要求它在带子下方；取而代之要验：它落在那一行内、压在带子之上、点得到。 */
-    const t = result.toggle
-    if (check('页面里有 #sidebarToggle', t !== null)) {
-      check('折叠按钮落在顶栏那一行里（40px 内）', t.top >= 0 && t.bottom <= result.rect.h,
-        'top=' + t.top + ' bottom=' + t.bottom + ' 带高=' + result.rect.h)
-      check('折叠按钮压在拖拽带之上', t.z > Number(result.zIndex),
-        'toggle z=' + t.z + ' 带子 z=' + result.zIndex)
-      check('折叠按钮退出了拖拽区（no-drag）', t.region === 'no-drag', String(t.region))
-      check('折叠按钮点得到（没被拖拽带盖住）', String(t.hit).indexOf('sidebarToggle') >= 0, String(t.hit))
-      // 展开时贴侧边栏右缘：214 + 30/2 = 229
-      check('展开时折叠按钮贴侧边栏右缘', Math.abs(t.cx - 229) <= 3, 'cx=' + t.cx)
-      check('展开时侧边栏是 260 宽', result.sidebarWidth === 260, String(result.sidebarWidth))
-    }
-
-    /* 顶栏那组页面操作（刷新整页 / 转发链接）：用户 2026-09-19 要的两枚按钮。
-       位置与折叠按钮绑在一起（贴在它左边），同样落在 mac 的 40px 拖拽带里 ——
-       所以必须验：在那一行内、压在带子之上、no-drag、两枚都点得到。 */
-    const pa = result.pageActions
-    if (check('顶栏有页面操作组 #pageActions（刷新 + 转发两枚）', pa !== null)) {
-      check('操作组落在顶栏那一行里（40px 内）', pa.cy > 0 && pa.cy < result.rect.h,
-        'cy=' + pa.cy + ' 带高=' + result.rect.h)
-      check('操作组压在拖拽带之上', pa.z > Number(result.zIndex),
-        'pa z=' + pa.z + ' 带子 z=' + result.zIndex)
-      check('操作组退出了拖拽区（no-drag）', pa.region === 'no-drag', String(pa.region))
-      check('刷新按钮点得到（没被拖拽带盖住）', String(pa.refreshHit).indexOf('pageRefresh') >= 0, String(pa.refreshHit))
-      check('转发按钮点得到（没被拖拽带盖住）', String(pa.shareHit).indexOf('pageShare') >= 0, String(pa.shareHit))
-      check('操作组贴在折叠按钮左边（不跟它叠）', t !== null && pa.right <= t.left,
-        'paRight=' + pa.right + ' toggleLeft=' + (t ? t.left : '?'))
-    }
-    check('「并发已满」提示条默认收起（并发正常跑着的时候不占地方）',
-      result.runHint.exists && result.runHint.hidden, JSON.stringify(result.runHint))
+  if (check('independent titlebar exists', result && !result.missing)) {
+    check('concurrency notice is hidden by default', result.runHint.exists && result.runHint.hidden);
   }
 
-  if (isMac) {
-    check('macOS 上窗口标题栏是隐藏模式', true, 'titleBarStyle=hidden 由主进程设置')
+  /* Use the actual preload and native action module for the local OS. */
+  const fire = (selector) => win.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return false;
+    el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    return true;
+  })()`)
+  await fire('#titlebarDrag')
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  check('double click on the independent bar reaches native IPC', doubleClicks.length === 1)
+  await fire('#sidebarToggle')
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  check('double click on a titlebar button does not maximize', doubleClicks.length === 1)
+  await fire('#messages')
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  check('double click in content does not maximize', doubleClicks.length === 1)
+
+  if (process.env.TITLEBAR_GEOMETRY_ONLY !== '1') {
+  const nativeState = await win.webContents.executeJavaScript('window.desktopWindow.getState()')
+  check('desktopWindow exposes the actual host platform', nativeState.platform === process.platform)
+  await win.webContents.executeJavaScript('window.__windowStates = []; window.__offWindowState = window.desktopWindow.onState((s) => window.__windowStates.push(s)); true')
+  win.show()
+  await new Promise((resolve) => setTimeout(resolve, 180))
+  await win.webContents.executeJavaScript('window.desktopWindow.action("toggle-maximize")')
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  check('desktopWindow can maximize a real host window', win.isMaximized())
+  const seenMax = await win.webContents.executeJavaScript('window.__windowStates.some((s) => s.maximized)')
+  check('maximizing publishes window state through preload', seenMax)
+  await win.webContents.executeJavaScript('window.desktopWindow.action("toggle-maximize")')
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  check('desktopWindow restores a real host window', !win.isMaximized())
+  await win.webContents.executeJavaScript('window.desktopWindow.action("minimize")')
+  await new Promise((resolve) => setTimeout(resolve, 180))
+  check('desktopWindow minimizes a real host window', win.isMinimized())
+  win.restore()
+  await new Promise((resolve) => setTimeout(resolve, 180))
+
   }
 
-  /* ---------------------------------------- 双击顶栏 → 缩放（原生那套手势被藏没了，自己接的） */
-
-  if (isMac) {
-    const fire = (selector) => win.webContents.executeJavaScript(`(function () {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return false;
-      el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-      return true;
-    })()`)
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 220))
-
-    // 逐个派发、逐个计数，才能分辨出到底是哪一下触发的
-    const hasBand = await fire('#titlebarDrag')
-    await settle()
-    check('双击顶栏带子 → 回发 shell:titlebar-dblclick', hasBand && doubleClicks.length === 1,
-      doubleClicks.length + ' 次')
-
-    const hasBrand = await fire('.brand-title')
-    await settle()
-    check('双击品牌行 → 也算双击顶栏', hasBrand && doubleClicks.length === 2, doubleClicks.length + ' 次')
-
-    // 折叠按钮自带 no-drag，双击它会折叠侧边栏，不该顺手缩放窗口
-    const hasButton = await fire('#sidebarToggle')
-    await settle()
-    check('双击拖拽区里的按钮 → 不缩放窗口', hasButton && doubleClicks.length === 2, doubleClicks.length + ' 次')
-
-    /* 动作本身用真窗口跑一遍：拿源码里的 applyTitlebarDoubleClick（不是复刻一份） */
-    const source = fs.readFileSync(path.join(ROOT, 'shell', 'main.js'), 'utf8')
-    const apply = extractFunction(source, 'applyTitlebarDoubleClick')
-    if (check('从 shell/main.js 抠得出 applyTitlebarDoubleClick', typeof apply === 'function')) {
-      win.show() // 隐藏窗口上 isMaximized / isMinimized 不靠谱，先露个面
-      await new Promise((resolve) => setTimeout(resolve, 250))
-      apply(win, 'maximize')
-      await new Promise((resolve) => setTimeout(resolve, 350))
-      check('默认偏好下双击 → 窗口最大化', win.isMaximized() === true, 'isMaximized=' + win.isMaximized())
-      apply(win, 'maximize')
-      await new Promise((resolve) => setTimeout(resolve, 350))
-      check('再双击一次 → 还原', win.isMaximized() === false, 'isMaximized=' + win.isMaximized())
-      apply(win, 'none')
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      check('偏好为 None 时双击 → 窗口不动', win.isMaximized() === false, 'isMaximized=' + win.isMaximized())
-
-      // 折叠前先还原窗口，免得量到的是最大化后的几何
-      if (win.isMaximized()) apply(win, 'maximize')
-      await new Promise((resolve) => setTimeout(resolve, 300))
-    }
-
-    /* 折叠态：左边整片隐藏（不再留那条窄栏），按钮落到红黄绿右边 */
-    const foldedOn = await win.webContents.executeJavaScript(FOLD_ON)
-    await new Promise((resolve) => setTimeout(resolve, 60)) // 过渡已冻掉，这里只等一次样式重算
-
-    if (check('能切到折叠态', foldedOn === true)) {
-      const folded = await win.webContents.executeJavaScript(PROBE_COLLAPSED)
-      check('折叠后侧边栏不再显示', folded.sidebarDisplay === 'none' && folded.sidebarVisible === false,
-        folded.sidebarDisplay + ' / width>0=' + folded.sidebarVisible)
-      check('折叠后窄栏图标也没了（左边不留任何东西）', folded.railVisible === false)
-      check('折叠后内容区铺满整宽', folded.mainWidth === folded.innerWidth,
-        folded.mainWidth + ' / ' + folded.innerWidth)
-      // 只看命中元素本身（' < ' 后面是最近一个有 id 的祖先，那可能是 #app.sidebar-collapsed）
-      const where = String(folded.hitWhereSidebarWas).split(' < ')[0]
-      check('折叠后原来侧边栏那一列已是内容区',
-        where !== 'null' && where.indexOf('sidebar') < 0, where)
-      if (check('折叠态测得到折叠按钮', folded.toggle !== null)) {
-        check('折叠后按钮落到红黄绿右边', folded.toggle.left === 80, String(folded.toggle.left))
-        check('折叠后按钮仍点得到', String(folded.toggle.hit).indexOf('sidebarToggle') >= 0, String(folded.toggle.hit))
-      }
-      if (check('折叠态测得到页面操作组', folded.pageActions !== null)) {
-        check('折叠后操作组挪到折叠按钮右边（118，不撞红黄绿）',
-          folded.pageActions.left === 118, String(folded.pageActions.left))
-        check('折叠后操作组仍点得到',
-          String(folded.pageActions.hit).indexOf('pageActions') >= 0, String(folded.pageActions.hit))
+  const variants = [
+    { name: 'mac-native', platform: 'darwin', side: 'left' },
+    { name: 'win-right-css', platform: 'win32', side: 'right' },
+    { name: 'linux-right-css', platform: 'linux', side: 'right' },
+    { name: 'linux-left-css', platform: 'linux', side: 'left' }
+  ]
+  const modes = [
+    { name: 'normal', collapsed: false, panel: false, code: false },
+    { name: 'folded', collapsed: true, panel: false, code: false },
+    { name: 'panel', collapsed: false, panel: true, code: false },
+    { name: 'folded-panel', collapsed: true, panel: true, code: false },
+    { name: 'code', collapsed: false, panel: true, code: true }
+  ]
+  const geometries = []
+  const screenshotDir = path.join(ROOT, 'release', 'validation')
+  fs.mkdirSync(screenshotDir, { recursive: true })
+  for (const variant of variants) {
+    if (typeof win.setWindowButtonVisibility === 'function') win.setWindowButtonVisibility(variant.platform === 'darwin')
+    await win.webContents.executeJavaScript(platformLayout(variant.platform, variant.side))
+    for (const width of [1000, 640]) {
+      win.setBounds({ width, height: 700 })
+      for (const theme of ['dark', 'light']) {
+        for (const mode of modes) {
+          await win.webContents.executeJavaScript(`(() => {
+            const root = document.documentElement;
+            const app = document.getElementById('app');
+            root.setAttribute('data-theme', ${JSON.stringify(theme)});
+            root.classList.toggle('chat-hidden', ${mode.code});
+            app.classList.toggle('sidebar-collapsed', ${mode.collapsed});
+            if (window.filePanel) window.filePanel.${mode.panel ? 'open' : 'close'}();
+            return true;
+          })()`)
+          await new Promise((resolve) => setTimeout(resolve, 30))
+          const p = await win.webContents.executeJavaScript(PROBE)
+          const label = variant.name + '/' + width + '/' + theme + '/' + mode.name
+          geometries.push({ label, geometry: p })
+          check(label + ': titlebar is a 48px independent header', p.band.tag === 'HEADER' && p.band.parentIsBody && p.band.top === 0 && p.band.left === 0 && p.band.w === p.innerWidth && p.band.h === 48)
+          check(label + ': content starts below the titlebar', p.app.top === 48 && p.app.h === p.innerHeight - 48 && [p.main, p.sidebar, p.panel, p.frame].every((r) => !r || !r.visible || r.top >= 48))
+          check(label + ': window controls and app actions do not overlap', p.collisions.length === 0, p.collisions.join(',') || 'none')
+          check(label + ': titlebar actions remain clickable and no-drag', p.buttons.length > 0 && p.buttons.every((r) => r.header && r.hit && r.region === 'no-drag' && r.top >= 0 && r.bottom <= 48))
+          check(label + ': control buttons have safe 44px targets', variant.platform === 'darwin' ? p.controls.length === 0 : p.controls.length === 3 && p.controls.every((r) => r.w === 44 && r.h === 48 && r.hit && r.region === 'no-drag'))
+          check(label + ': drag space is available and ends above content', p.band.region === 'drag' && p.dragPoints.length > 0 && !p.belowIsTitlebar)
+          check(label + ': viewport has no accidental vertical overflow', p.scrollHeight <= p.innerHeight)
+          if (mode.collapsed && !mode.code) check(label + ': sidebar fully hides', !p.sidebar.visible && (mode.panel || p.main.w === p.innerWidth))
+          if (mode.panel) check(label + ': panel stays within the content grid', p.panel.visible && p.panel.top === 48 && p.panel.right === p.innerWidth && (!p.main.visible || p.main.right <= p.panel.left))
+          if (mode.code) check(label + ': file-only mode retains its titlebar restore action', p.buttons.some((r) => r.id === 'restoreChat') && !p.main.visible && !p.sidebar.visible && p.panel.w === p.innerWidth)
+          if ((width === 1000 && theme === 'dark' && mode.name === 'normal') || (width === 640 && theme === 'light' && mode.name === 'code')) {
+            const screenshot = await win.webContents.capturePage()
+            const filename = 'titlebar-' + variant.name + '-' + width + '-' + theme + '-' + mode.name;
+            fs.writeFileSync(path.join(screenshotDir, filename + '.png'), screenshot.toPNG());
+            const strip = await win.webContents.capturePage({ x: 0, y: 0, width, height: 100 });
+            fs.writeFileSync(path.join(screenshotDir, filename + '-strip.png'), strip.toPNG());
+          }
+        }
       }
     }
   }
-
-  /* ------------------------------------------------ Win / Linux 基线那一轮
-     摘掉 .shell-mac 再量一遍。mac 上验的是「模拟」，Win/Linux 上验的是实况 —— 同一段断言两种平台都跑。 */
-  {
-    await win.webContents.executeJavaScript(STRIP_MAC)
-    await new Promise((resolve) => setTimeout(resolve, 60)) // 过渡已冻掉，这里只等一次样式重算
-    const other = await win.webContents.executeJavaScript(PROBE_OTHER)
-
-    if (check('Win/Linux：摘掉 .shell-mac 后页面仍正常', not(other.missing),
-      'html.class="' + other.htmlClass + '"')) {
-      check('Win/Linux：拖拽带不显示（不铺一层透明遮罩吃点击）',
-        other.bandDisplay === 'none', other.bandDisplay)
-      check('Win/Linux：内容区不再白留顶部 40px',
-        other.frameTop === 0, 'frameTop=' + other.frameTop + ' marginTop=' + other.frameMarginTop)
-      check('Win/Linux：折叠按钮落在侧边栏右上角（left 214 / top 22）',
-        other.toggle !== null && other.toggle.left === 214 && other.toggle.top === 22,
-        other.toggle ? ('left=' + other.toggle.left + ' top=' + other.toggle.top) : 'null')
-      check('Win/Linux：按钮没压到品牌标题上',
-        other.toggle !== null && other.titleRight !== null && other.toggle.left > other.titleRight,
-        '按钮左沿=' + (other.toggle && other.toggle.left) + ' 标题右沿=' + other.titleRight)
-      check('Win/Linux：折叠按钮点得到（没有东西盖住）',
-        String(other.toggleHit).indexOf('sidebarToggle') >= 0, String(other.toggleHit))
-
-      const foldedOther = await win.webContents.executeJavaScript(FOLD_ON)
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      const fo = await win.webContents.executeJavaScript(PROBE_COLLAPSED)
-      check('Win/Linux：折叠后左边整片消失',
-        foldedOther === true && fo.sidebarDisplay === 'none' && fo.sidebarVisible === false,
-        fo.sidebarDisplay + ' / width>0=' + fo.sidebarVisible)
-      check('Win/Linux：折叠后内容区铺满整宽', fo.mainWidth === fo.innerWidth,
-        fo.mainWidth + ' / ' + fo.innerWidth)
-      if (check('Win/Linux：折叠态测得到折叠按钮', fo.toggle !== null)) {
-        check('Win/Linux：折叠后按钮落到窗口最左（16）', fo.toggle.left === 16, String(fo.toggle.left))
-        check('Win/Linux：折叠后按钮仍点得到',
-          String(fo.toggle.hit).indexOf('sidebarToggle') >= 0, String(fo.toggle.hit))
-      }
-      if (check('Win/Linux：折叠态测得到页面操作组', fo.pageActions !== null)) {
-        check('Win/Linux：折叠后操作组跟在按钮右边（54）',
-          fo.pageActions.left === 54, String(fo.pageActions.left))
-      }
-    }
+  fs.writeFileSync(path.join(screenshotDir, 'titlebar-geometry.json'), JSON.stringify({ hostPlatform: process.platform, electron: process.versions.electron, cssSimulationPlatforms: ['win32', 'linux'], cases: geometries }, null, 2))
+  if (process.env.TITLEBAR_GEOMETRY_ONLY === '1') {
+    win.destroy()
+    server.close()
+    fs.rmSync(temporary, { recursive: true, force: true })
+    fs.rmSync(smokeRoot, { recursive: true, force: true })
+    fs.rmSync(smokeRoot2, { recursive: true, force: true })
+    console.log('titlebar geometry smoke: ' + geometries.length + ' cases, ' + passed + '/' + (passed + failed) + ' checks passed, Electron ' + process.versions.electron)
+    electron.app.exit(failed ? 1 : 0)
+    return
   }
-
-  /* ------------------------------------------------ 右侧文件面板（一期）：两枚折叠按钮 + 面板几何
-     用户 2026-09-19：「右上角有一个折叠按钮，和左侧折叠相反」。
-     真机上量三件事：
-       ① 左右两枚按钮 top 完全相等（上一轮红黄绿那次就是差 4px 被抓出来的）；
-       ② 面板打开后会话区真的让出宽度；
-       ③ **侧边栏折叠 + 面板展开**时会话区右沿不许越过面板左沿
-          —— 三列网格里 .main 那条 `1 / -1` 会一路铺到面板底下，这就是它存在的理由。 */
-  {
-    // 上一段结尾刚走了 FOLD_ON，sidebar-collapsed 还挂着 —— 先退回干净基线再量
-    await win.webContents.executeJavaScript(STRIP_MAC)
-    await new Promise((resolve) => setTimeout(resolve, 60))
-
-    const panelBase = await win.webContents.executeJavaScript(PROBE_PANEL)
-    if (check('Win/Linux：页面上有右侧面板与两枚折叠按钮', not(panelBase.missing),
-      'missing=' + panelBase.missing)) {
-      check('Win/Linux：两枚折叠按钮 top 完全相等（同一中线）',
-        panelBase.left.top === panelBase.right.top,
-        '左=' + panelBase.left.top + ' 右=' + panelBase.right.top)
-      check('Win/Linux：右侧按钮贴窗口最右（right:16 ⇒ 右沿 = 视口宽 − 16）',
-        panelBase.right.right === panelBase.innerWidth - 16,
-        '右沿=' + panelBase.right.right + ' 视口=' + panelBase.innerWidth)
-      check('Win/Linux：面板收起时整块不显示', panelBase.panelDisplay === 'none', panelBase.panelDisplay)
-      check('Win/Linux：右侧按钮点得到', String(panelBase.rightHit).indexOf('panelToggle') >= 0, String(panelBase.rightHit))
-      check('Win/Linux：收起时会话区铺满（视口 − 侧边栏）',
-        panelBase.mainWidth === panelBase.innerWidth - 260 && panelBase.mainRight === panelBase.innerWidth,
-        panelBase.mainWidth + ' / ' + panelBase.innerWidth)
-
-      await win.webContents.executeJavaScript(PANEL_OPEN)
-      await new Promise((resolve) => setTimeout(resolve, 60))
-      const opened = await win.webContents.executeJavaScript(PROBE_PANEL)
-      if (check('Win/Linux：面板打开了', opened.open === true && opened.panelDisplay === 'flex',
-        'open=' + opened.open + ' display=' + opened.panelDisplay)) {
-        check('Win/Linux：面板占了第三列（宽度 > 0）', opened.panel.w > 0, String(opened.panel.w))
-        check('Win/Linux：会话区让出面板宽度（会话宽 = 视口 − 侧边栏 − 面板）',
-          opened.mainWidth === opened.innerWidth - 260 - opened.panel.w,
-          opened.mainWidth + ' vs ' + (opened.innerWidth - 260 - opened.panel.w))
-        check('Win/Linux：会话区与面板严丝合缝（右沿 = 面板左沿）',
-          opened.mainRight === opened.panel.left,
-          '会话右沿=' + opened.mainRight + ' 面板左沿=' + opened.panel.left)
-        check('Win/Linux：面板右贴窗口边', opened.panel.right === opened.innerWidth,
-          opened.panel.right + ' vs ' + opened.innerWidth)
-        check('Win/Linux：打开后两枚按钮仍同一中线',
-          opened.left.top === opened.right.top, '左=' + opened.left.top + ' 右=' + opened.right.top)
-        check('Win/Linux：右侧按钮让位到面板左边（不压在面板上）',
-          opened.right.right <= opened.panel.left,
-          '按钮右沿=' + opened.right.right + ' 面板左沿=' + opened.panel.left)
-        check('Win/Linux：右侧按钮打开后仍点得到（没被面板盖住）',
-          String(opened.rightHit).indexOf('panelToggle') >= 0, String(opened.rightHit))
-        check('Win/Linux：面板左缘有可拖的把手', opened.resizeVisible === true)
-
-        /* 侧边栏折叠 + 面板展开：这就是 .main 从 `1 / -1` 改成 `1 / 3` 的那条规则 */
-        await win.webContents.executeJavaScript(FOLD_ON)
-        await new Promise((resolve) => setTimeout(resolve, 60))
-        const both = await win.webContents.executeJavaScript(PROBE_PANEL)
-        check('Win/Linux：侧边栏折叠 + 面板展开时会话区不钻到面板底下',
-          both.mainRight <= both.panel.left && both.panel.left === both.innerWidth - both.panel.w,
-          '会话右沿=' + both.mainRight + ' 面板左沿=' + both.panel.left)
-        check('Win/Linux：侧边栏折叠 + 面板展开时面板宽度不变（面板不跟着缩）',
-          both.panel.w === opened.panel.w, both.panel.w + ' vs ' + opened.panel.w)
-        await win.webContents.executeJavaScript(STRIP_MAC)
-        await new Promise((resolve) => setTimeout(resolve, 60))
-      }
-
-      await win.webContents.executeJavaScript(PANEL_CLOSE)
-      await new Promise((resolve) => setTimeout(resolve, 60))
-      const closed = await win.webContents.executeJavaScript(PROBE_PANEL)
-      check('Win/Linux：再点一次能收起，会话区宽度复原',
-        closed.open === false && closed.mainWidth === closed.innerWidth - 260,
-        'open=' + closed.open + ' main=' + closed.mainWidth + ' want=' + (closed.innerWidth - 260))
-    }
-
-    /* macOS 那一套：两枚按钮都要跟红黄绿中线对齐（top = 9） */
-    await win.webContents.executeJavaScript(ADD_MAC)
-    await new Promise((resolve) => setTimeout(resolve, 60))
-    const macPanel = await win.webContents.executeJavaScript(PROBE_PANEL)
-    check('macOS：面板折叠按钮也在顶栏那一行里（对红黄绿中线）',
-      macPanel.right.top === 9 && macPanel.left.top === 9,
-      '左=' + macPanel.left.top + ' 右=' + macPanel.right.top)
-    check('macOS：右侧按钮退出拖拽带（点得到）',
-      String(macPanel.rightHit).indexOf('panelToggle') >= 0, String(macPanel.rightHit))
-    await win.webContents.executeJavaScript(STRIP_MAC)
-  }
+  win.setBounds({ width: 1000, height: 700 })
+  if (typeof win.setWindowButtonVisibility === 'function') win.setWindowButtonVisibility(isMac)
+  await win.webContents.executeJavaScript(platformLayout(process.platform, 'right'))
+  await win.webContents.executeJavaScript(RESET_LAYOUT)
+  await win.webContents.executeJavaScript(PANEL_CLOSE)
 
   /* ------------------------------------------------ 面板顶栏按钮 + 滚动链
      用户 2026-09-19 报的两个真机 bug：
@@ -1333,7 +1004,7 @@ async function runInElectron() {
           面板一进来把行从 872 撑到 5000+，overflow:auto 因此没有可滚余量。
      这一段的每一条都是「真机量出来的」，不靠肉眼看截图。 */
   {
-    await win.webContents.executeJavaScript(STRIP_MAC)
+    await win.webContents.executeJavaScript(RESET_LAYOUT)
     const loaded = await win.webContents.executeJavaScript(OPEN_LONG_PREVIEW)
     if (check('面板：渲染出 80 行目录 + 400 行长文本预览（够长才量得出滚动）',
       loaded && loaded.treeRows >= 80 && loaded.previewChars > 3000,
@@ -1431,11 +1102,11 @@ async function runInElectron() {
       } else {
         check('编辑器：textarea 撑满预览区（不是挤成一条）', false, 'no toggle')
       }
-      /* ---- ① macOS：三枚按钮必须压过拖拽带 ---- */
-      await win.webContents.executeJavaScript(ADD_MAC)
+      /* File toolbar buttons belong to content below the independent titlebar. */
+      await win.webContents.executeJavaScript(platformLayout('darwin', 'left'))
       await new Promise((resolve) => setTimeout(resolve, 60))
       const mac = await win.webContents.executeJavaScript(PROBE_PANEL_INTERACT)
-      check('面板：macOS 下拖拽带已显示（这组断言的前提）', mac.bandDisplay === 'block', mac.bandDisplay)
+      check('面板：macOS 下拖拽带已显示（这组断言的前提）', mac.bandDisplay !== 'none', mac.bandDisplay)
 
       const headCases = [
         ['explorer', '目录'],
@@ -1447,24 +1118,23 @@ async function runInElectron() {
         const label = item[1]
         const button = mac.buttons[key]
         if (not(check('macOS：测得到面板顶栏的「' + label + '」按钮', button !== null))) continue
-        check('macOS：「' + label + '」按钮确实落在 40px 拖拽带里（原来点不动的根因）',
-          button.top >= 0 && button.bottom <= mac.bandHeight,
+        check('macOS：「' + label + '」按钮在独立顶栏下方',
+          button.top >= mac.bandHeight,
           'top=' + button.top + ' bottom=' + button.bottom + ' 带高=' + mac.bandHeight)
-        check('macOS：「' + label + '」按钮 z-index 压过拖拽带的 30', button.z > 30, String(button.z))
-        check('macOS：「' + label + '」按钮退出拖拽区（no-drag）',
-          button.region === 'no-drag', String(button.region))
+        check('macOS：「' + label + '」按钮不在拖拽区',
+          button.region !== 'drag', String(button.region))
         check('macOS：「' + label + '」按钮点得到（命中它自己，不是 #titlebarDrag）',
           button.hitSelf === true, String(button.hitName))
       }
 
-      /* ---- ② 滚动链（平台无关，用干净的 Win/Linux 基线量）---- */
-      await win.webContents.executeJavaScript(STRIP_MAC)
+      /* Platform-independent content scrolling below the titlebar. */
+      await win.webContents.executeJavaScript(RESET_LAYOUT)
       await new Promise((resolve) => setTimeout(resolve, 60))
       const sc = await win.webContents.executeJavaScript(PROBE_PANEL_INTERACT)
       check('面板：网格行没被面板撑爆（#app 自身不产生滚动）',
         sc.appOverflowed === false, sc.appScrollH + ' vs ' + sc.appClientH)
-      check('面板：面板高度 = 视口高（不是被内容撑成几千 px）',
-        sc.panelH !== null && Math.abs(sc.panelH - sc.innerHeight) <= 1,
+      check('面板：面板高度 = 内容区高（视口减48px顶栏）',
+        sc.panelH !== null && Math.abs(sc.panelH - (sc.innerHeight - 48)) <= 1,
         sc.panelH + ' / ' + sc.innerHeight)
       check('面板：文件列表超出后真的滚得动（scrollTop 改得动）',
         sc.tree !== null && sc.tree.scrollH > sc.tree.clientH && sc.tree.moved > 0,
@@ -1686,23 +1356,18 @@ async function runInElectron() {
         check('拖拽：双击面板把手回到默认宽 608', panelReset === '608px', panelReset)
       }
 
-      /* ---- ⑤ 「只看文件」模式：两枚折叠按钮退场，顶栏按钮点得到 ----
-         红黄绿是 macOS 才有的，让位规则也写在 .shell-mac 下 —— 必须先把类加回来，
-         不然量到的是「Win/Linux 没有灯、当然不用让位」，那是条永远绿的假断言。 */
-      await win.webContents.executeJavaScript(ADD_MAC)
+      /* File-only mode: sidebar hides, titlebar restore remains available. */
+      await win.webContents.executeJavaScript(platformLayout('darwin', 'left'))
       await new Promise((resolve) => setTimeout(resolve, 60))
       await win.webContents.executeJavaScript(clickHead('panelVscode'))
       await new Promise((resolve) => setTimeout(resolve, 80))
       const chatHidden = await win.webContents.executeJavaScript(PROBE_CHAT_HIDDEN)
       check('只看文件：面板铺满整窗', chatHidden.panelWidth === chatHidden.innerWidth,
         chatHidden.panelWidth + ' / ' + chatHidden.innerWidth)
-      check('只看文件：顶栏靠左给红黄绿让位（padding-left 80 / 目录图标 x ≥ 68）',
-        chatHidden.headPaddingLeft === '80px' && chatHidden.explorerToggle !== null
-          && chatHidden.explorerToggle.left >= 68,
-        'padding=' + chatHidden.headPaddingLeft + ' 目录图标x=' +
-          (chatHidden.explorerToggle ? chatHidden.explorerToggle.left : 'null'))
-      check('只看文件：右侧折叠按钮退场（不然压在 VS Code / 终端按钮上）',
-        chatHidden.panelToggleDisplay === 'none', chatHidden.panelToggleDisplay)
+      check('只看文件：文件工具栏从独立顶栏下方开始',
+        chatHidden.headTop >= 48, 'headTop=' + chatHidden.headTop)
+      check('只看文件：面板折叠操作仍留在独立顶栏',
+        chatHidden.panelToggleDisplay !== 'none', chatHidden.panelToggleDisplay)
       check('只看文件：左侧折叠按钮退场（左边已经没有侧边栏可折）',
         chatHidden.sidebarToggleDisplay === 'none', chatHidden.sidebarToggleDisplay)
       for (const item of [['vscode', 'VS Code'], ['terminal', '终端'], ['explorerToggle', '目录']]) {
@@ -1714,7 +1379,7 @@ async function runInElectron() {
       }
       await win.webContents.executeJavaScript(clickHead('panelVscode'))
       await new Promise((resolve) => setTimeout(resolve, 80))
-      await win.webContents.executeJavaScript(STRIP_MAC)
+      await win.webContents.executeJavaScript(RESET_LAYOUT)
     }
 
     await win.webContents.executeJavaScript(PANEL_CLOSE)
@@ -1829,6 +1494,9 @@ async function runInElectron() {
 
   try { win.destroy() } catch (error) {}
   server.close()
+  fs.rmSync(temporary, { recursive: true, force: true })
+  fs.rmSync(smokeRoot, { recursive: true, force: true })
+  fs.rmSync(smokeRoot2, { recursive: true, force: true })
 
   console.log('')
   try { require('../server/terminal-api').teardownAll() } catch (error) {}

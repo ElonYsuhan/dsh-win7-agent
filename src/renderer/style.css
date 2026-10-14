@@ -1,21 +1,41 @@
 :root {
   color-scheme: dark;
-  --bg: #0b1120;
-  --sidebar: #0f172a;
-  --panel: #111c31;
-  --panel-2: #17233a;
-  --border: #24324d;
-  --text: #e6edf7;
-  --muted: #8ea0bd;
-  --accent: #38bdf8;
-  --accent-2: #22d3ee;
-  --user: #0c4a6e;
-  --tool: #3b2f12;
-  --tool-border: #7c5e16;
-  --result: #0f2f1d;
-  --result-border: #1f7a45;
-  --error: #7f1d1d;
-  --shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  --bg: #212121;
+  --sidebar: #181818;
+  --titlebar: #252525;
+  --panel: #2b2b2b;
+  --panel-2: #303030;
+  --composer-bg: #2b2b2b;
+  --border: #3b3b3b;
+  --text: #eeeeee;
+  --muted: #aaaaaa;
+  --accent: #dddddd;
+  --focus: #b8b8b8;
+  --user: #303030;
+  --selection-bg: #373737;
+  --primary-bg: #303030;
+  --primary-hover: #3b3b3b;
+  --send-bg: #eeeeee;
+  --send-hover: #ffffff;
+  --send-text: #212121;
+  --switch-off: #4a4a4a;
+  --switch-knob: #d4d4d4;
+  --code-bg: #1b1b1b;
+  --hover-bg: #363636;
+  --hover-border: #555555;
+  --hover-soft: rgba(255, 255, 255, 0.08);
+  --hover-danger: #492828;
+  --hover-danger-border: #9b5252;
+  --scrollbar-thumb: #555555;
+  --resize-hover: #777777;
+  --tool: #2b2b2b;
+  --tool-border: #6e5a39;
+  --result: #2b2b2b;
+  --result-border: #3d674b;
+  --error: #382525;
+  --error-text: #f4a8a8;
+  --warning-text: #e0b866;
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
 }
 
 * {
@@ -25,31 +45,287 @@
 html, body {
   margin: 0;
   height: 100%;
-  background:
-    radial-gradient(1200px 600px at 20% -10%, rgba(56, 189, 248, 0.10), transparent 60%),
-    radial-gradient(900px 500px at 90% 110%, rgba(34, 211, 238, 0.08), transparent 60%),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
   font: 14px/1.55 "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
 }
 
+body {
+  overflow: hidden;
+}
+
+/* 每个平台使用同一条独立标题栏，内容区从它下面开始。 */
+.titlebar-drag {
+  --titlebar-bg: var(--titlebar);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  padding: 0 12px;
+  background: var(--titlebar-bg);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.shell-mac .titlebar-drag {
+  padding-left: 88px;
+}
+
+.window-controls-left .titlebar-drag {
+  padding-left: 144px;
+}
+
+.window-controls-right .titlebar-drag {
+  padding-right: 144px;
+}
+
+.titlebar-drag button,
+.titlebar-drag a,
+.titlebar-drag input,
+.titlebar-drag .page-actions {
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-drag .icon-button {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  border-radius: 7px;
+}
+
+.titlebar-drag .sidebar-toggle,
+.titlebar-drag .panel-toggle {
+  position: static;
+}
+
+.titlebar-drag .page-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.titlebar-brand {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  margin-left: 4px;
+}
+
+.titlebar-brand img {
+  display: block;
+  flex: 0 0 20px;
+}
+
+.titlebar-app-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.titlebar-divider {
+  flex: 0 0 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border);
+}
+
+.window-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.titlebar-restore {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+}
+
+html.chat-hidden .titlebar-drag .sidebar-toggle {
+  display: none;
+}
+
+html.chat-hidden .titlebar-restore {
+  display: inline-flex;
+}
+
+.titlebar-drag button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* Windows / Linux 由 preload 添加窗口控制；预留空间与控件尺寸保持一致。 */
+.titlebar-drag .window-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  width: 132px;
+  height: 48px;
+  -webkit-app-region: no-drag;
+}
+
+.window-controls-left .titlebar-drag .window-controls {
+  right: auto;
+  left: 0;
+}
+
+.titlebar-drag .window-controls button {
+  display: flex;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  background: transparent;
+}
+
+.titlebar-drag .window-controls button:hover {
+  background: var(--hover-soft);
+}
+
+.titlebar-drag .window-controls .window-control-close:hover {
+  color: #ffffff;
+  background: #c42b1c;
+}
+
+.titlebar-drag .window-controls button:active {
+  transform: none;
+}
+
+.window-control-icon-minimize,
+.window-control-icon-maximize,
+.window-control-icon-restore,
+.window-control-icon-close {
+  position: relative;
+  display: block;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+
+.window-control-icon-minimize::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 0;
+  width: 12px;
+  height: 1px;
+  background: currentColor;
+}
+
+.window-control-icon-maximize::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border: 1px solid currentColor;
+}
+
+.window-control-icon-restore::before,
+.window-control-icon-restore::after {
+  content: '';
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+}
+
+.window-control-icon-restore::before {
+  top: 0;
+  right: 0;
+}
+
+.window-control-icon-restore::after {
+  bottom: 0;
+  left: 0;
+  background: var(--titlebar-bg);
+}
+
+.window-control-icon-close::before,
+.window-control-icon-close::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: -1px;
+  width: 14px;
+  height: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+.window-control-icon-close::after {
+  transform: rotate(-45deg);
+}
+
+@media (max-width: 760px) {
+  .titlebar-app-name,
+  .titlebar-brand .brand-badge {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .titlebar-drag {
+    gap: 6px;
+  }
+
+  .titlebar-brand,
+  .titlebar-divider,
+  .titlebar-restore > span:last-child {
+    display: none;
+  }
+
+  .titlebar-restore {
+    justify-content: center;
+    width: 30px;
+    padding: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .titlebar-drag button {
+    transition: none;
+  }
+}
+
 #app {
-  position: relative; /* 顶栏那枚折叠按钮 .sidebar-toggle 是它的绝对定位子元素 */
+  position: relative;
   display: grid;
   grid-template-columns: 260px 1fr;
   /* ⚠️ 这一行不能省。不写的话隐式行是 auto —— 内容多高行就多高。
      右侧文件面板一进来（预览一段几百行的代码 + 一棵长目录树），行被撑到 5000+px，
-     面板里那两个 overflow:auto 跟着一起变成"没有可滚动的余量"：
+     面板里那两个 overflow: auto 跟着一起变成"没有可滚动的余量"：
      clientHeight === scrollHeight，滚动条永远不出现，scrolledTo 恒为 0。
-     显式钉成 1fr（= 100vh）之后，面板 / 侧边栏 / 会话区各自的高度才是定值，
+     显式钉成内容区剩余高度之后，面板 / 侧边栏 / 会话区各自的高度才是定值，
      里面 flex + overflow 的链条才真正生效。
      minmax(0, 1fr) 而不是 1fr：1fr 的最小值默认是 auto，还会被内容顶大。 */
   grid-template-rows: minmax(0, 1fr);
-  height: 100vh;
+  height: calc(100vh - 48px);
 }
 
 .sidebar {
-  background: linear-gradient(180deg, var(--sidebar), #0b1222 100%);
+  background: var(--sidebar);
   border-right: 1px solid var(--border);
   padding: 18px 16px;
   display: flex;
@@ -92,8 +368,8 @@ html, body {
   flex: 0 0 auto;
   padding: 2px 6px;
   border-radius: 5px;
-  background: rgba(148, 163, 184, 0.18);
-  color: #cbd5e1;
+  background: var(--panel-2);
+  color: var(--muted);
   font-size: 10px;
   font-weight: 700;
   line-height: 1.4;
@@ -101,13 +377,8 @@ html, body {
   text-transform: uppercase;
 }
 
-[data-theme="light"] .brand-badge {
-  background: #111827;
-  color: #ffffff;
-}
-
 .panel {
-  background: rgba(17, 28, 49, 0.72);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
@@ -130,7 +401,7 @@ html, body {
   padding: 9px 10px;
   word-break: break-all;
   font-size: 12px;
-  color: #c7d4ea;
+  color: var(--text);
 }
 
 .row {
@@ -153,24 +424,39 @@ button {
 }
 
 button:hover:not(:disabled) {
-  background: #1d2d49;
-  border-color: #35507a;
+  background: var(--hover-bg);
+  border-color: var(--border);
 }
 
 button:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: none;
 }
 
 button.primary {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #06283d;
+  background: var(--primary-bg);
+  color: var(--text);
   border-color: transparent;
   font-weight: 700;
 }
 
 button:disabled {
-  opacity: 0.45;
-  cursor: default;
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  --control-outline: var(--focus);
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--send-bg);
 }
 
 .muted {
@@ -240,7 +526,7 @@ button:disabled {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 6px;
-  background: rgba(148, 163, 184, 0.16);
+  background: var(--hover-soft);
   border: 1px solid var(--border);
 }
 
@@ -250,7 +536,7 @@ button:disabled {
   height: 20px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: rgba(148, 163, 184, 0.25);
+  background: var(--switch-off);
   cursor: pointer;
   padding: 0;
   flex: none;
@@ -258,7 +544,7 @@ button:disabled {
 }
 
 .plugin-switch.on {
-  background: var(--accent);
+  background: var(--send-bg);
   border-color: var(--accent);
 }
 
@@ -269,11 +555,12 @@ button:disabled {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--switch-knob);
   transition: transform 0.15s ease;
 }
 
 .plugin-switch.on .plugin-switch-knob {
+  background: var(--send-text);
   transform: translateX(18px);
 }
 
@@ -294,7 +581,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* 三列网格里会话区固定第 2 列 —— 不靠自动排布，免得某一列 display:none 时错位。
+  /* 三列网格里会话区固定第 2 列 —— 不靠自动排布，免得某一列 display: none 时错位。
      注意 #app.sidebar-collapsed .main 那条会把它改成 1 / -1（或 1 / 3）。 */
   grid-column: 2;
 }
@@ -315,14 +602,14 @@ button:disabled {
   max-width: 880px;
   white-space: pre-wrap;
   word-break: break-word;
-  background: rgba(17, 28, 49, 0.86);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+  background: var(--panel);
+  box-shadow: none;
 }
 
 .bubble.user {
   align-self: flex-end;
-  background: linear-gradient(135deg, #0b4f77, #0c4a6e);
-  border-color: #1d8fca;
+  background: var(--user);
+  border-color: transparent;
 }
 
 .bubble.assistant {
@@ -362,7 +649,7 @@ button:disabled {
 }
 
 .bubble.notice .bubble-label {
-  color: #f59e0b;
+  color: var(--warning-text);
 }
 
 .capability-modal-card {
@@ -370,7 +657,7 @@ button:disabled {
 }
 
 .capability-modal-card h2 {
-  color: #f59e0b;
+  color: var(--warning-text);
 }
 
 .capability-text {
@@ -387,7 +674,7 @@ button:disabled {
 }
 
 .bubble.user .bubble-label {
-  color: #bae6fd;
+  color: var(--text);
 }
 
 .composer {
@@ -396,7 +683,7 @@ button:disabled {
   display: flex;
   gap: 10px;
   align-items: flex-end;
-  background: rgba(15, 23, 42, 0.92);
+  background: transparent;
   backdrop-filter: blur(10px);
 }
 
@@ -415,13 +702,14 @@ textarea {
   border-radius: 12px;
   padding: 11px 12px;
   font: inherit;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: 2px;
+  transition: border-color 0.15s ease;
 }
 
 textarea:focus {
-  border-color: #2b7fb8;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14);
+  border-color: var(--focus);
+  box-shadow: none;
 }
 
 .composer-actions {
@@ -432,7 +720,7 @@ textarea:focus {
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(2, 6, 23, 0.72);
+  background: rgba(0, 0, 0, 0.58);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -446,14 +734,14 @@ textarea:focus {
 .modal-card {
   width: 540px;
   max-width: 92vw;
-  background: linear-gradient(180deg, #111c31, #0f172a);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 22px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: var(--shadow);
+  box-shadow: none;
 }
 
 .modal-card h2 {
@@ -478,13 +766,14 @@ textarea:focus {
   color: var(--text);
   padding: 9px 10px;
   font: inherit;
-  outline: none;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: 2px;
 }
 
 .modal-card input[type="text"]:focus,
 .modal-card input[type="password"]:focus,
 .modal-card input[type="number"]:focus {
-  border-color: #2b7fb8;
+  border-color: var(--focus);
 }
 
 .checkbox {
@@ -516,15 +805,15 @@ textarea:focus {
 
 .approval-kind {
   padding: 2px 9px;
-  border-radius: 999px;
-  background: rgba(56, 189, 248, 0.16);
-  color: #7dd3fc;
+  border-radius: 6px;
+  background: var(--selection-bg);
+  color: var(--text);
   font-size: 12px;
 }
 
 [data-theme="light"] .approval-kind {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--panel-2);
+  color: var(--text);
 }
 
 .approval-signature {
@@ -575,7 +864,7 @@ textarea:focus {
   align-items: center;
   gap: 6px;
   padding: 3px 10px;
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--panel-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -592,14 +881,14 @@ textarea:focus {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #24324d;
+  background: var(--scrollbar-thumb);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #35507a;
+  background: var(--scrollbar-thumb);
   background-clip: content-box;
 }
 
@@ -620,11 +909,12 @@ select {
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
-  outline: none;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: 2px;
 }
 
 select:focus {
-  border-color: #2b7fb8;
+  border-color: var(--focus);
 }
 
 .workspace-list {
@@ -646,9 +936,9 @@ select:focus {
 }
 
 .workspace-item.active {
-  border-color: #2b7fb8;
-  background: rgba(56, 189, 248, 0.13);
-  color: #bae6fd;
+  border-color: var(--hover-border);
+  background: var(--selection-bg);
+  color: var(--text);
 }
 
 .footer-icons {
@@ -664,7 +954,7 @@ select:focus {
   align-items: center;
   justify-content: center;
   font-size: 18px;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .modal-actions .spacer {
@@ -672,103 +962,67 @@ select:focus {
 }
 
 button.danger {
-  background: #3b1111;
-  border-color: #7f1d1d;
-  color: #fecaca;
+  background: var(--error);
+  border-color: var(--hover-danger-border);
+  color: var(--error-text);
 }
 
 button.danger:hover:not(:disabled) {
-  background: #571515;
-  border-color: #b91c1c;
+  background: var(--hover-danger);
+  border-color: var(--error-text);
 }
 
 [data-theme="light"] {
   color-scheme: light;
-  --bg: #eef3f9;
-  --sidebar: #ffffff;
+  --bg: #ffffff;
+  --sidebar: #f7f7f7;
+  --titlebar: #f9f9f9;
   --panel: #ffffff;
-  --panel-2: #f1f5f9;
-  --border: #d6e0ec;
-  --text: #17233a;
-  --muted: #64748b;
-  --accent: #0284c7;
-  --accent-2: #06b6d4;
-  --user: #e0f2fe;
-  --tool: #fffbeb;
-  --tool-border: #f59e0b;
-  --result: #ecfdf5;
-  --result-border: #22c55e;
-  --error: #fef2f2;
-  --shadow: 0 18px 40px rgba(30, 41, 59, 0.12);
-}
-
-[data-theme="light"] body {
-  background:
-    radial-gradient(1200px 600px at 20% -10%, rgba(2, 132, 199, 0.08), transparent 60%),
-    radial-gradient(900px 500px at 90% 110%, rgba(6, 182, 212, 0.08), transparent 60%),
-    var(--bg);
-}
-
-[data-theme="light"] .sidebar {
-  background: linear-gradient(180deg, #ffffff, #f8fafc 100%);
-}
-
-[data-theme="light"] .panel {
-  background: rgba(255, 255, 255, 0.88);
-}
-
-[data-theme="light"] .bubble.assistant {
-  background: #ffffff;
-}
-
-[data-theme="light"] .bubble.user {
-  background: linear-gradient(135deg, #bae6fd, #e0f2fe);
-  border-color: #7dd3fc;
-  color: #082f49;
-}
-
-[data-theme="light"] .bubble.user .bubble-label {
-  color: #0369a1;
-}
-
-[data-theme="light"] .composer {
-  background: rgba(255, 255, 255, 0.94);
-}
-
-[data-theme="light"] .path {
-  color: #334155;
-}
-
-[data-theme="light"] .workspace-item.active {
-  background: #e0f2fe;
-  color: #075985;
-}
-
-[data-theme="light"] .modal-card {
-  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  --panel-2: #f5f5f5;
+  --composer-bg: #f5f5f5;
+  --border: #e3e3e3;
+  --text: #252525;
+  --muted: #666666;
+  --accent: #333333;
+  --focus: #555555;
+  --user: #f0f0f0;
+  --selection-bg: #e8e8e8;
+  --primary-bg: #ededed;
+  --primary-hover: #e3e3e3;
+  --send-bg: #252525;
+  --send-hover: #111111;
+  --send-text: #ffffff;
+  --switch-off: #d4d4d4;
+  --switch-knob: #ffffff;
+  --code-bg: #f5f5f5;
+  --hover-bg: #e8e8e8;
+  --hover-border: #c9c9c9;
+  --hover-soft: rgba(0, 0, 0, 0.06);
+  --hover-danger: #f9e8e8;
+  --hover-danger-border: #c88b8b;
+  --scrollbar-thumb: #b8b8b8;
+  --resize-hover: #999999;
+  --tool: #f5f5f5;
+  --tool-border: #c5ad7e;
+  --result: #f5f5f5;
+  --result-border: #a1bfa8;
+  --error: #faf0f0;
+  --error-text: #a43333;
+  --warning-text: #865c14;
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
 }
 
 .bubble.thinking {
   align-self: flex-start;
-  background: rgba(56, 189, 248, 0.08);
+  background: var(--panel-2);
   border-style: dashed;
-  border-color: #2b7fb8;
-  color: #9fc7e8;
+  border-color: var(--border);
+  color: var(--muted);
   font-style: italic;
 }
 
 .bubble.thinking .bubble-label {
-  color: #7dd3fc;
-}
-
-[data-theme="light"] .bubble.thinking {
-  background: #f0f9ff;
-  border-color: #38bdf8;
-  color: #0369a1;
-}
-
-[data-theme="light"] .bubble.thinking .bubble-label {
-  color: #0284c7;
+  color: var(--text);
 }
 
 .messages {
@@ -792,6 +1046,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .bubble:hover .bubble-actions,
+.bubble:focus-within .bubble-actions,
+.bubble-group:focus-within .bubble-actions,
 .bubble-actions.actions-visible,
 .bubble-actions:hover,
 .bubble-group:hover .bubble-actions {
@@ -818,7 +1074,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .bubble-action:hover:not(:disabled) {
-  background: var(--hover-soft, rgba(148, 163, 184, 0.16));
+  background: var(--hover-soft);
   color: var(--text);
 }
 
@@ -918,7 +1174,7 @@ button.danger:hover:not(:disabled) {
 .bubble-body pre {
   margin: 9px 0;
   padding: 10px 12px;
-  background: #0b1222;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 9px;
   overflow: auto;
@@ -928,19 +1184,20 @@ button.danger:hover:not(:disabled) {
 .bubble-body code {
   font-family: Consolas, "Courier New", monospace;
   font-size: 12px;
-  background: rgba(148, 163, 184, 0.18);
+  background: var(--hover-soft);
   padding: 1px 5px;
   border-radius: 5px;
 }
 
 .bubble-body pre code {
-  background: transparent;
+  background: var(--code-bg);
   padding: 0;
 }
 
 .bubble-body a {
   color: var(--accent);
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   word-break: break-all;
 }
 
@@ -966,24 +1223,16 @@ button.danger:hover:not(:disabled) {
 }
 
 .bubble-body th {
-  background: rgba(148, 163, 184, 0.14);
+  background: var(--hover-soft);
   font-weight: 600;
 }
 
 .bubble-body strong {
-  color: #ffffff;
+  color: var(--text);
 }
 
 .md-gap {
   height: 8px;
-}
-
-[data-theme="light"] .bubble-body pre {
-  background: #f1f5f9;
-}
-
-[data-theme="light"] .bubble-body strong {
-  color: #0f172a;
 }
 
 .modal-card.small {
@@ -998,7 +1247,8 @@ button.danger:hover:not(:disabled) {
   color: var(--text);
   padding: 10px;
   font: inherit;
-  outline: none;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: 2px;
 }
 
 .new-session {
@@ -1086,8 +1336,8 @@ button.danger:hover:not(:disabled) {
 
 .folder-badge {
   font-size: 11px;
-  color: #38bdf8;
-  border: 1px solid #2563eb;
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 5px;
   padding: 1px 5px;
 }
@@ -1108,7 +1358,7 @@ button.danger:hover:not(:disabled) {
   border: 1px solid var(--border);
   border-radius: 9px;
   padding: 8px;
-  background: rgba(15, 23, 42, 0.45);
+  background: var(--panel-2);
 }
 
 .dir-item {
@@ -1123,10 +1373,6 @@ button.danger:hover:not(:disabled) {
   background: var(--panel-2);
 }
 
-[data-theme="light"] .dir-list {
-  background: #f8fafc;
-}
-
 .composer {
   display: block;
   border-top: 0;
@@ -1134,12 +1380,17 @@ button.danger:hover:not(:disabled) {
   padding: 10px 18px 18px;
 }
 
+/* The composer is a flat surface; focus is indicated by its border. */
 .composer-card {
-  background: var(--panel);
+  background: var(--composer-bg);
   border: 1px solid var(--border);
-  border-radius: 22px;
+  border-radius: 18px;
   padding: 10px 12px 8px;
-  box-shadow: var(--shadow);
+  box-shadow: none;
+}
+
+.composer-card:focus-within {
+  border-color: var(--focus);
 }
 
 .composer-card textarea {
@@ -1175,7 +1426,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .pill-button {
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 7px 12px;
   font-size: 12px;
   display: inline-flex;
@@ -1191,7 +1442,8 @@ button.danger:hover:not(:disabled) {
   font-size: 12px;
   max-width: 220px;
   padding: 6px 4px;
-  outline: none;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: 2px;
 }
 
 .composer-model:focus {
@@ -1202,28 +1454,25 @@ button.danger:hover:not(:disabled) {
   width: 38px;
   height: 38px;
   min-width: 38px;
-  border-radius: 50%;
+  border-radius: 8px;
   padding: 0;
   border: 0;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #06283d;
+  background: var(--send-bg);
+  color: var(--send-text);
   font-size: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.send-button.stop {
-  background: #ef4444;
-  color: #ffffff;
+.send-button.stop,
+.send-button.stop:hover:not(:disabled) {
+  background: var(--send-bg);
+  color: var(--send-text);
 }
 
 .send-button.hidden {
   display: none;
-}
-
-[data-theme="light"] .composer-card {
-  background: #ffffff;
 }
 
 .panel-head {
@@ -1263,7 +1512,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .workspace-row.active {
-  background: rgba(56, 189, 248, 0.12);
+  background: var(--selection-bg);
 }
 
 .workspace-toggle {
@@ -1329,8 +1578,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .session-item.active {
-  background: rgba(56, 189, 248, 0.13);
-  color: #bae6fd;
+  background: var(--selection-bg);
+  color: var(--text);
 }
 
 .session-empty {
@@ -1423,8 +1672,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .flat-item.active {
-  background: rgba(56, 189, 248, 0.12);
-  color: #bae6fd;
+  background: var(--selection-bg);
+  color: var(--text);
 }
 
 .flat-icon {
@@ -1515,66 +1764,6 @@ button.danger:hover:not(:disabled) {
   margin-left: 18px;
 }
 
-/* light theme refinement */
-[data-theme="light"] {
-  --bg: #f3f6fb;
-  --sidebar: #eef2f7;
-  --panel: #ffffff;
-  --panel-2: #e9eef5;
-  --border: #d8e0ea;
-  --text: #1f2937;
-  --muted: #64748b;
-  --accent: #0ea5e9;
-  --accent-2: #22d3ee;
-  --shadow: 0 10px 28px rgba(15, 23, 42, 0.10);
-}
-
-[data-theme="light"] body {
-  background:
-    radial-gradient(900px 420px at 20% -10%, rgba(14, 165, 233, 0.08), transparent 60%),
-    var(--bg);
-}
-
-[data-theme="light"] .main,
-[data-theme="light"] .messages {
-  background: #f7f9fc;
-}
-
-[data-theme="light"] .sidebar {
-  background: #eef2f7;
-  border-right: 1px solid #dbe3ed;
-}
-
-[data-theme="light"] .flat-item.active,
-[data-theme="light"] .workspace-row.active,
-[data-theme="light"] .session-item.active {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-[data-theme="light"] .bubble.assistant {
-  background: #ffffff;
-  border-color: #e2e8f0;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
-}
-
-[data-theme="light"] .composer {
-  background: #f7f9fc;
-}
-
-[data-theme="light"] .composer-card {
-  background: #ffffff;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.10);
-}
-
-[data-theme="light"] .modal-card {
-  background: linear-gradient(180deg, #ffffff, #f8fafc);
-}
-
-[data-theme="light"] .dir-list {
-  background: #f8fafc;
-}
-
 .sidebar {
   overflow-y: auto;
 }
@@ -1630,12 +1819,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--scrollbar-thumb);
   border-radius: 8px;
-}
-
-[data-theme="light"] .sidebar-scroll::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
 }
 
 .chat-delete {
@@ -1646,7 +1831,7 @@ button.danger:hover:not(:disabled) {
   border-radius: 6px;
   opacity: 0;
   font-size: 12px;
-  color: #fca5a5;
+  color: var(--error-text);
 }
 
 .chat-item:hover .chat-delete {
@@ -1654,15 +1839,9 @@ button.danger:hover:not(:disabled) {
 }
 
 .chat-delete:hover:not(:disabled) {
-  background: #4c1d1d;
-  border-color: #b91c1c;
-  color: #fecaca;
-}
-
-[data-theme="light"] .chat-delete:hover:not(:disabled) {
-  background: #fee2e2;
-  border-color: #fca5a5;
-  color: #b91c1c;
+  background: var(--hover-danger);
+  border-color: var(--error-text);
+  color: var(--error-text);
 }
 
 .context-menu {
@@ -1703,7 +1882,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .context-menu button.menu-danger {
-  color: #f87171;
+  color: var(--error-text);
 }
 
 .context-menu button.menu-danger:hover {
@@ -1749,7 +1928,7 @@ button.danger:hover:not(:disabled) {
 
 .bubble.user {
   align-self: flex-end;
-  background: var(--panel-2);
+  background: var(--user);
   border: 0;
   border-radius: 8px;
   padding: 8px 12px;
@@ -1835,26 +2014,26 @@ button.danger:hover:not(:disabled) {
 }
 
 .thinking-tool {
-  background: rgba(250, 204, 21, 0.08);
-  border: 1px dashed #713f12;
-  color: #facc15;
+  background: var(--panel-2);
+  border: 1px dashed var(--tool-border);
+  color: var(--warning-text);
 }
 
 .thinking-tool-result {
-  background: rgba(34, 197, 94, 0.08);
-  border: 1px dashed #166534;
+  background: var(--panel-2);
+  border: 1px dashed var(--result-border);
   color: #86efac;
 }
 
 [data-theme="light"] .thinking-tool {
-  background: #fffbeb;
-  border-color: #f59e0b;
+  background: var(--panel-2);
+  border-color: var(--tool-border);
   color: #92400e;
 }
 
 [data-theme="light"] .thinking-tool-result {
-  background: #ecfdf5;
-  border-color: #22c55e;
+  background: var(--panel-2);
+  border-color: var(--result-border);
   color: #166534;
 }
 
@@ -1873,7 +2052,7 @@ button.danger:hover:not(:disabled) {
   width: 12px;
   height: 12px;
   margin-right: 6px;
-  border: 2px solid #7dd3fc;
+  border: 2px solid var(--border);
   border-top-color: transparent;
   border-radius: 50%;
   vertical-align: -2px;
@@ -1913,10 +2092,6 @@ button {
   height: 15px;
 }
 
-:root {
-  --message-width: 800px;
-}
-
 .messages {
   display: block;
   padding: 0;
@@ -1947,7 +2122,7 @@ button {
   cursor: col-resize;
   opacity: 0;
   border-radius: 8px;
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.15), rgba(56, 189, 248, 0.55), rgba(56, 189, 248, 0.15));
+  background: var(--resize-hover);
   transition: opacity 0.15s ease;
   z-index: 3;
 }
@@ -1986,7 +2161,7 @@ body.resizing {
   cursor: col-resize;
   opacity: 0;
   border-radius: 8px;
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.15), rgba(56, 189, 248, 0.55), rgba(56, 189, 248, 0.15));
+  background: var(--resize-hover);
   transition: opacity 0.15s ease;
   z-index: 5;
 }
@@ -2050,45 +2225,7 @@ body.resizing .content-resize-handle:not(.visible) {
 .chat-more,
 .project-folder-toggle,
 .workspace-add {
-  border-radius: 50%;
-}
-
-/* 折叠 / 展开按钮：跟在「顶栏那一行」里。
-   展开时贴侧边栏右缘（260 侧边栏 − 16 内边距 − 30 按钮 = 214）；
-   折叠后左侧整片收起，它就落到窗口最左（macOS 上再让开红黄绿，见文件末尾 .shell-mac 段）。
-   z-index 必须压过顶栏拖拽带（30），否则 macOS 上会被那条带子挡住、点不到。
-   放在 #app 下是因为折叠后 .sidebar 整个不显示了，按钮得留在外面。
-   数字来源：侧边栏 260px、.sidebar 内边距 16px、.icon-button 30px —— 改那几处记得回来同步。 */
-.sidebar-toggle {
-  position: absolute;
-  top: 22px;
-  left: 214px;
-  z-index: 31;
-  transition: left 0.18s ease; /* 与 #app 的列宽动画同时长 */
-}
-
-#app.sidebar-collapsed .sidebar-toggle {
-  left: 16px; /* 对齐侧边栏原来的左内边距 */
-}
-
-/* 顶栏那一行里的页面操作（刷新整页 / 在浏览器打开并复制链接）。
-   位置跟着 .sidebar-toggle 走：展开时侧边栏右缘 214，减 8 的间隔、减两个 30px 按钮、
-   再减两枚按钮之间 6 的 gap ⇒ 140；折叠后侧边栏整片消失、.sidebar-toggle 落到最左，
-   这组按钮就挪到它**右边**（54 = 16 + 30 + 8），别去压 macOS 的红黄绿。
-   和折叠按钮同理：z-index 必须压过顶栏拖拽带（30），否则 mac 上点不动。 */
-.page-actions {
-  position: absolute;
-  top: 22px;
-  left: 140px;
-  z-index: 31;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: left 0.18s ease; /* 与 #app 的列宽动画同时长 */
-}
-
-#app.sidebar-collapsed .page-actions {
-  left: 54px;
+  border-radius: 8px;
 }
 
 #app {
@@ -2102,7 +2239,7 @@ body.resizing .content-resize-handle:not(.visible) {
 /* 折叠 = 左边整片消失。
    以前折叠后留一条 64px 的图标窄栏（折叠 / + / 文件夹 / 设置竖着一列），
    用户 2026-09-19 明确要求「折起来之后左边全部隐藏」，所以整条侧边栏不再显示；
-   展开按钮改挂在 #app 上（.sidebar-toggle），落在顶栏那一行里。 */
+   展开按钮独立放在窗口标题栏里。 */
 #app.sidebar-collapsed .sidebar {
   display: none;
 }
@@ -2126,42 +2263,26 @@ body.resizing .content-resize-handle:not(.visible) {
 .chat-more:hover:not(:disabled),
 .project-folder-toggle:hover:not(:disabled),
 .workspace-add:hover:not(:disabled) {
-  background: rgba(56, 189, 248, 0.14);
+  background: var(--hover-soft);
   border-color: transparent;
-  color: #7dd3fc;
+  color: var(--text);
 }
 
 .send-button:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--accent-2), var(--accent));
-  color: #06283d;
-}
-
-[data-theme="light"] .icon-button:hover:not(:disabled),
-[data-theme="light"] .small-icon:hover:not(:disabled),
-[data-theme="light"] .project-add:hover:not(:disabled),
-[data-theme="light"] .project-more:hover:not(:disabled),
-[data-theme="light"] .chat-more:hover:not(:disabled),
-[data-theme="light"] .project-folder-toggle:hover:not(:disabled),
-[data-theme="light"] .workspace-add:hover:not(:disabled) {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--send-hover);
+  color: var(--send-text);
 }
 
 button.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+  background: var(--primary-hover);
   border-color: transparent;
-  color: #06283d;
+  color: var(--text);
 }
 
 .footer-button:hover:not(:disabled) {
   background: var(--panel-2);
   border-color: var(--border);
   color: var(--text);
-}
-
-[data-theme="light"] .footer-button:hover:not(:disabled) {
-  background: #e2e8f0;
-  color: #0f172a;
 }
 
 #app .bubble.assistant {
@@ -2217,13 +2338,9 @@ button.primary:hover:not(:disabled) {
 
 .composer-input:empty::before {
   content: attr(data-placeholder);
-  color: rgba(142, 160, 189, 0.55);
+  color: var(--muted);
   font-size: 13px;
   pointer-events: none;
-}
-
-[data-theme="light"] .composer-input:empty::before {
-  color: rgba(100, 116, 139, 0.55);
 }
 
 .composer-input.disabled {
@@ -2377,7 +2494,7 @@ button.primary:hover:not(:disabled) {
   line-height: 1;
 }
 
-/* 悬停加深，不继承全局 button:hover 的深蓝底/蓝边框 */
+/* 图片上的移除按钮使用中性深色，以保证图像内容上仍可辨认。 */
 .composer-attachment-remove:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.85);
   border-color: transparent;
@@ -2404,7 +2521,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--sidebar);
 }
 
 .settings-nav-item {
@@ -2416,7 +2533,7 @@ button.primary:hover:not(:disabled) {
   width: 100%;
   padding: 10px 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   font: inherit;
@@ -2425,12 +2542,12 @@ button.primary:hover:not(:disabled) {
 }
 
 .settings-nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--hover-soft);
   color: var(--text);
 }
 
 .settings-nav-item.active {
-  background: rgba(59, 130, 246, 0.16);
+  background: var(--selection-bg);
   color: var(--text);
 }
 
@@ -2493,7 +2610,7 @@ button.primary:hover:not(:disabled) {
   width: 150px;
   height: 36px;
   padding: 0 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   box-sizing: border-box;
   justify-content: flex-start;
 }
@@ -2518,7 +2635,7 @@ button.primary:hover:not(:disabled) {
   margin: 0;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: rgba(148, 163, 184, 0.25);
+  background: var(--switch-off);
   cursor: pointer;
   flex: none;
   transition: background 0.15s ease;
@@ -2532,16 +2649,17 @@ button.primary:hover:not(:disabled) {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--switch-knob);
   transition: transform 0.15s ease;
 }
 
 .settings-row input[type="checkbox"]:checked {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--send-bg);
+  border-color: var(--send-bg);
 }
 
 .settings-row input[type="checkbox"]:checked::before {
+  background: var(--send-text);
   transform: translateX(18px);
 }
 
@@ -2551,7 +2669,7 @@ button.primary:hover:not(:disabled) {
   gap: 8px;
   padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--panel-2);
   color: var(--text);
   font: inherit;
@@ -2574,11 +2692,12 @@ button.primary:hover:not(:disabled) {
   color: var(--text);
   padding: 9px 10px;
   font: inherit;
-  outline: none;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: 2px;
 }
 
 .settings-field input:focus {
-  border-color: #2b7fb8;
+  border-color: var(--focus);
 }
 
 .settings-actions-row {
@@ -2610,7 +2729,7 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--panel-2);
 }
 
 .provider-head {
@@ -2632,7 +2751,7 @@ button.primary:hover:not(:disabled) {
 .provider-badge {
   font-size: 11px;
   padding: 2px 7px;
-  border-radius: 999px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   color: var(--muted);
 }
@@ -2661,12 +2780,12 @@ button.primary:hover:not(:disabled) {
 }
 
 .ghost-button:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover-soft);
   color: var(--text);
 }
 
 .ghost-button.danger:hover {
-  color: #f87171;
+  color: var(--error-text);
 }
 
 .provider-body {
@@ -2718,7 +2837,8 @@ button.primary:hover:not(:disabled) {
   color: var(--text);
   padding: 9px 10px;
   font: inherit;
-  outline: none;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: 2px;
 }
 
 .model-dir-head {
@@ -2768,7 +2888,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .model-item.active {
-  border-color: #2b7fb8;
+  border-color: var(--hover-border);
 }
 
 .model-item-input {
@@ -2778,7 +2898,8 @@ button.primary:hover:not(:disabled) {
   border: 0;
   color: var(--text);
   font: inherit;
-  outline: none;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: 2px;
 }
 
 .model-item-pick,
@@ -2795,11 +2916,11 @@ button.primary:hover:not(:disabled) {
 .model-item-pick:hover,
 .model-item-remove:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover-soft);
 }
 
 .model-item-remove:hover {
-  color: #f87171;
+  color: var(--error-text);
 }
 
 .model-empty {
@@ -2831,7 +2952,7 @@ button.primary:hover:not(:disabled) {
 
 .provider-add:hover {
   color: var(--text);
-  border-color: #2b7fb8;
+  border-color: var(--border);
 }
 
 .settings-field select {
@@ -2841,11 +2962,12 @@ button.primary:hover:not(:disabled) {
   color: var(--text);
   padding: 9px 10px;
   font: inherit;
-  outline: none;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: 2px;
 }
 
 .settings-field select:focus {
-  border-color: #2b7fb8;
+  border-color: var(--focus);
 }
 
 /* Global dropdown / select polish */
@@ -2854,7 +2976,7 @@ select {
   appearance: none;
   -webkit-appearance: none;
   background-color: var(--panel-2);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23777777' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 9px center;
   background-size: 14px;
@@ -2863,7 +2985,7 @@ select {
 
 .composer-model {
   background-color: transparent;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23777777' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 2px center;
   background-size: 12px;
@@ -2937,7 +3059,7 @@ select {
 
 .dropdown-item:hover,
 .dropdown-item.active {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--hover-soft);
 }
 
 .dropdown-item .icon {
@@ -3018,7 +3140,7 @@ select {
 }
 
 .footer-button:hover:not(:disabled) {
-  background: rgba(148, 163, 184, 0.14);
+  background: var(--hover-soft);
   border: 0;
 }
 
@@ -3047,29 +3169,12 @@ select {
 
 .dropdown-menu,
 .context-menu {
-  box-shadow: none;
+  box-shadow: var(--shadow);
 }
 
 .modal-card,
 [data-theme="light"] .modal-card {
   background: var(--panel);
-}
-
-/* Theme-aware hover colors so controls do not turn dark in light theme */
-:root {
-  --hover-bg: #1d2d49;
-  --hover-border: #35507a;
-  --hover-soft: rgba(255, 255, 255, 0.07);
-  --hover-danger: #571515;
-  --hover-danger-border: #b91c1c;
-}
-
-[data-theme="light"] {
-  --hover-bg: #e2e8f0;
-  --hover-border: #cbd5e1;
-  --hover-soft: rgba(15, 23, 42, 0.06);
-  --hover-danger: #fee2e2;
-  --hover-danger-border: #fca5a5;
 }
 
 button:hover:not(:disabled) {
@@ -3079,7 +3184,7 @@ button:hover:not(:disabled) {
 
 button.danger:hover:not(:disabled) {
   background: var(--hover-danger);
-  border-color: var(--hover-danger-border);
+  border-color: var(--error-text);
 }
 
 .dropdown-item:hover,
@@ -3149,15 +3254,6 @@ button.danger:hover:not(:disabled) {
   justify-content: flex-start;
   gap: 8px;
   padding-left: 12px;
-}
-
-/* Scrollbars: hidden by default, visible on hover */
-:root {
-  --scrollbar-thumb: #3b4d6b;
-}
-
-[data-theme="light"] {
-  --scrollbar-thumb: #cbd5e1;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -3248,12 +3344,8 @@ button.danger:hover:not(:disabled) {
 
   .sidebar {
     display: flex;
-    padding: 52px 8px 12px; /* 顶上 52px 留给那一行的折叠按钮 */
+    padding: 12px 8px;
     align-items: center;
-  }
-
-  .sidebar-toggle {
-    left: 10px; /* 48 窄栏 − 8 内边距 − 30 按钮 */
   }
 
   .brand,
@@ -3554,103 +3646,6 @@ button.danger:hover:not(:disabled) {
 }
 
 /* ---------------------------------------------------------------
-   桌面壳（macOS）· 自绘标题栏
-   主进程用 titleBarStyle:'hidden' 去掉了系统标题栏那条白条
-   （见 shell/main.js / src/main/main.js 的 macWindowChrome()），
-   红黄绿按钮因此悬浮在页面左上角。这里补两件事：
-     1. 窗口最顶上一条整宽的 40px 区域，专门给鼠标按住拖窗口用
-        （原生标题栏没了，整条顶边都得能抓 —— 只给侧边栏那一段不够用）；
-     2. 把内容区整体下移同样高度，保证这条拖拽带下面压着的永远是空白，
-        不会吞掉消息区顶部的点击。
-   ⚠️ 长度是一对常量：下面 .shell-mac .content-frame 的 margin-top
-      必须等于这条带子的高度，改了要一起改（shell-chrome-smoke.js 会校验）。
-   trafficLightPosition 的 y 在主进程里，同样要对得上。
-   浏览器 / Windows / Linux 不带 .shell-mac，样式一律不变。
-   --------------------------------------------------------------- */
-
-/* 顶栏拖拽带本体（元素在 index.html / shell 各页面的 <body> 开头）。
-   默认 display:none —— 浏览器和 Win7 上它根本不存在。
-   必须是**真实元素**：拖拽区挂在伪元素上能不能被 Chromium 认下来没把握，
-   真实元素还能被 elementFromPoint 命中验证（见 scripts/shell-drag-smoke.js）。 */
-.titlebar-drag {
-  display: none;
-}
-
-.shell-mac .titlebar-drag {
-  display: block;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 40px;
-  z-index: 30;
-  -webkit-app-region: drag;
-}
-
-/* 内容区让开顶栏 ⇒ 拖拽带下面压着的永远是空白 */
-.shell-mac .content-frame {
-  margin-top: 40px;
-}
-
-/* 侧边栏顶部让位：把品牌行推到交通灯下方。
-   这里只负责布局，不负责拖拽 —— 拖拽交给上面的 .titlebar-drag 与品牌行本身。 */
-.shell-mac .sidebar::before {
-  content: '';
-  display: block;
-  width: 100%;
-  /* 36 = 22 的留白 + 14 的 flex gap，配合下面的负 margin，盒子一路顶到品牌行上沿，
-     视觉上看不出任何差别（盒子是透明的） */
-  height: 36px;
-  margin-bottom: -14px;
-  flex: 0 0 auto;
-}
-
-/* 品牌行本身就是一条好抓的拖拽区（真元素），顺手一起拖 */
-.shell-mac .brand {
-  -webkit-app-region: drag;
-}
-
-
-/* 品牌行里能点的东西必须退出拖拽区，否则按不动 */
-.shell-mac .brand button,
-.shell-mac .brand a,
-.shell-mac .brand input,
-.shell-mac .brand select,
-.shell-mac .brand .icon-button {
-  -webkit-app-region: no-drag;
-}
-
-/* 折叠 / 展开按钮在 macOS 上的位置：那条 40px 拖拽带就是「标题栏」，
-   按钮得跟红黄绿**中线对齐** —— 30px 按钮居中即 top = 灯心 − 15。
-   灯心是多少：`MAC_TRAFFIC_LIGHT.y = 16` 是簇的位置，**实测灯心落在 24**
-   （不是想当然的 16 + 6 = 22 —— 用户 2026-09-19 的截图量出来图标比灯高 4px，
-   反推灯心就是 24）。所以 top = 24 − 15 = 9。
-   它落在拖拽带里，必须 no-drag + z-index 压过带子（见 .sidebar-toggle 的 31），
-   否则既点不到、还会被当成拖窗口。 */
-.shell-mac .sidebar-toggle {
-  top: 9px;
-  -webkit-app-region: no-drag;
-}
-
-/* 折叠后左侧整片收起，按钮就跟在红黄绿右边（红黄绿从 x=16 起、总宽约 52）。
-   这是用户 2026-09-19 要的原生 macOS 观感：展开时贴侧边栏右缘、折叠后靠左。 */
-.shell-mac #app.sidebar-collapsed .sidebar-toggle {
-  left: 80px;
-}
-
-/* 页面操作按钮：与红黄绿同一条中线（灯心 24、按钮 30 ⇒ top 9），并且退出拖拽带
-   （-webkit-app-region 会继承给子按钮，写在容器上就够）。
-   折叠后 .sidebar-toggle 落在 80，这组按钮跟在它右边（80 + 30 + 8 = 118）。 */
-.shell-mac .page-actions {
-  top: 9px;
-  -webkit-app-region: no-drag;
-}
-
-.shell-mac #app.sidebar-collapsed .page-actions {
-  left: 118px;
-}
-
-/* ---------------------------------------------------------------
    右侧文件面板（一期）
    #app 从两列变三列：260px 侧边栏 | 1fr 会话 | var(--panel-width) 文件面板。
    收起时 .file-panel 直接 display:none，第三列不存在，布局跟以前一模一样。
@@ -3680,7 +3675,7 @@ button.danger:hover:not(:disabled) {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, var(--sidebar), #0b1222 100%);
+  background: var(--sidebar);
   border-left: 1px solid var(--border);
 }
 
@@ -3706,7 +3701,7 @@ button.danger:hover:not(:disabled) {
 
 .panel-resize:hover,
 body.resizing-panel .panel-resize {
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(56, 189, 248, 0.5), rgba(56, 189, 248, 0.12));
+  background: var(--resize-hover);
 }
 
 /* 文件列表 | 预览 之间的竖向分隔：跟面板左缘那条把手同一套做法，
@@ -3729,7 +3724,7 @@ body.resizing-panel .panel-resize {
    以前共用 body.resizing，结果拖这条另一条也跟着亮 —— 用户一眼就看出来了。 */
 .explorer-resize:hover,
 body.resizing-explorer .explorer-resize {
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(56, 189, 248, 0.5), rgba(56, 189, 248, 0.12));
+  background: var(--resize-hover);
 }
 
 /* 拖动时把预览区里的 iframe（PDF）打晕：不然鼠标一划过去事件被 iframe 吃掉，
@@ -3772,20 +3767,6 @@ body.resizing iframe {
   gap: 2px;
 }
 
-/* ⚠️ macOS 上这条不能省。
-   面板是从窗口最顶上开始铺的，.panel-head 因此整条落在 40px 顶栏拖拽带（z-index:30）底下；
-   带子又是 -webkit-app-region:drag，鼠标按下去直接变成「拖窗口」——
-   目录图标 / VS Code / 终端三枚按钮全点不动（真机 elementFromPoint 量过：
-   按钮中心回报的是 #titlebarDrag）。
-   跟 .sidebar-toggle 一样的配料：no-drag 退出拖拽区 + z-index 压过带子的 30。
-   **只抬按钮本身，不抬整条 .panel-head** —— head 的空白处仍然可以按住拖窗口。
-   Win/Linux 没有这条带子（.titlebar-drag 是 display:none），所以整块只在 .shell-mac 下生效。 */
-.shell-mac .panel-head .icon-button {
-  position: relative;
-  z-index: 31;
-  -webkit-app-region: no-drag;
-}
-
 /* 面板里的图标按钮比侧边栏那套小一号 */
 .file-panel .small-icon {
   width: 26px;
@@ -3798,10 +3779,10 @@ body.resizing iframe {
   height: 15px;
 }
 
-/* 目录图标激活态：跟 vscode 一样「按下去亮着」 */
+/* 目录图标使用灰色选中底，表示资源管理器已展开。 */
 .panel-explorer-toggle-on {
-  color: #7dd3fc;
-  background: rgba(56, 189, 248, 0.14);
+  color: var(--text);
+  background: var(--selection-bg);
 }
 
 /* 面板主体：左资源管理器 + 右标签页/预览 */
@@ -3814,7 +3795,7 @@ body.resizing iframe {
 .panel-explorer {
   flex: 0 0 var(--explorer-width, 210px);
   min-width: 0;
-  /* 纵向也要 min-height:0，否则这层 flex 列的中段（.panel-tree）拿不到确定高度、
+  /* 纵向也要 min-height: 0，否则这层 flex 列的中段（.panel-tree）拿不到确定高度、
      撑成内容高 —— 表现就是「文件列表没有滚动条」。 */
   min-height: 0;
   display: flex;
@@ -3909,12 +3890,12 @@ body.resizing iframe {
 }
 
 .tree-row:hover {
-  background: rgba(148, 163, 184, 0.12);
+  background: var(--hover-soft);
 }
 
 .tree-row.active {
-  background: rgba(56, 189, 248, 0.16);
-  color: #7dd3fc;
+  background: var(--selection-bg);
+  color: var(--text);
 }
 
 .tree-caret {
@@ -3953,12 +3934,12 @@ body.resizing iframe {
   height: 14px;
 }
 
-.tree-glyph.kind-code { color: #7dd3fc; }
-.tree-glyph.kind-markdown { color: #93c5fd; }
-.tree-glyph.kind-image { color: #86efac; }
-.tree-glyph.kind-pdf { color: #fca5a5; }
-.tree-glyph.kind-office { color: #fcd34d; }
-.tree-glyph.kind-archive { color: #d8b4fe; }
+.tree-glyph.kind-code { color: var(--muted); }
+.tree-glyph.kind-markdown { color: var(--muted); }
+.tree-glyph.kind-image { color: var(--muted); }
+.tree-glyph.kind-pdf { color: var(--muted); }
+.tree-glyph.kind-office { color: var(--muted); }
+.tree-glyph.kind-archive { color: var(--muted); }
 
 .tree-label {
   flex: 1;
@@ -3980,7 +3961,7 @@ body.resizing iframe {
 }
 
 .tree-error {
-  color: #fca5a5;
+  color: var(--error-text);
 }
 
 /* ---- 标签页 ---- */
@@ -4032,12 +4013,12 @@ body.resizing iframe {
 }
 
 .panel-tab:hover {
-  background: rgba(148, 163, 184, 0.1);
+  background: var(--hover-soft);
 }
 
 .panel-tab.active {
   color: var(--text);
-  background: rgba(56, 189, 248, 0.1);
+  background: var(--selection-bg);
   border-bottom-color: var(--accent);
 }
 
@@ -4052,7 +4033,7 @@ body.resizing iframe {
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
-  /* ⚠️ 必须 padding:0 —— 通用 button 规则的 8px 12px 会漏进来，
+  /* ⚠️ 必须 padding: 0 —— 通用 button 规则的 8px 12px 会漏进来，
      border-box 下内容区 18−24 = 0px，svg 被挤成 0 宽（× 从此隐形，用户截图骂过两次） */
   padding: 0;
   display: flex;
@@ -4076,7 +4057,7 @@ body.resizing iframe {
 
 .panel-tab-close:hover {
   opacity: 1;
-  background: rgba(148, 163, 184, 0.22);
+  background: var(--hover-soft);
 }
 
 /* ⚠️ renderIcon 返回的是裸 svg，没有 .icon 包裹层 —— 选择器别写成 .icon svg（永远匹配不上） */
@@ -4121,7 +4102,7 @@ body.resizing iframe {
   gap: 8px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
-  background: rgba(148, 163, 184, 0.05);
+  background: var(--hover-soft);
   font-size: 11px;
   position: sticky;
   top: 0;
@@ -4157,13 +4138,13 @@ body.resizing iframe {
 
 .preview-bar-btn.active {
   border-color: var(--accent);
-  background: rgba(56, 189, 248, 0.14);
+  background: var(--selection-bg);
   color: var(--accent);
 }
 
 .preview-bar-btn.danger {
   border-color: rgba(248, 113, 113, 0.5);
-  color: #fca5a5;
+  color: var(--error-text);
 }
 
 .preview-bar-btn.hidden {
@@ -4185,8 +4166,8 @@ body.resizing iframe {
   text-overflow: ellipsis;
 }
 
-.editor-status.warn { color: #fcd34d; }
-.editor-status.error { color: #fca5a5; }
+.editor-status.warn { color: var(--warning-text); }
+.editor-status.error { color: var(--error-text); }
 
 /* textarea 必须显式继承等宽字体/行高，否则默认的 monospace 13px 会和
    <pre> 的排版差一截，同一个文件在预览和编辑两边看起来不是一份东西 */
@@ -4203,7 +4184,8 @@ body.resizing iframe {
   padding: 10px 12px;
   border: 0;
   border-radius: 0;
-  outline: none;
+  outline: 2px solid var(--control-outline, transparent);
+  outline-offset: -2px;
   resize: none;
   background: transparent;
   color: var(--text);
@@ -4227,7 +4209,7 @@ body.resizing iframe {
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border);
-  background: #0d1424;
+  background: var(--panel);
 }
 
 .panel-terminal.hidden {
@@ -4246,7 +4228,7 @@ body.resizing iframe {
 /* 高亮用独立的 body.resizing-term（各把手各用各的类，别共用） */
 .terminal-resize:hover,
 body.resizing-term .terminal-resize {
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(56, 189, 248, 0.5), rgba(56, 189, 248, 0.12));
+  background: var(--resize-hover);
 }
 
 .terminal-head {
@@ -4262,7 +4244,7 @@ body.resizing-term .terminal-resize {
   flex: 0 0 auto;
   font-size: 12px;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--muted);
   letter-spacing: 0.4px;
 }
 
@@ -4274,7 +4256,7 @@ body.resizing-term .terminal-resize {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--muted);
   direction: rtl;
   text-align: right;
 }
@@ -4300,7 +4282,7 @@ body.resizing-term .terminal-resize {
 }
 
 .terminal-dirs::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--scrollbar-thumb);
   border-radius: 8px;
 }
 
@@ -4311,7 +4293,7 @@ body.resizing-term .terminal-resize {
   padding: 1px 2px;
   border: 0;
   background: transparent;
-  color: #cbd5e1;
+  color: var(--text);
   font-size: 12px;
   cursor: pointer;
   max-width: 100%;
@@ -4326,8 +4308,8 @@ body.resizing-term .terminal-resize {
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  background: #1c2a4a;
-  color: #7dd3fc;
+  background: var(--panel-2);
+  color: var(--text);
   font-size: 10px;
   font-weight: 700;
 }
@@ -4337,29 +4319,29 @@ body.resizing-term .terminal-resize {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-decoration: underline;
-  text-decoration-color: #334155;
+  text-decoration-color: var(--border);
   text-underline-offset: 2px;
 }
 
 .terminal-dir-item:hover .terminal-dir-name {
-  color: #f1f5f9;
-  text-decoration-color: #7dd3fc;
+  color: var(--text);
+  text-decoration-color: var(--border);
 }
 
 .terminal-dir-item.on .terminal-dir-num {
-  background: #38bdf8;
-  color: #0b1220;
+  background: var(--send-bg);
+  color: var(--send-text);
 }
 
 .terminal-dir-item.on .terminal-dir-name {
-  color: #7dd3fc;
+  color: var(--text);
 }
 
 .terminal-dirs-hint {
   flex: 0 0 auto;
   align-self: center;
   margin-left: auto;
-  color: #475569;
+  color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -4370,7 +4352,7 @@ body.resizing-term .terminal-resize {
   min-height: 0;
   overflow: hidden;
   padding: 4px 8px;
-  background: #0d1424;
+  background: #1b1b1b;
 }
 
 /* 终端永远深色（跟 VS Code 一样，浅色主题下终端也保持深底更真实） */
@@ -4400,14 +4382,8 @@ body.resizing-term .terminal-resize {
 .panel-tree::-webkit-scrollbar-thumb,
 .panel-preview::-webkit-scrollbar-thumb,
 .terminal-out::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--scrollbar-thumb);
   border-radius: 8px;
-}
-
-[data-theme="light"] .panel-tree::-webkit-scrollbar-thumb,
-[data-theme="light"] .panel-preview::-webkit-scrollbar-thumb,
-[data-theme="light"] .terminal-out::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
 }
 
 .panel-placeholder {
@@ -4476,7 +4452,7 @@ body.resizing-term .terminal-resize {
 .preview-markdown code {
   font-family: "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 12.5px;
-  background: rgba(148, 163, 184, 0.16);
+  background: var(--code-bg);
   border-radius: 4px;
   padding: 1px 4px;
 }
@@ -4487,11 +4463,11 @@ body.resizing-term .terminal-resize {
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(2, 6, 23, 0.5);
+  background: var(--code-bg);
 }
 
 .preview-markdown pre code {
-  background: transparent;
+  background: var(--code-bg);
   padding: 0;
 }
 
@@ -4552,7 +4528,7 @@ body.resizing-term .terminal-resize {
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(17, 28, 49, 0.7);
+  background: var(--panel);
 }
 
 .preview-card-title {
@@ -4584,7 +4560,7 @@ body.resizing-term .terminal-resize {
 }
 
 /* 高亮配色（highlight.js 输出的 .hl-*）—— 深浅两套 */
-.panel-preview .hl-comment { color: #6b7f99; font-style: italic; }
+.panel-preview .hl-comment { color: #a0a0a0; font-style: italic; }
 .panel-preview .hl-string { color: #a5e6a5; }
 .panel-preview .hl-number { color: #f0b775; }
 .panel-preview .hl-keyword { color: #ff8fb3; }
@@ -4594,9 +4570,9 @@ body.resizing-term .terminal-resize {
 .panel-preview .hl-key { color: #7dd3fc; }
 .panel-preview .hl-literal { color: #f0b775; }
 .panel-preview .hl-type { color: #86efac; }
-.panel-preview .hl-variable { color: #e6edf7; }
+.panel-preview .hl-variable { color: #eeeeee; }
 .panel-preview .hl-operator { color: #c4b5fd; }
-.panel-preview .hl-punct { color: #8ea0bd; }
+.panel-preview .hl-punct { color: #aaaaaa; }
 .panel-preview .hl-selector { color: #fcd34d; }
 .panel-preview .hl-property { color: #7dd3fc; }
 .panel-preview .hl-pseudo { color: #c4b5fd; }
@@ -4604,12 +4580,12 @@ body.resizing-term .terminal-resize {
 .panel-preview .hl-template { color: #a5e6a5; }
 .panel-preview .hl-decorator { color: #fcd34d; }
 .panel-preview .hl-preproc { color: #c4b5fd; }
-.panel-preview .hl-doctype { color: #6b7f99; }
+.panel-preview .hl-doctype { color: #a0a0a0; }
 .panel-preview .hl-option { color: #fcd34d; }
 .panel-preview .hl-insert { color: #86efac; }
 .panel-preview .hl-delete { color: #fca5a5; }
 
-[data-theme="light"] .panel-preview .hl-comment { color: #7c8899; }
+[data-theme="light"] .panel-preview .hl-comment { color: #666666; }
 [data-theme="light"] .panel-preview .hl-string { color: #0f7b3f; }
 [data-theme="light"] .panel-preview .hl-number { color: #b45309; }
 [data-theme="light"] .panel-preview .hl-keyword { color: #b91c5c; }
@@ -4619,9 +4595,9 @@ body.resizing-term .terminal-resize {
 [data-theme="light"] .panel-preview .hl-key { color: #0369a1; }
 [data-theme="light"] .panel-preview .hl-literal { color: #b45309; }
 [data-theme="light"] .panel-preview .hl-type { color: #15803d; }
-[data-theme="light"] .panel-preview .hl-variable { color: #17233a; }
+[data-theme="light"] .panel-preview .hl-variable { color: #252525; }
 [data-theme="light"] .panel-preview .hl-operator { color: #6d28d9; }
-[data-theme="light"] .panel-preview .hl-punct { color: #64748b; }
+[data-theme="light"] .panel-preview .hl-punct { color: #666666; }
 [data-theme="light"] .panel-preview .hl-selector { color: #a16207; }
 [data-theme="light"] .panel-preview .hl-property { color: #0369a1; }
 [data-theme="light"] .panel-preview .hl-pseudo { color: #6d28d9; }
@@ -4629,53 +4605,14 @@ body.resizing-term .terminal-resize {
 [data-theme="light"] .panel-preview .hl-template { color: #0f7b3f; }
 [data-theme="light"] .panel-preview .hl-decorator { color: #a16207; }
 [data-theme="light"] .panel-preview .hl-preproc { color: #6d28d9; }
-[data-theme="light"] .panel-preview .hl-doctype { color: #7c8899; }
+[data-theme="light"] .panel-preview .hl-doctype { color: #666666; }
 [data-theme="light"] .panel-preview .hl-option { color: #a16207; }
 [data-theme="light"] .panel-preview .hl-insert { color: #15803d; }
 [data-theme="light"] .panel-preview .hl-delete { color: #b91c5c; }
 
-/* 浅色主题下不能用 --sidebar —— renderer-smoke 有一条断言专门守「侧边栏底部不再用
-   --sidebar 实心底」（那是为了修底部渐隐留的），写上去会误伤。浅色下用 --panel。 */
+/* 文件预览在白色主题下使用白色面板。 */
 [data-theme="light"] .file-panel {
   background: var(--panel);
-}
-
-[data-theme="light"] .preview-card {
-  background: var(--panel);
-}
-
-[data-theme="light"] .preview-markdown pre {
-  background: #f6f8fb;
-}
-
-[data-theme="light"] .tree-row.active {
-  color: #0369a1;
-}
-
-[data-theme="light"] .panel-explorer-toggle-on {
-  color: #0369a1;
-  background: #dbeafe;
-}
-
-/* ---- 面板折叠按钮：与左边那枚左右镜像 ----
-   收起时贴窗口最右（right:16），展开时让开面板宽度、停在会话区右上角。
-   z-index 31 压过 macOS 的拖拽带（30），否则点不到。 */
-.panel-toggle {
-  position: absolute;
-  top: 22px;
-  right: 16px;
-  z-index: 31;
-  transition: right 0.18s ease;
-}
-
-#app.panel-open .panel-toggle {
-  right: calc(var(--panel-width, 420px) + 16px);
-}
-
-/* macOS：跟红黄绿同一中线（灯心 24，按钮 30 ⇒ top 9），并且要退出拖拽带 */
-.shell-mac .panel-toggle {
-  top: 9px;
-  -webkit-app-region: no-drag;
 }
 
 /* 窄窗口：三列挤不下，面板啃掉与会话区的一半少一点 */
@@ -4715,36 +4652,11 @@ html.chat-hidden .panel-resize {
   display: none;
 }
 
-/* ⚠️ 「只看文件」模式下左右两枚折叠按钮都得退场（用户 2026-09-19：
-   「code 模式默认左右侧折叠按钮肯定就没有了」）。
-   不退场的后果是真机量出来的：#panelToggle (30x30, right:16) 正好压在
-   .panel-head 右侧那组 VS Code / 终端按钮上 —— 顶栏「跌到一起」、点不动；
-   #sidebarToggle 则飘在文件列表顶上。出口就是面板顶栏那枚 VS Code 图标。 */
-html.chat-hidden .panel-toggle,
-html.chat-hidden .sidebar-toggle,
-html.chat-hidden .page-actions {
-  display: none;
-}
-
-/* ⚠️ 「只看文件」模式下面板顶到窗口最左，.panel-head 会跟红黄绿叠在一起
-   （用户截图量过：标题「测试项目」就贴在灯旁边）。
-   红黄绿占 x=16..68（三颗 12px 圆、圆心 22/42/62），靠左让到 80 再开始排。
-   只在 macOS（.shell-mac）需要 —— Win/Linux 没有这簇灯。 */
-.shell-mac.chat-hidden .panel-head {
-  padding-left: 80px;
-}
-
-/* 折叠按钮的「已展开」态：跟目录图标一样亮着，一眼看出当前状态 */
+/* 折叠按钮的已展开状态与目录图标使用一致的灰色选中底。 */
 .panel-toggle.active,
 .icon-button.active {
-  color: #7dd3fc;
-  background: rgba(56, 189, 248, 0.14);
-}
-
-[data-theme="light"] .panel-toggle.active,
-[data-theme="light"] .icon-button.active {
-  color: #0369a1;
-  background: #dbeafe;
+  color: var(--text);
+  background: var(--selection-bg);
 }
 
 /* ---- 终端占位提示带（三期接入真终端后整块删掉）---- */
@@ -4755,7 +4667,7 @@ html.chat-hidden .page-actions {
   gap: 8px;
   padding: 7px 8px 7px 12px;
   border-top: 1px solid var(--border);
-  background: rgba(56, 189, 248, 0.08);
+  background: var(--selection-bg);
   color: var(--muted);
   font-size: 12px;
 }
@@ -4792,7 +4704,7 @@ html.chat-hidden .page-actions {
 }
 
 .terminal-tab.on {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover-soft);
   color: var(--text);
 }
 
@@ -4806,7 +4718,7 @@ html.chat-hidden .page-actions {
 }
 
 .terminal-tab-close:hover {
-  color: #f87171;
+  color: var(--error-text);
 }
 
 .terminal-new {

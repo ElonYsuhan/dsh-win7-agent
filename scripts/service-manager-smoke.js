@@ -179,7 +179,12 @@ async function groupD() {
         PORT: String(port),
         HOST: '127.0.0.1',
         AGENT_HOME: agentHome,
-        ELECTRON_RUN_AS_NODE: ''
+        /* 必须是 '1'。写成空串等于「没开 run-as-node」——Electron 会按 GUI 模式起进程，
+           白白拉一个 GPU 子进程；在起不来沙箱的环境里那个 GPU 进程直接 FATAL
+           （GPU process isn't usable. Goodbye.），把整个服务进程带走，
+           于是 D5「端口被占顺延」会假红：第一个服务莫名死了，第二个当然抢得到同一个端口。
+           生产代码 shell/service-manager.js 用的就是 '1'，这里必须和它对得上。 */
+        ELECTRON_RUN_AS_NODE: '1'
       }, extraEnv || {}),
       stdio: ['ignore', 'pipe', 'pipe']
     })

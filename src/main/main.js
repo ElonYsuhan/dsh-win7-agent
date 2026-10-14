@@ -3,7 +3,9 @@
 const fs = require('fs')
 const path = require('path')
 const url = require('url')
-const { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences, nativeTheme } = require('electron')
+const { hideApplicationMenu, configureWindowMenu } = require('../../shell/menu')
+const { windowChromeOptions, controlsSide, windowState, applyWindowAction, attachWindowChrome, normalizeTheme, windowBackground, applyWindowTheme } = require('../../shell/window-chrome')
 const { Settings } = require('./agent/settings')
 const { AgentPool } = require('./agent/agent-pool')
 const { fetchModelList } = require('./agent/model-list')
@@ -24,33 +26,9 @@ function sendEvent(event) {
   mainWindow.webContents.send('agent:event', event)
 }
 
-/**
- * macOS 上把系统标题栏藏掉（与 shell/main.js 同款，改一处记得改另一处）。
- *
- * 原生那条标题栏是白的，压在深色界面顶上像块白纸条。titleBarStyle:'hidden'
- * 之后红黄绿按钮改为悬浮在页面左上角，渲染层靠 preload 打的 .shell-mac 类
- * 让位并自建拖拽区（见 src/renderer/style.css）。
- *
- * Windows / Linux 不动：那边标题栏本来就跟着深色走，Win7 上 titleBarOverlay 也不可用。
- */
-const MAC_TRAFFIC_LIGHT = { x: 16, y: 16 }
-function macWindowChrome() {
-  if (process.platform !== 'darwin') return {}
-  return { titleBarStyle: 'hidden', trafficLightPosition: MAC_TRAFFIC_LIGHT }
-}
-
-/**
- * macOS 上双击顶栏该干什么（缩放窗口 / 最小化 / 什么都不做）。
- *
- * 原生标题栏是我们自己藏掉的，AppKit 那套「双击标题栏」手势跟着一起没了。Electron
- * 明确把这件事留给应用自己实现（electron#16385），所以只能在渲染层挂 dblclick 再回
- * 主进程动手。动作取自系统偏好 AppleActionOnDoubleClick（系统设置 → 桌面与程序坞 →
- * 「双击窗口的标题栏以」），macOS 默认值是 Maximize。
- *
- * 与 shell/main.js 同款，改一处记得改另一处。preferences 只为方便冒烟注入。
- */
+/* 双击独立顶栏：macOS 尊重系统偏好，Windows/Linux 切换最大化。 */
 function titlebarDoubleClickAction(preferences) {
-  if (process.platform !== 'darwin') return 'none'
+  if (process.platform !== 'darwin') return 'maximize'
   let value = 'Maximize'
   try {
     const prefs = preferences || systemPreferences
@@ -84,9 +62,10 @@ function createWindow() {
     minHeight: 640,
     title: 'Agent',
     icon: path.join(__dirname, '..', 'renderer', 'logo.png'),
-    backgroundColor: '#111827',
-    ...macWindowChrome(),
+    backgroundColor: windowBackground(settings.data.theme),
+    ...windowChromeOptions(),
     webPreferences: {
+      additionalArguments: ['--dsh-controls-side=' + controlsSide(), '--dsh-theme=' + normalizeTheme(settings.data.theme)],
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -95,6 +74,8 @@ function createWindow() {
     }
   })
 
+  configureWindowMenu(mainWindow, { onQuit: () => app.quit(), onHide: () => app.hide() })
+  attachWindowChrome(mainWindow)
   mainWindow.loadURL(url.pathToFileURL(path.join(__dirname, '..', 'renderer', 'index.html')).toString())
 
   /* 外链（http/https）交给系统默认浏览器，其余一律拒绝开新窗口 */
@@ -161,7 +142,9 @@ function createAgent() {
 }
 
 app.whenReady().then(() => {
+  hideApplicationMenu(Menu)
   createAgent()
+  applyWindowTheme([], settings.data.theme, nativeTheme)
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -186,10 +169,21 @@ ipcMain.on('shell:titlebar-dblclick', (event) => {
   applyTitlebarDoubleClick(BrowserWindow.fromWebContents(event.sender), titlebarDoubleClickAction())
 })
 
+ipcMain.handle('window:theme', () => normalizeTheme(settings && settings.data.theme))
+ipcMain.on('window:theme', (event, value) => {
+  if (!mainWindow || mainWindow.isDestroyed() || BrowserWindow.fromWebContents(event.sender) !== mainWindow) return
+  if (value !== 'light' && value !== 'dark') return
+  applyWindowTheme([mainWindow], value, nativeTheme)
+})
+
+ipcMain.handle('window:state', (event) => windowState(BrowserWindow.fromWebContents(event.sender)))
+ipcMain.handle('window:action', (event, action) => applyWindowAction(BrowserWindow.fromWebContents(event.sender), action))
+
 ipcMain.handle('app:get-state', () => stateValue())
 
 ipcMain.handle('settings:save', (_event, patch) => {
   const next = settings.update(patch || {})
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'theme')) applyWindowTheme([mainWindow], next.theme, nativeTheme)
   if (next.workspacePath) pool.setWorkspace(next.workspacePath)
   return next
 })

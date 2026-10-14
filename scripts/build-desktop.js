@@ -12,7 +12,7 @@
  *   node scripts/build-desktop.js mac-x64         // Intel Mac，默认不出，需要时显式点名
  *
  * 产物结构（以 win-x64 为例）：
- *   release/desktop/Agent-win-x64/
+ *   release/desktop/Agent-win-x64-<version>/
  *     Agent.exe                   双击入口（聊天界面）
  *     [Electron 运行时：dll / pak / dat / locales / ...]
  *     resources/app/
@@ -358,7 +358,7 @@ function fillAppDir(appDir, mark) {
   //      打包后 404」。所以下面顺手对账一次，宁可构建失败也别把坏包发出去。
   const serviceDir = path.join(appDir, 'service')
   mkdirp(serviceDir)
-  const SERVICE_FILES = ['index.js', 'settings-store.js', 'file-api.js', 'terminal-api.js', 'ui-store.js']
+  const SERVICE_FILES = ['index.js', 'settings-store.js', 'file-api.js', 'native-folder.js', 'terminal-api.js', 'ui-store.js']
   for (const name of SERVICE_FILES) {
     copyFile(path.join(ROOT, 'server', name), path.join(serviceDir, name))
   }
@@ -542,7 +542,7 @@ function desktopReadme(targetKey) {
     '',
     '改用内网服务器上的服务',
     '----------------------',
-    '菜单 Service -> Settings，把服务模式改成「远程服务」并填写地址，',
+    '按 Cmd+,（macOS）或 Ctrl+,（Windows/Linux）打开服务设置，把服务模式改成「远程服务」并填写地址，',
     '例如 http://192.168.1.10:8080/ ，即可让本机只当客户端。',
     '',
     'Windows 7 前置条件',
@@ -649,7 +649,7 @@ async function buildTarget(targetKey, options) {
   log('=== building ' + targetKey + ' ===')
 
   const unpacked = await ensureDist(targetKey)
-  const outDir = path.join(OUT_ROOT, APP_NAME + '-' + targetKey)
+  const outDir = path.join(OUT_ROOT, APP_NAME + '-' + targetKey + '-' + PRODUCT_VERSION)
   // 先改名让位再删：改名失败=真有实例占着（报错退出），删除失败=只是环境的批量删除保护
   clearOutDir(outDir)
   mkdirp(outDir)

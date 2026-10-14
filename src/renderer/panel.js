@@ -1974,10 +1974,10 @@
       /* buffer API 是 proposed：不开这个，访问 term.buffer 直接抛异常 */
       allowProposedApi: true,
       theme: {
-        background: '#0d1424',
-        foreground: '#cbd5e1',
-        cursor: '#67e8f9',
-        selectionBackground: '#334155'
+        background: '#1b1b1b',
+        foreground: '#eeeeee',
+        cursor: '#dddddd',
+        selectionBackground: '#444444'
       }
     })
     try {

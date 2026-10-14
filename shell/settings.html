@@ -7,9 +7,12 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- 桌面壳（macOS）的顶栏拖拽带：整条窗口顶边都能按住拖窗口。
-       默认 display:none，只有 <html> 带 .shell-mac 时才出现（见 style.css）。 -->
-  <div id="titlebarDrag" class="titlebar-drag" aria-hidden="true"></div>
+  <header id="titlebarDrag" class="titlebar-drag" aria-label="窗口标题栏">
+    <span class="titlebar-app-name">Agent</span>
+    <span class="titlebar-divider" aria-hidden="true"></span>
+    <span id="windowTitle" class="window-title">服务设置</span>
+  </header>
+  <main class="shell-content">
   <div class="card">
     <h1>服务设置</h1>
     <p class="muted">选择本地自动模式，双击即可使用；或连接内网其他机器上的服务。</p>
@@ -55,6 +58,7 @@
     </div>
     <div id="status" class="status"></div>
   </div>
+  </main>
   <script src="settings.js"></script>
 </body>
 </html>

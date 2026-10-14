@@ -8,30 +8,25 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- 桌面壳（macOS）的顶栏拖拽带：整条窗口顶边都能按住拖窗口。
-       默认 display:none，只有 <html> 带 .shell-mac 时才出现（见 style.css）。 -->
-  <div id="titlebarDrag" class="titlebar-drag" aria-hidden="true"></div>
-  <div id="app">
-    <!-- 折叠/展开按钮：在顶栏那一行里（macOS 上与红黄绿同高，见 style.css 的 .sidebar-toggle）。
-         放在 #app 下而不是侧边栏里 —— 折叠后整个侧边栏都不显示了，按钮必须留在外面，
-         否则折起来就再也点不回去。 -->
-    <button id="sidebarToggle" class="icon-button sidebar-toggle" title="折叠侧边栏"><span class="icon" data-icon="panel"></span></button>
-    <!-- 顶栏那一行里的页面操作：刷新整页 / 在浏览器打开并复制链接。
-         放在 #app 下（和折叠按钮同一层）—— 侧边栏折叠后也照样能用。
-         整页本来就是一个网页（桌面壳也是从本地服务 loadURL 起来的），
-         所以「刷新」就是 location.reload()；「链接」就是 location.origin。 -->
+  <!-- 标题栏独立占一行，窗口按钮和页面操作不进入下方内容区域。 -->
+  <header id="titlebarDrag" class="titlebar-drag" aria-label="窗口标题栏">
+    <button id="sidebarToggle" type="button" class="icon-button sidebar-toggle" title="折叠侧边栏" aria-label="折叠侧边栏" aria-controls="sidebar" aria-expanded="true"><span class="icon" data-icon="panel" aria-hidden="true"></span></button>
+    <button id="restoreChat" type="button" class="titlebar-restore" title="返回聊天" aria-label="返回聊天"><span class="icon" data-icon="panel" aria-hidden="true"></span><span>返回聊天</span></button>
     <div id="pageActions" class="page-actions">
-      <button id="pageRefresh" class="icon-button" title="刷新页面"><span class="icon" data-icon="refresh"></span></button>
-      <button id="pageShare" class="icon-button" title="在浏览器中打开并复制链接"><span class="icon" data-icon="external"></span></button>
+      <button id="pageRefresh" type="button" class="icon-button" title="刷新页面" aria-label="刷新页面"><span class="icon" data-icon="refresh" aria-hidden="true"></span></button>
+      <button id="pageShare" type="button" class="icon-button" title="在浏览器中打开并复制链接" aria-label="在浏览器中打开并复制链接"><span class="icon" data-icon="external" aria-hidden="true"></span></button>
     </div>
-    <aside class="sidebar">
-      <div class="brand">
-        <span class="brand-logo">
-          <img src="logo.png" alt="Agent" width="22" height="22">
-        </span>
-        <span class="brand-title">Agent</span>
-        <span id="brandBadge" class="brand-badge"></span>
-      </div>
+    <div class="titlebar-brand">
+      <img src="logo.png" alt="" width="20" height="20">
+      <span class="titlebar-app-name">Agent</span>
+      <span id="brandBadge" class="brand-badge"></span>
+    </div>
+    <span class="titlebar-divider" aria-hidden="true"></span>
+    <span id="windowTitle" class="window-title">新会话</span>
+    <button id="panelToggle" type="button" class="icon-button panel-toggle" title="展开文件面板" aria-label="展开文件面板" aria-controls="filePanel" aria-expanded="false"><span class="icon" data-icon="panel-right" aria-hidden="true"></span></button>
+  </header>
+  <div id="app">
+    <aside id="sidebar" class="sidebar">
       <div class="sidebar-rail">
         <button id="railNewSession" class="rail-button" title="&#26032;&#24314;&#20250;&#35805;"><span class="icon" data-icon="plus"></span></button>
         <button id="railCreateWorkspace" class="rail-button" title="&#26032;&#24314;&#24037;&#20316;&#21306;"><span class="icon" data-icon="folder"></span></button>
@@ -102,9 +97,6 @@
       </div>
       </div>
     </main>
-    <!-- 右侧文件面板的折叠/展开按钮：与左边那枚 .sidebar-toggle 左右镜像 ——
-         展开时贴在面板左缘（落在聊天区右上角），收起时回到窗口最右。 -->
-    <button id="panelToggle" class="icon-button panel-toggle" title="展开文件面板"><span class="icon" data-icon="panel-right"></span></button>
     <!-- 右侧文件面板。收起时 .file-panel 直接 display:none，第三列宽度归零（见 style.css）。
          面板自带两栏：左边资源管理器（目录树），右边标签页 + 预览。 -->
     <aside id="filePanel" class="file-panel" aria-hidden="true">

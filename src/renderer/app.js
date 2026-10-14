@@ -381,6 +381,10 @@ async function loadSessionStore() {
       /* GET 失败：回落 localStorage，行为同旧版 */
     }
   }
+  /* 迁移会立即双写。先恢复当前会话，否则首轮 PUT 会把服务端记录的
+     currentSessionId 覆盖成启动时的空串，最近会话在下次启动时就恢复不了。 */
+  const savedSession = findSessionById(readSavedCurrentSessionId())
+  state.currentSessionId = savedSession ? savedSession.id : ''
   migrateSessionStore()
 }
 
@@ -589,11 +593,11 @@ function getRecentSessions() {
 }
 
 function createSession(projectId, title, scope) {
-  if (not(projectId)) return null
   const isRecent = scope === 'recent'
+  if (not(projectId) && not(isRecent)) return null
   const session = {
     id: 'session_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    projectId,
+    projectId: projectId || '',
     scope: isRecent ? 'recent' : 'project',
     workspacePath: state.workspacePath || '',
     title: title || '\u65b0\u4f1a\u8bdd',
@@ -637,6 +641,21 @@ function ensureProjectSession(projectId) {
 
 function currentSession() {
   return findSessionById(state.currentSessionId)
+}
+
+function renderWindowTitle() {
+  const element = byId('windowTitle')
+  if (not(element)) return
+  const session = currentSession()
+  const projectId = state.activeProjectId || (state.settings && state.settings.currentProjectId)
+  const panelTitle = byId('panelTitle')
+  const fileOnly = document.documentElement.classList.contains('chat-hidden')
+  const title = fileOnly
+    ? ((panelTitle && panelTitle.textContent) || '文件')
+    : ((session && session.title) || getProjectName(projectId) || workspaceLabel(state.workspacePath) || '新会话')
+  if (element.textContent !== title) element.textContent = title
+  element.title = title
+  document.title = title + ' · Agent'
 }
 
 function findSessionById(sessionId) {
@@ -1334,6 +1353,7 @@ function renderChatList() {
 function renderWorkspaceList() {
   renderProjectList()
   renderChatList()
+  renderWindowTitle()
 }
 
 
@@ -1980,6 +2000,8 @@ function formatError(message) {
   if (value.startsWith('LLM_TIMEOUT')) return '\u6a21\u578b\u8bf7\u6c42\u8d85\u65f6\uff0c\u8bf7\u68c0\u67e5\u670d\u52a1\u5730\u5740\u548c\u6a21\u578b\u662f\u5426\u6b63\u5e38\u52a0\u8f7d'
   if (value.startsWith('MODEL_NOT_CONFIGURED:')) return value.slice('MODEL_NOT_CONFIGURED:'.length).trim()
   if (value.startsWith('WORKSPACE_NOT_SET')) return '\u8bf7\u5148\u9009\u62e9\u6216\u65b0\u5efa\u672c\u5730\u5de5\u4f5c\u533a\u76ee\u5f55'
+  if (value === 'AGENT_EVENT_DISCONNECTED' || value === 'AGENT_EVENT_CONNECT_TIMEOUT') return '消息连接未建立，请检查服务连接后重新发送'
+  if (value === 'NO_NATIVE_OPENER') return '当前桌面版本无法打开工作区目录，请更新客户端'
   return value.replace(/^LLM_HTTP_(\d+): /, '\u6a21\u578b\u670d\u52a1\u8fd4\u56de $1: ')
 }
 
@@ -2939,9 +2961,16 @@ async function sendMessage() {
     return
   }
   let session = currentSession()
-  if (not(session) && state.settings && state.settings.currentProjectId) {
-    session = createSession(state.settings.currentProjectId)
+  if (not(session)) {
+    /* 首页直接发送与「新建会话」一样生成最近会话；选中空项目后发送，
+       则归入该项目。独立工作区不一定已经建项目，也必须有自己的会话 id。 */
+    const projectId = state.activeProjectId || ''
+    const scope = projectId ? 'project' : 'recent'
+    session = createSession(projectId || (state.settings && state.settings.currentProjectId), undefined, scope)
     state.currentSessionId = session.id
+    state.activeProjectId = scope === 'project' ? session.projectId : ''
+    if (scope === 'project') state.expandedProjects[session.projectId] = true
+    saveCurrentSessionId(session.id)
   }
   const sessionId = session ? session.id : ''
   const history = session && Array.isArray(session.messages) ? session.messages.slice() : []
@@ -3341,17 +3370,56 @@ function setupSidebarToggle() {
   const app = byId('app')
   const button = byId('sidebarToggle')
   if (not(app) || not(button)) return
-  const setCollapsed = (collapsed) => {
+  const setCollapsed = (collapsed, persist) => {
     app.classList.toggle('sidebar-collapsed', collapsed)
     button.title = collapsed ? '\u5c55\u5f00\u4fa7\u8fb9\u680f' : '\u6298\u53e0\u4fa7\u8fb9\u680f'
-    localStorage.setItem('dsh-sidebar-collapsed', collapsed ? '1' : '0')
-    /* 双写服务端：跨端口也要同一份折叠状态（init 里 loadSessionStore 后还会校正一次） */
-    scheduleUiStorePush()
+    button.setAttribute('aria-label', button.title)
+    button.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
+    if (persist) {
+      localStorage.setItem('dsh-sidebar-collapsed', collapsed ? '1' : '0')
+      scheduleUiStorePush()
+    }
   }
+  /* 启动只应用布局。此时会话还没加载，写回会把服务端记录覆盖为空，
+     并将本地时间戳顶成最新，使后续读取误认为空的本地数据更新。 */
   setCollapsed(localStorage.getItem('dsh-sidebar-collapsed') === '1')
   button.addEventListener('click', () => {
-    setCollapsed(not(app.classList.contains('sidebar-collapsed')))
+    setCollapsed(not(app.classList.contains('sidebar-collapsed')), true)
   })
+}
+
+function setupTitlebar() {
+  const app = byId('app')
+  const restore = byId('restoreChat')
+  if (restore) {
+    restore.addEventListener('click', () => {
+      const button = byId('panelVscode')
+      if (button) button.click()
+      const sidebar = byId('sidebarToggle')
+      if (sidebar) sidebar.focus()
+    })
+  }
+  const sync = () => {
+    const sidebar = byId('sidebarToggle')
+    const panel = byId('panelToggle')
+    if (app && sidebar) {
+      const expanded = not(app.classList.contains('sidebar-collapsed'))
+      sidebar.setAttribute('aria-label', expanded ? '折叠侧边栏' : '展开侧边栏')
+      sidebar.setAttribute('aria-expanded', expanded ? 'true' : 'false')
+    }
+    if (app && panel) {
+      const expanded = app.classList.contains('panel-open')
+      panel.setAttribute('aria-label', expanded ? '收起文件面板' : '展开文件面板')
+      panel.setAttribute('aria-expanded', expanded ? 'true' : 'false')
+    }
+    renderWindowTitle()
+  }
+  sync()
+  const observer = new MutationObserver(sync)
+  if (app) observer.observe(app, { attributes: true, attributeFilter: ['class'] })
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  const panelTitle = byId('panelTitle')
+  if (panelTitle) observer.observe(panelTitle, { childList: true, characterData: true, subtree: true })
 }
 
 function setupMessageResize() {
@@ -3488,6 +3556,7 @@ async function init() {
   if (window.applyIcons) window.applyIcons(document)
   setupMessageResize()
   setupSidebarToggle()
+  setupTitlebar()
   autoResizeComposer()
   applyPlatformBadge()
   setupComposer()
@@ -3520,6 +3589,7 @@ async function init() {
       state.activeProjectId = initialSession ? initialProjectId : ''
     }
   }
+  saveCurrentSessionId(state.currentSessionId)
   renderPlugins(initial.plugins, initial.tools)
   renderModelSelect()
   renderWorkspace()
@@ -3633,10 +3703,6 @@ async function init() {
   })
   byId('newSession').addEventListener('click', async () => {
     const settings = state.settings || {}
-    if (not(settings.currentProjectId)) {
-      openProjectModal()
-      return
-    }
     const session = createSession(settings.currentProjectId, '\u65b0\u4f1a\u8bdd', 'recent')
     selectSession(session.id)
     setStatus('\u65b0\u4f1a\u8bdd')

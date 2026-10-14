@@ -5,7 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const os = require('os')
-const { execFile } = require('child_process')
+const { pickNativeFolder } = require('./native-folder')
 const { AgentPool } = require('../src/main/agent/agent-pool')
 const { SettingsStore } = require('./settings-store')
 const { PluginHost } = require('../src/main/plugins/plugin-host')
@@ -236,28 +236,6 @@ function serveStatic(request, response, pathname) {
   })
 }
 
-function pickNativeFolder() {
-  return new Promise((resolve) => {
-    const done = (error, stdout) => {
-      if (error) {
-        resolve('')
-        return
-      }
-      resolve(String(stdout || '').trim())
-    }
-    if (process.platform === 'darwin') {
-      execFile('osascript', ['-e', 'POSIX path of (choose folder with prompt \"\u9009\u62e9\u5de5\u4f5c\u533a\u76ee\u5f55\")'], { timeout: 120000 }, done)
-      return
-    }
-    if (process.platform === 'win32') {
-      const script = 'Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = \"\u9009\u62e9\u5de5\u4f5c\u533a\u76ee\u5f55\"; $f.ShowNewFolderButton = $true; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath } else { exit 2 }'
-      execFile('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { timeout: 120000 }, done)
-      return
-    }
-    execFile('zenity', ['--file-selection', '--directory', '--title=\u9009\u62e9\u5de5\u4f5c\u533a\u76ee\u5f55'], { timeout: 120000 }, done)
-  })
-}
-
 async function handleApi(request, response, url) {
   if (url.pathname === '/api/health' && request.method === 'GET') {
     json(response, 200, {
@@ -339,7 +317,7 @@ async function handleApi(request, response, url) {
   }
   if (url.pathname === '/api/fs/pick-native' && request.method === 'POST') {
     const selected = await pickNativeFolder()
-    json(response, 200, { path: selected, canceled: selected === '' })
+    json(response, 200, selected)
     return true
   }
   /* 文件预览（右侧面板）：列树 / 元信息 / 原始字节。只读，且只认「关联的工作区目录」。

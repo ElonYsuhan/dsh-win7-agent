@@ -1,88 +1,55 @@
 'use strict'
 
-/**
- * 应用菜单模板。
- *
- * 为什么单独拆一个文件：Electron 的剪贴板与撤销快捷键是由**菜单 role** 提供的，
- * 不是 Chromium 自带的。只要调用 Menu.setApplicationMenu() 换掉默认菜单，
- * 默认菜单里那套 Edit 就没了 —— 全应用的 Cmd/Ctrl + C / V / X / A 立刻失效。
- * 「Electron 里输入框粘贴不了内容」就是这么来的。
- *
- * 这块纯数据 + 回调不依赖 Electron，拆出来就能在普通 Node 下断言，
- * 见 scripts/shell-menu-smoke.js。
- */
-
-/** 换掉默认菜单后必须自己补回来的 role。缺一个就少一个快捷键。 */
-const EDIT_ROLES = [
-  'undo',
-  'redo',
-  'cut',
-  'copy',
-  'paste',
-  'pasteAndMatchStyle',
-  'delete',
-  'selectAll'
-]
-
-function editSubmenu() {
-  return [
-    { role: 'undo' },
-    { role: 'redo' },
-    { type: 'separator' },
-    { role: 'cut' },
-    { role: 'copy' },
-    { role: 'paste' },
-    { role: 'pasteAndMatchStyle' },
-    { role: 'delete' },
-    { type: 'separator' },
-    { role: 'selectAll' }
-  ]
+/* 应用不显示原生菜单。macOS 的 Cmd 编辑快捷键原本由菜单 role 提供，
+   移除菜单后直接调用相同的 webContents 编辑命令；Windows/Linux 保留
+   Chromium 和终端自己的 Ctrl 按键处理（尤其 Ctrl+C 的中断行为）。 */
+function hideApplicationMenu(Menu, platform) {
+  // Electron 22 的 macOS 分支对 null 直接 return，必须用空实例替换原生菜单。
+  const empty = (platform || process.platform) === 'darwin' ? Menu.buildFromTemplate([]) : null
+  Menu.setApplicationMenu(empty)
 }
 
-/**
- * 生成菜单模板。
- * @param {object} [handlers] 回调：onSettings / onReload / onRestart / onOpenBrowser
- * @param {string} [platform] 目标平台，默认 process.platform（测试时用来模拟）
- */
-function menuTemplate(handlers, platform) {
-  const hooks = handlers || {}
+function editingCommand(input, platform) {
+  if (platform !== 'darwin' || !input || input.type !== 'keyDown' || input.isComposing) return ''
+  if (!input.meta || input.control) return ''
+  const key = String(input.key || '').toLowerCase()
+  if (key === 'v' && input.shift) return 'pasteAndMatchStyle'
+  if (input.alt) return ''
+  if (key === 'z') return input.shift ? 'redo' : 'undo'
+  if (input.shift) return ''
+  return { x: 'cut', c: 'copy', v: 'paste', a: 'selectAll' }[key] || ''
+}
+
+function configureWindowMenu(win, handlers, platform) {
   const os = platform || process.platform
-  const template = []
-
-  // macOS：第一项固定占据「应用菜单」位置，label 由系统替换成应用名。
-  // 用 role 声明才有 About / 服务 / 隐藏 / 退出 这些标准项。
-  if (os === 'darwin') template.push({ role: 'appMenu' })
-
-  template.push({
-    label: 'Edit',
-    submenu: editSubmenu()
+  const hooks = handlers || {}
+  if (os !== 'darwin') {
+    // 移除菜单对象，Alt 也不能把它重新展开。
+    win.setMenu(null)
+    win.setMenuBarVisibility(false)
+  }
+  win.webContents.on('before-input-event', (event, input) => {
+    const command = editingCommand(input, os)
+    if (command) {
+      event.preventDefault()
+      win.webContents[command]()
+      return
+    }
+    if (!input || input.type !== 'keyDown' || input.isComposing || input.alt || input.shift) return
+    const primary = os === 'darwin' ? input.meta && !input.control : input.control && !input.meta
+    if (!primary) return
+    const key = String(input.key || '').toLowerCase()
+    let action = key === ',' ? hooks.onSettings : null
+    if (os === 'darwin') {
+      if (key === 'q') action = hooks.onQuit
+      if (key === 'h') action = hooks.onHide
+      if (key === 'w') action = () => win.close()
+      if (key === 'm') action = () => win.minimize()
+    }
+    if (typeof action !== 'function') return
+    event.preventDefault()
+    if (!input.isAutoRepeat) action()
   })
-
-  template.push({
-    label: 'Service',
-    submenu: [
-      { label: 'Settings', click: () => hooks.onSettings && hooks.onSettings() },
-      { label: 'Reload', click: () => hooks.onReload && hooks.onReload() },
-      { label: 'Restart local service', click: () => hooks.onRestart && hooks.onRestart() },
-      { label: 'Open in browser', click: () => hooks.onOpenBrowser && hooks.onOpenBrowser() },
-      { type: 'separator' },
-      { role: 'quit' }
-    ]
-  })
-
-  template.push({
-    label: 'View',
-    submenu: [
-      { role: 'reload' },
-      { role: 'toggleDevTools' },
-      { type: 'separator' },
-      { role: 'resetZoom' },
-      { role: 'zoomIn' },
-      { role: 'zoomOut' }
-    ]
-  })
-
-  return template
 }
 
-module.exports = { menuTemplate, EDIT_ROLES }
+module.exports = { hideApplicationMenu, configureWindowMenu, editingCommand }

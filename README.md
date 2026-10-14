@@ -151,7 +151,7 @@ That tar is a build output, not something checked in — see `npm run clean:rele
 `scripts/build-desktop.js` (see "Desktop builds" below):
 
 ```text
-release/desktop/Agent-win-x64-0.1.0.zip
+release/desktop/Agent-win-x64-0.1.2.zip
 ```
 
 Unpack it and run `Agent.exe`. The shell starts the local agent service
@@ -189,12 +189,15 @@ node scripts/build-desktop.js mac-x64        # macOS Intel (opt-in, not in `all`
 ```
 
 Artifacts land in `release/desktop/` and are named after the platform people
-actually recognise — `Agent-mac-arm64-0.1.0.zip`, not `darwin`:
+actually recognise — `Agent-mac-arm64-0.1.2.zip`, not `darwin`. Unpacked
+bundles use versioned directories, such as `Agent-mac-arm64-0.1.2/`, so building
+a new release does not replace a running copy of an older release:
 
 ```text
-release/desktop/Agent-win-x64-0.1.0.zip    Win7 SP1 / Win10 / Win11
-release/desktop/Agent-mac-arm64-0.1.0.zip  macOS Apple Silicon
-release/desktop/Agent-linux-x64-0.1.0.zip  Linux x64
+release/desktop/Agent-win-x64-0.1.2.zip    Win7 SP1 / Win10 / Win11
+release/desktop/Agent-mac-arm64-0.1.2.zip  macOS Apple Silicon
+release/desktop/Agent-linux-x64-0.1.2.zip  Linux x64
+release/desktop/Agent-linux-arm64-0.1.2.zip Linux ARM64
 ```
 
 `darwin-arm64`, `macos-arm64` and plain `mac` are accepted as aliases on the
@@ -266,17 +269,30 @@ The last port that worked is remembered, so later launches probe it first.
 Only the service that *this* app started gets stopped; a service it reused (for
 example one you started by hand) is left alone.
 
-Exit paths covered: window close / `Cmd+Q` / menu quit (Electron `before-quit`),
+Exit paths covered: window close / `Cmd+Q` (Electron `before-quit`),
 plus `SIGTERM` / `SIGINT` / `SIGHUP` and a synchronous `process.on('exit')`
 fallback — Electron exits immediately on `SIGTERM` without firing `before-quit`,
 which would otherwise leave an orphan service sharing the same data directory.
 
 ### Service mode
 
-Stored in the app config, switchable from menu `Service -> Settings`:
+Stored in the app config, switchable from Service Settings (`Cmd+,` on macOS,
+`Ctrl+,` on Windows/Linux, or the settings button on the startup/offline page):
 
 - `local` (default): autostart and manage a service on this machine.
 - `remote`: point at an agent service on another intranet machine.
+
+Native application menus are removed on all desktop platforms. Electron 22 on
+macOS requires replacing the native menu with an empty instance. Copy, paste,
+undo and window shortcuts remain available. The independent 48px titlebar keeps
+window controls and page actions above the chat and file panel. macOS keeps
+native controls on the left; Windows uses controls on the right; Linux reads
+the GNOME/KDE button-side preference and defaults to the right. The dark theme
+uses neutral gray and black surfaces, while the light theme uses white and
+light gray. Buttons use flat fills and theme selection also updates auxiliary
+windows and their native backgrounds. Run `npm run check:theme` for the real
+Electron appearance and contrast checks. Sending the first message creates
+and saves a session automatically, including workspaces without a project.
 
 Data (sessions, settings, workspace) lives in the Electron userData directory
 under `agent-home` — never inside the program folder, so the bundle stays

@@ -1,129 +1,160 @@
 #!/usr/bin/env node
 'use strict'
 
-/**
- * shell/menu.js 的冒烟：应用菜单到底有没有把 Edit 那套 role 补回来。
- *
- * 这条断言守的是一个很容易复发、而且一复发就全应用不可用的 bug：
- * 只要用 Menu.setApplicationMenu() 换掉默认菜单，又没自己声明 Edit，
- * 剪贴板/撤销快捷键就会全部失效 —— 表现就是「输入框粘贴不了内容」。
- * 纯数据断言，不用起 Electron，所以能进 npm run check 的默认链路。
- */
-
+/* 无原生菜单 + 编辑/窗口快捷键回归。普通 Node 可模拟三个平台，
+   Windows/Linux 的 Ctrl+C 必须继续送给终端，不能被编辑快捷键吞掉。 */
+const assert = require('assert')
 const fs = require('fs')
 const path = require('path')
-
-const SHELL_DIR = path.join(__dirname, '..', 'shell')
-const menu = require(path.join(SHELL_DIR, 'menu.js'))
+const vm = require('vm')
+const { EventEmitter } = require('events')
+const { hideApplicationMenu, configureWindowMenu } = require('../shell/menu')
 
 let passed = 0
-let failed = 0
+function check(name, fn) {
+  fn()
+  passed++
+  console.log('PASS  ' + name)
+}
 
-function check(name, condition, detail) {
-  if (condition) {
-    passed++
-    console.log('PASS  ' + name + (detail === undefined ? '' : '  [' + detail + ']'))
-    return true
+function fixture(platform) {
+  const calls = []
+  const webContents = new EventEmitter()
+  for (const command of ['undo', 'redo', 'cut', 'copy', 'paste', 'pasteAndMatchStyle', 'selectAll']) {
+    webContents[command] = () => calls.push(command)
   }
-  failed++
-  console.log('FAIL  ' + name + (detail === undefined ? '' : '  [' + detail + ']'))
-  return false
-}
-
-function submenuOf(template, label) {
-  for (const item of template) {
-    if (item && item.label === label) return item.submenu || []
+  const win = {
+    webContents,
+    setMenu: (value) => calls.push(['menu', value]),
+    setMenuBarVisibility: (value) => calls.push(['visible', value]),
+    close: () => calls.push('close'),
+    minimize: () => calls.push('minimize')
   }
-  return null
-}
-
-function rolesOf(submenu) {
-  return (submenu || []).filter((item) => item && item.role).map((item) => item.role)
-}
-
-const PLATFORMS = ['darwin', 'win32', 'linux']
-
-/* ------------------------------------------------------------- 结构断言 */
-
-check('导出 menuTemplate', typeof menu.menuTemplate === 'function')
-check('导出 EDIT_ROLES', Array.isArray(menu.EDIT_ROLES))
-check('EDIT_ROLES 含 paste', menu.EDIT_ROLES.indexOf('paste') >= 0)
-
-for (const os of PLATFORMS) {
-  const template = menu.menuTemplate({}, os)
-
-  const edit = submenuOf(template, 'Edit')
-  check(os + '：有 Edit 菜单', edit !== null)
-
-  const roles = rolesOf(edit)
-  for (const role of menu.EDIT_ROLES) {
-    check(os + '：Edit 里有 ' + role, roles.indexOf(role) >= 0)
+  configureWindowMenu(win, {
+    onSettings: () => calls.push('settings'),
+    onQuit: () => calls.push('quit'),
+    onHide: () => calls.push('hide')
+  }, platform)
+  function press(key, patch) {
+    let prevented = 0
+    const input = Object.assign({ type: 'keyDown', key, meta: platform === 'darwin', control: platform !== 'darwin' }, patch)
+    webContents.emit('before-input-event', { preventDefault: () => { prevented++ } }, input)
+    return prevented
   }
-  // 少一个 paste 就复现「输入框粘贴不了」，所以单独再钉一次
-  check(os + '：paste 确实在 Edit 下', roles.indexOf('paste') >= 0)
+  return { calls, press }
+}
 
-  check(os + '：有 Service 菜单', submenuOf(template, 'Service') !== null)
-  check(os + '：有 View 菜单', submenuOf(template, 'View') !== null)
-  check(os + '：还有 quit', rolesOf(submenuOf(template, 'Service')).indexOf('quit') >= 0)
-
-  // macOS 第一项必须是 appMenu，否则 About / 隐藏 / 退出 这些标准项全没有
-  if (os === 'darwin') {
-    check('darwin：第一项是 appMenu', template[0] && template[0].role === 'appMenu', template[0] && template[0].role)
-    check('darwin：Edit 排在 appMenu 之后', template[1] && template[1].label === 'Edit')
-  } else {
-    check(os + '：没有 appMenu（非 macOS 用不上）', template.every((item) => item.role !== 'appMenu'))
+for (const platform of ['darwin', 'win32', 'linux']) {
+  check(platform + ': application menu is removed', () => {
+    const calls = []
+    const empty = { items: [] }
+    hideApplicationMenu({
+      buildFromTemplate: (template) => { assert.deepStrictEqual(template, []); return empty },
+      setApplicationMenu: (value) => calls.push(value)
+    }, platform)
+    assert.deepStrictEqual(calls, [platform === 'darwin' ? empty : null])
+  })
+  const f = fixture(platform)
+  check(platform + ': window menu is removed where supported', () => {
+    assert.deepStrictEqual(f.calls, platform === 'darwin' ? [] : [['menu', null], ['visible', false]])
+    f.calls.length = 0
+  })
+  check(platform + ': service settings stay reachable with primary+comma', () => {
+    assert.strictEqual(f.press(','), 1)
+    assert.deepStrictEqual(f.calls.splice(0), ['settings'])
+  })
+  check(platform + ': keyup, IME and unrelated keys pass through', () => {
+    assert.strictEqual(f.press(',', { type: 'keyUp' }), 0)
+    assert.strictEqual(f.press(',', { isComposing: true }), 0)
+    assert.strictEqual(f.press(',', { meta: false, control: false }), 0)
+    assert.strictEqual(f.press('Enter'), 0)
+    assert.strictEqual(f.press('Alt', { alt: true }), 0)
+    assert.deepStrictEqual(f.calls, [])
+  })
+  if (platform !== 'darwin') {
+    check(platform + ': Ctrl editing, terminal interrupt and word-delete stay native', () => {
+      for (const key of ['c', 'v', 'x', 'a', 'z', 'y', 'w']) assert.strictEqual(f.press(key), 0)
+      assert.strictEqual(f.press('v', { shift: true }), 0)
+      assert.deepStrictEqual(f.calls, [])
+    })
   }
-
-  // 同一套 role 不该出现两次，重复声明往往意味着改坏了
-  const all = rolesOf(edit)
-  check(os + '：Edit 内角色不重复', new Set(all).size === all.length, all.join(','))
 }
 
-/* ------------------------------------------------------------- 回调接线 */
+const f = fixture('darwin')
+for (const [key, patch, command] of [
+  ['c', {}, 'copy'], ['C', {}, 'copy'], ['x', {}, 'cut'], ['v', {}, 'paste'],
+  ['a', {}, 'selectAll'], ['z', {}, 'undo'], ['z', { shift: true }, 'redo'],
+  ['v', { shift: true }, 'pasteAndMatchStyle'], ['v', { shift: true, alt: true }, 'pasteAndMatchStyle'],
+  ['q', {}, 'quit'], ['w', {}, 'close'], ['m', {}, 'minimize'], ['h', {}, 'hide']
+]) {
+  check('darwin: ' + command + ' works without a menu', () => {
+    assert.strictEqual(f.press(key, patch), 1)
+    assert.deepStrictEqual(f.calls.splice(0), [command])
+  })
+}
+check('darwin: Ctrl+C, Option combinations and IME do not trigger editing', () => {
+  assert.strictEqual(f.press('c', { meta: false, control: true }), 0)
+  assert.strictEqual(f.press('c', { alt: true }), 0)
+  assert.strictEqual(f.press('c', { shift: true }), 0)
+  assert.strictEqual(f.press('v', { isComposing: true }), 0)
+  assert.deepStrictEqual(f.calls, [])
+})
+check('darwin: key repeat cannot repeatedly quit or open settings', () => {
+  assert.strictEqual(f.press('q', { isAutoRepeat: true }), 1)
+  assert.strictEqual(f.press(',', { isAutoRepeat: true }), 1)
+  assert.deepStrictEqual(f.calls, [])
+})
 
-{
-  const called = []
-  const template = menu.menuTemplate({
-    onSettings: () => called.push('settings'),
-    onReload: () => called.push('reload'),
-    onRestart: () => called.push('restart'),
-    onOpenBrowser: () => called.push('browser')
-  }, 'linux')
-  for (const item of submenuOf(template, 'Service')) {
-    if (item && typeof item.click === 'function') item.click()
-  }
-  check('Service 回调全部接到', called.join(',') === 'settings,reload,restart,browser', called.join(','))
+for (const entry of ['shell/main.js', 'src/main/main.js']) {
+  const source = fs.readFileSync(path.join(__dirname, '..', entry), 'utf8')
+  check(entry + ': startup removes default application menu before creating windows', () => {
+    const startup = source.slice(source.indexOf('app.whenReady().then'))
+    assert(startup.indexOf('hideApplicationMenu(Menu)') >= 0)
+    assert(startup.indexOf('hideApplicationMenu(Menu)') < startup.search(/create(?:Main)?Window\(\)/))
+    assert(!/buildFromTemplate|menuTemplate\(/.test(source))
+  })
+  check(entry + ': every application window has shortcut/menu setup', () => {
+    assert.strictEqual((source.match(/new BrowserWindow\(/g) || []).length,
+      (source.match(/configureWindowMenu\(/g) || []).length)
+  })
 }
 
-{
-  // 不传 handlers 也不能炸（主进程启动早期、菜单先于窗口建立时就是这个状态）
-  let threw = false
-  try {
-    const template = menu.menuTemplate()
-    for (const item of submenuOf(template, 'Service')) {
-      if (item && typeof item.click === 'function') item.click()
-    }
-  } catch (error) {
-    threw = true
-  }
-  check('不传 handlers 不报错', !threw)
-}
+check('shell preload forwards openPath and openExternal to native IPC', () => {
+  const calls = []
+  let api
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'shell/preload.js'), 'utf8'), {
+    process: { platform: 'linux' },
+    window: { addEventListener() {} },
+    require: () => ({
+      contextBridge: { exposeInMainWorld: (_name, value) => { api = value } },
+      ipcRenderer: { invoke: (...args) => { calls.push(args) }, on() {}, removeListener() {} }
+    })
+  })
+  api.openPath('/tmp/中文 工作区')
+  api.openExternal('https://example.com')
+  assert.deepStrictEqual(calls.map((args) => Array.from(args)), [
+    ['shell:open-path', '/tmp/中文 工作区'], ['shell:open-external', 'https://example.com']
+  ])
+})
 
-/* ------------------------------------------- main.js 真的把它装上了吗 */
+check('shell IPC opens local paths and rejects empty or non-string input', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'shell/main.js'), 'utf8')
+  const start = source.indexOf("ipcMain.handle('shell:open-path'")
+  const end = source.indexOf("ipcMain.handle('shell:open-external'", start)
+  let handler
+  const calls = []
+  vm.runInNewContext(source.slice(start, end), {
+    ipcMain: { handle: (_name, fn) => { handler = fn } },
+    shell: { openPath: (target) => { calls.push(target); return '' } },
+    path
+  })
+  assert.strictEqual(handler({}, '/tmp/中文 工作区'), '')
+  assert.deepStrictEqual(calls, ['/tmp/中文 工作区'])
+  assert(handler({}, '') !== '')
+  assert(handler({}, '  ') !== '')
+  assert(handler({}, null) !== '')
+  assert(handler({}, { path: '/tmp' }) !== '')
+  assert.strictEqual(calls.length, 1)
+})
 
-{
-  const mainSource = fs.readFileSync(path.join(SHELL_DIR, 'main.js'), 'utf8')
-  check('main.js require 了 menu 模块', /require\(['"]\.\/menu['"]\)/.test(mainSource))
-  check('main.js 调用了 menuTemplate(', mainSource.indexOf('menuTemplate(') >= 0)
-  // 模板再对，不 setApplicationMenu 也不会生效
-  check('main.js 调用了 Menu.setApplicationMenu', mainSource.indexOf('Menu.setApplicationMenu(') >= 0)
-  // 换掉默认菜单是这件事的前提，哪天不换了就该回来重看这段
-  check('main.js 仍然在替换默认菜单', mainSource.indexOf('buildFromTemplate') >= 0)
-}
-
-console.log('')
-if (failed > 0) {
-  console.log('shell menu smoke: ' + passed + '/' + (passed + failed) + ' checks passed, ' + failed + ' FAILED')
-  process.exit(1)
-}
-console.log('shell menu smoke: ' + passed + '/' + (passed + failed) + ' checks passed, node ' + process.version)
+console.log('shell menu smoke: ' + passed + '/' + passed + ' checks passed, node ' + process.version)

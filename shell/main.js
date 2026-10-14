@@ -2,10 +2,11 @@
 
 const path = require('path')
 const fs = require('fs')
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences, nativeTheme } = require('electron')
 const serviceManager = require('./service-manager')
 const installer = require('./installer')
-const { menuTemplate } = require('./menu')
+const { hideApplicationMenu, configureWindowMenu } = require('./menu')
+const { windowChromeOptions, controlsSide, windowState, applyWindowAction, attachWindowChrome, normalizeTheme, windowBackground, applyWindowTheme } = require('./window-chrome')
 
 const not = (value) => value ? false : true
 const DEFAULT_BASE_PORT = 8080
@@ -53,7 +54,7 @@ migrateLegacyUserData()
 
 let mainWindow = null
 let settingsWindow = null
-let config = { mode: 'local', serviceUrl: '', lastPort: 0 }
+let config = { mode: 'local', serviceUrl: '', lastPort: 0, theme: 'dark' }
 // 本次由 Shell 拉起的服务进程；复用别人已启动的服务时为 null
 let serviceState = null
 // 实际连上的服务地址（本地模式是自动协商出来的，远程模式是用户填的）
@@ -87,7 +88,8 @@ function readConfig() {
   config = {
     mode,
     serviceUrl: legacyUrl,
-    lastPort: Number(parsed.lastPort) || 0
+    lastPort: Number(parsed.lastPort) || 0,
+    theme: normalizeTheme(parsed.theme)
   }
   return config
 }
@@ -483,42 +485,9 @@ function attachSecurity(window) {
   })
 }
 
-/**
- * 红黄绿按钮的位置（macOS）。y 与渲染层 .shell-mac 让出的顶部留白是一对，
- * 改这里记得同步 src/renderer/style.css / shell/style.css。
- */
-const MAC_TRAFFIC_LIGHT = { x: 16, y: 16 }
-
-/**
- * macOS 上把系统标题栏藏掉。
- *
- * 原生那条标题栏是白的，压在深色界面顶上像块白纸条（用户 2026-09-19 反馈
- * 「把这个白色的条去掉」）。titleBarStyle:'hidden' 之后窗口仍是正常窗口：
- * 红黄绿照旧、照样能拖能缩放，只是顶上那一条交给页面自己画。
- * 渲染层靠 preload 打的 .shell-mac 类让位并自建拖拽区。
- *
- * Windows / Linux 一律不动：那边标题栏本来就跟着深色走，而且 Win7 上
- * titleBarOverlay 不可用，没必要为它冒险。
- */
-function macWindowChrome() {
-  if (process.platform !== 'darwin') return {}
-  return { titleBarStyle: 'hidden', trafficLightPosition: MAC_TRAFFIC_LIGHT }
-}
-
-/**
- * macOS 上双击顶栏该干什么（缩放窗口 / 最小化 / 什么都不做）。
- *
- * 原生标题栏是我们自己藏掉的，AppKit 那套「双击标题栏」手势跟着一起没了。Electron
- * 明确把这件事留给应用自己实现 —— electron#16385 里维护者的结论是「写进文档，
- * 不做成 -webkit-app-region 的默认行为」，所以只能在渲染层挂 dblclick 再回主进程动手
- * （官方认可的挂法就是挂在带 -webkit-app-region: drag 的元素上，拖拽区照样收得到
- * DOM 事件，2026-09-19 实测确认）。
- *
- * 动作取自系统偏好 AppleActionOnDoubleClick（系统设置 → 桌面与程序坞 →
- * 「双击窗口的标题栏以」），macOS 默认值是 Maximize。preferences 只为方便冒烟注入。
- */
+/* 双击独立顶栏：macOS 尊重系统偏好，Windows/Linux 切换最大化。 */
 function titlebarDoubleClickAction(preferences) {
-  if (process.platform !== 'darwin') return 'none'
+  if (process.platform !== 'darwin') return 'maximize'
   let value = 'Maximize'
   try {
     const prefs = preferences || systemPreferences
@@ -552,9 +521,10 @@ function createMainWindow() {
     minHeight: 640,
     title: APP_TITLE,
     icon: windowIconPath(),
-    backgroundColor: '#0f172a',
-    ...macWindowChrome(),
+    backgroundColor: windowBackground(config.theme),
+    ...windowChromeOptions(),
     webPreferences: {
+      additionalArguments: ['--dsh-controls-side=' + controlsSide(), '--dsh-theme=' + config.theme],
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -562,6 +532,8 @@ function createMainWindow() {
       webSecurity: true
     }
   })
+  configureWindowMenu(mainWindow, { onSettings: createSettingsWindow, onQuit: () => app.quit(), onHide: () => app.hide() })
+  attachWindowChrome(mainWindow)
   attachSecurity(mainWindow)
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     if (errorCode === -3) return
@@ -587,9 +559,10 @@ function createSettingsWindow() {
     resizable: true,
     title: 'Service Settings',
     icon: windowIconPath(),
-    backgroundColor: '#0f172a',
-    ...macWindowChrome(),
+    backgroundColor: windowBackground(config.theme),
+    ...windowChromeOptions(),
     webPreferences: {
+      additionalArguments: ['--dsh-controls-side=' + controlsSide(), '--dsh-theme=' + config.theme],
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -597,36 +570,13 @@ function createSettingsWindow() {
       webSecurity: true
     }
   })
+  configureWindowMenu(settingsWindow, { onSettings: createSettingsWindow, onQuit: () => app.quit(), onHide: () => app.hide() })
+  attachWindowChrome(settingsWindow)
   attachSecurity(settingsWindow)
   settingsWindow.loadFile(path.join(__dirname, 'settings.html'), { query: { standalone: '1' } })
   settingsWindow.on('closed', () => {
     settingsWindow = null
   })
-}
-
-/* --------------------------------------------------------------- menu */
-
-/**
- * 应用菜单。
- *
- * 模板本身在 shell/menu.js —— 拆出去是为了能在普通 Node 下断言（见
- * scripts/shell-menu-smoke.js）。这里的坑值得再写一遍：Electron 的
- * 剪贴板 / 撤销快捷键是由菜单 role 提供的，不是 Chromium 自带。
- * 一旦调用 Menu.setApplicationMenu() 换掉默认菜单，默认菜单里的 Edit 就没了，
- * Cmd/Ctrl + C/V/X/A 会在整个应用里失效（「输入框粘贴不了」就是这个原因）。
- */
-function createMenu() {
-  const template = menuTemplate({
-    onSettings: createSettingsWindow,
-    onReload: () => {
-      if (not(mainWindow) || mainWindow.isDestroyed()) return
-      if (not(resolvedServiceUrl)) mainWindow.reload()
-      else mainWindow.loadURL(resolvedServiceUrl)
-    },
-    onRestart: () => { restart() },
-    onOpenBrowser: () => shell.openExternal(resolvedServiceUrl || 'about:blank')
-  })
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 async function restart() {
@@ -668,7 +618,8 @@ app.on('before-quit', (event) => {
 
 app.whenReady().then(async () => {
   readConfig()
-  createMenu()
+  applyWindowTheme([], config.theme, nativeTheme)
+  hideApplicationMenu(Menu)
   createMainWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -706,6 +657,17 @@ app.whenReady().then(async () => {
 ipcMain.on('shell:titlebar-dblclick', (event) => {
   applyTitlebarDoubleClick(BrowserWindow.fromWebContents(event.sender), titlebarDoubleClickAction())
 })
+
+ipcMain.handle('window:theme', () => config.theme)
+ipcMain.on('window:theme', (event, value) => {
+  if (!mainWindow || mainWindow.isDestroyed() || BrowserWindow.fromWebContents(event.sender) !== mainWindow) return
+  if (value !== 'light' && value !== 'dark') return
+  if (config.theme !== value) writeConfig({ theme: value })
+  applyWindowTheme([mainWindow, settingsWindow], value, nativeTheme)
+})
+
+ipcMain.handle('window:state', (event) => windowState(BrowserWindow.fromWebContents(event.sender)))
+ipcMain.handle('window:action', (event, action) => applyWindowAction(BrowserWindow.fromWebContents(event.sender), action))
 
 ipcMain.handle('shell:get-config', () => ({
   mode: config.mode,
@@ -766,6 +728,10 @@ ipcMain.handle('shell:pick-folder', async () => {
 ipcMain.handle('shell:open-settings', () => {
   createSettingsWindow()
   return { ok: true }
+})
+ipcMain.handle('shell:open-path', (_event, target) => {
+  if (typeof target !== 'string' || !target.trim()) return 'A local path is required'
+  return shell.openPath(path.resolve(target))
 })
 ipcMain.handle('shell:open-external', (_event, target) => {
   if (typeof target === 'string' && (target.startsWith('http://') || target.startsWith('https://'))) { // win7-exempt (protocol check only, loads nothing)

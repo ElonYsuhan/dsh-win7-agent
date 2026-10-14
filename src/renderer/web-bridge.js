@@ -7,6 +7,7 @@
   const listeners = []
   let eventSource = null
   const SEND_TIMEOUT_MS = 3660000
+  const EVENTS_CONNECT_TIMEOUT_MS = 10000
   const nativeShell = window.shell && typeof window.shell.pickFolder === 'function' ? window.shell : null
 
   function dispatch(event) {
@@ -34,6 +35,26 @@
     }
   }
 
+  function waitForEvents() {
+    ensureEvents()
+    const source = eventSource
+    if (source.readyState === 1) return Promise.resolve()
+    return new Promise((resolve, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer)
+        source.removeEventListener('open', onOpen)
+        source.removeEventListener('error', onError)
+        if (error) reject(error)
+        else resolve()
+      }
+      const onOpen = () => finish()
+      const onError = () => finish(new Error('AGENT_EVENT_DISCONNECTED'))
+      const timer = setTimeout(() => finish(new Error('AGENT_EVENT_CONNECT_TIMEOUT')), EVENTS_CONNECT_TIMEOUT_MS)
+      source.addEventListener('open', onOpen)
+      source.addEventListener('error', onError)
+    })
+  }
+
   async function request(method, target, body) {
     const options = { method, headers: { 'content-type': 'application/json' } }
     if (body !== undefined) options.body = JSON.stringify(body)
@@ -51,7 +72,7 @@
     saveSettings: (patch) => request('POST', '/api/settings', patch),
     pickWorkspace: async () => {
       const current = await request('GET', '/api/state')
-      const chosen = window.prompt('服务器工作区路径', current.workspacePath || '')
+      const chosen = nativeShell ? await nativeShell.pickFolder() : window.prompt('服务器工作区路径', current.workspacePath || '')
       if (not(chosen)) return current.workspacePath
       const state = await request('POST', '/api/workspace', { path: chosen })
       return state.workspacePath
@@ -63,7 +84,7 @@
     mkdirServerDir: (target, name) => request('POST', '/api/fs/mkdir', { path: target, name }),
     createWorkspace: async () => {
       const current = await request('GET', '/api/state')
-      const chosen = window.prompt('新建工作区路径', current.workspacePath || '')
+      const chosen = nativeShell ? await nativeShell.pickFolder() : window.prompt('新建工作区路径', current.workspacePath || '')
       if (not(chosen)) return current.workspacePath
       const state = await request('POST', '/api/workspace', { path: chosen })
       return state.workspacePath
@@ -148,7 +169,12 @@
           }
         })
         timer = setTimeout(() => finish(new Error('AGENT_EVENT_TIMEOUT')), SEND_TIMEOUT_MS)
-        request('POST', '/api/chat', { text, history, images, memory, sessionId }).catch((error) => {
+        /* 首条消息也要先等事件流连上。POST 比 SSE 建连快时，快速完成的
+           finished 会在订阅前丢掉，界面会一直停在「思考中」。 */
+        waitForEvents().then(() => {
+          if (settled) return
+          return request('POST', '/api/chat', { text, history, images, memory, sessionId })
+        }).catch((error) => {
           finish(error)
         })
       })
@@ -156,10 +182,16 @@
     stop: (sessionId) => request('POST', '/api/stop', { sessionId }),
     resetChat: (sessionId) => request('POST', '/api/reset', { sessionId }),
     clearChat: (sessionId) => request('POST', '/api/clear', { sessionId }),
-    openPath: () => Promise.resolve(''),
+    openPath: async (target) => {
+      if (not(nativeShell) || typeof nativeShell.openPath !== 'function') throw new Error('NO_NATIVE_OPENER')
+      const error = await nativeShell.openPath(target)
+      if (error) throw new Error(String(error))
+      return ''
+    },
     /* 浏览器里直接开新标签；noopener 防止新页面拿到 window.opener */
     openExternal: (target) => {
       const link = String(target || '')
+      if (nativeShell && typeof nativeShell.openExternal === 'function') return nativeShell.openExternal(link)
       if (/^https?:\/\//i.test(link)) window.open(link, '_blank', 'noopener')
       return Promise.resolve('OK')
     },

@@ -196,14 +196,26 @@ function makeEl(tag) {
     removeAttribute(k) { delete this.attributes[k] },
     querySelector(selector) { return querySelectorAllShim(this, selector, true)[0] || null },
     querySelectorAll(selector) { return querySelectorAllShim(this, selector, false) },
+    closest(selector) {
+      const parts = selector.charAt(0) === '#' ? null : parseCompoundSelector(selector)
+      let node = el
+      while (node) {
+        if (selector.charAt(0) === '#' ? node.id === selector.slice(1) : (parts && matchesCompoundSelector(node, parts))) return node
+        node = node.parentNode
+      }
+      return null
+    },
     getBoundingClientRect() { return { left: 0, right: 100, top: 0, bottom: 20, width: 100, height: 20 } },
     focus() {}, blur() {},
     click() {
       if (el._onclick) el._onclick()
       const list = (el._listeners && el._listeners.click) || []
+      let stopped = false
+      const event = { target: el, stopPropagation() { stopped = true }, preventDefault() {} }
       for (const handler of list.slice()) {
-        handler({ target: el, stopPropagation() {}, preventDefault() {} })
+        handler(event)
       }
+      if (!stopped) documentStub.dispatchEvent('click', event)
     },
     scrollTo() {},
     get textContent() { return this._text },
@@ -224,7 +236,11 @@ function makeEl(tag) {
 
 const registry = new Map()
 function getEl(id) {
-  if (!registry.has(id)) registry.set(id, makeEl('div'))
+  if (!registry.has(id)) {
+    const element = makeEl('div')
+    element.id = id
+    registry.set(id, element)
+  }
   return registry.get(id)
 }
 
@@ -256,8 +272,17 @@ const documentStub = {
   getElementById: (id) => getEl(id),
   createElement: (tag) => makeEl(tag),
   createTextNode: (t) => ({ nodeValue: t }),
-  addEventListener() {},
-  removeEventListener() {},
+  _listeners: {},
+  addEventListener(type, handler) {
+    if (!this._listeners[type]) this._listeners[type] = []
+    this._listeners[type].push(handler)
+  },
+  removeEventListener(type, handler) {
+    if (this._listeners[type]) this._listeners[type] = this._listeners[type].filter((item) => item !== handler)
+  },
+  dispatchEvent(type, event) {
+    for (const handler of (this._listeners[type] || []).slice()) handler(event)
+  },
   querySelector(selector) {
     const roots = [documentStub.documentElement, documentStub.body]
     for (const root of roots) {
@@ -288,6 +313,8 @@ const settingsState = {
   models: []
 }
 
+const mutationObservers = []
+
 const sandbox = {
   console,
   setTimeout, clearTimeout, setInterval, clearInterval,
@@ -301,9 +328,18 @@ const sandbox = {
   atob: globalThis.atob ? globalThis.atob.bind(globalThis) : (value) => Buffer.from(String(value), 'base64').toString('binary'),
   FileReader: function () {},
   /* init() 里的输入框自愈要用它；没这个 stub 就走不到 init（停止按钮那类断言就假绿了） */
-  MutationObserver: function MutationObserver() {
-    return { observe() {}, disconnect() {}, takeRecords() { return [] } }
+  MutationObserver: function MutationObserver(callback) {
+    const observer = {
+      callback,
+      targets: [],
+      observe(target, options) { this.targets.push({ target, options }) },
+      disconnect() { this.targets = [] },
+      takeRecords() { return [] }
+    }
+    mutationObservers.push(observer)
+    return observer
   },
+  mutationObservers,
   navigator: {
     /* 「转发」按钮会写剪贴板；写不进去也不该拦着打开浏览器 */
     clipboard: { writeText: async (value) => { sandbox.__clipboard.push(String(value)) } }
@@ -488,12 +524,14 @@ const mainBlock = blockOf(cssSrc, '\n.main {') || ''
 const collapsedPanelBlock = blockOf(cssSrc, '#app.sidebar-collapsed.panel-open .main {') || ''
 const hiddenBlock = blockOf(cssSrc, '#app:not(.panel-open) .file-panel {') || ''
 const chatHiddenBlock = blockOf(cssSrc, 'html.chat-hidden #app.panel-open {') || ''
-const toggleBlock = blockOf(cssSrc, '\n.panel-toggle {') || ''
-const macToggleBlock = blockOf(cssSrc, '.shell-mac .panel-toggle {') || ''
+const titlebarBlock = blockOf(cssSrc, '\n.titlebar-drag {') || ''
+const titlebarButtonsBlock = blockOf(cssSrc, '.titlebar-drag button,') || ''
+const titlebarTogglesBlock = blockOf(cssSrc, '.titlebar-drag .sidebar-toggle,') || ''
+const titlebarMatch = /<header\b[^>]*id="titlebarDrag"[\s\S]*?<\/header>/.exec(htmlSrc)
+const titlebarHtml = titlebarMatch ? titlebarMatch[0] : ''
 const resizeBlock = blockOf(cssSrc, '\n.panel-resize {') || ''
 /* 2026-09-19 用户报的两个真机 bug（按钮点不了 / 没有滚动条）的静态守卫 */
 const appGridBlock = blockOf(cssSrc, '\n#app {') || ''
-const panelHeadIconBlock = blockOf(cssSrc, '.shell-mac .panel-head .icon-button {') || ''
 const panelExplorerBlock = blockOf(cssSrc, '\n.panel-explorer {') || ''
 const panelMainBlock = blockOf(cssSrc, '\n.panel-main {') || ''
 const panelScrollbarBlock = blockOf(cssSrc, '.panel-tree::-webkit-scrollbar,') || ''
@@ -501,17 +539,13 @@ const panelScrollThumbBlock = blockOf(cssSrc, '.panel-tree::-webkit-scrollbar-th
 const sidebarScrollThumbBlock = blockOf(cssSrc, '.sidebar-scroll::-webkit-scrollbar-thumb {') || ''
 const explorerResizeBlock = blockOf(cssSrc, '\n.explorer-resize {') || ''
 const explorerResizeHiddenBlock = blockOf(cssSrc, '.file-panel.panel-explorer-hidden .explorer-resize {') || ''
-const chatHiddenToggleBlock = blockOf(cssSrc, 'html.chat-hidden .panel-toggle,') || ''
-const chatHiddenHeadBlock = blockOf(cssSrc, '.shell-mac.chat-hidden .panel-head {') || ''
 const explorerResizeHoverBlock = blockOf(cssSrc, '.explorer-resize:hover,') || ''
 const panelResizeHoverBlock = blockOf(cssSrc, '.panel-resize:hover,') || ''
 const tabCloseBlock = blockOf(cssSrc, '\n.panel-tab-close {') || ''
 
 /* 2026-09-19 用户要的顶栏页面操作（刷新整页 / 转发链接）+ 「上一个会话仍在执行」提示条 */
-const pageActionsBlock = blockOf(cssSrc, '\n.page-actions {') || ''
-const macPageActionsBlock = blockOf(cssSrc, '.shell-mac .page-actions {') || ''
-const collapsedPageActionsBlock = blockOf(cssSrc, '#app.sidebar-collapsed .page-actions {') || ''
-const macCollapsedPageActionsBlock = blockOf(cssSrc, '.shell-mac #app.sidebar-collapsed .page-actions {') || ''
+const pageActionsBlock = blockOf(cssSrc, '\n.titlebar-drag .page-actions {\n  display:') || ''
+const restoreChatBlock = blockOf(cssSrc, 'html.chat-hidden .titlebar-restore {') || ''
 const runHintBlock = blockOf(cssSrc, '\n.composer-run-hint {') || ''
 
 /* 所有 #app.panel-open（含 .sidebar-collapsed 变体）的三列规则都必须用 --panel-width
@@ -540,23 +574,21 @@ const panelStatic = {
   collapsedPanelMain: /grid-column:\s*1\s*\/\s*3\s*(;|})/.test(collapsedPanelBlock),
   panelHidden: /display:\s*none/.test(hiddenBlock),
   chatHiddenColumns: /grid-template-columns:\s*0 0 1fr/.test(chatHiddenBlock),
-  toggleZIndex: /z-index:\s*31/.test(toggleBlock),
-  macToggleTop: /top:\s*9px/.test(macToggleBlock),
-  macToggleNoDrag: /app-region:\s*no-drag/.test(macToggleBlock),
+  titlebarContainsControls: ['sidebarToggle', 'pageActions', 'windowTitle', 'panelToggle', 'restoreChat']
+    .every((id) => titlebarHtml.indexOf('id="' + id + '"') !== -1)
+    && htmlSrc.indexOf('</header>') < htmlSrc.indexOf('<div id="app">'),
+  contentBelowTitlebar: /height:\s*48px/.test(titlebarBlock)
+    && /height:\s*calc\(100vh - 48px\)/.test(appGridBlock)
+    && /position:\s*static/.test(titlebarTogglesBlock),
   resizeUsable: resizeBlock !== '' && !/display:\s*none/.test(resizeBlock),
-  /* ---- 2026-09-19 两个真机 bug 的静态守卫 ----
-     ① 三个顶栏按钮点不了：#app 的隐式网格行是 auto，面板一进来把行撑到 5000+px；
-        配套问题是 .panel-head 整条落在 macOS 的 40px 拖拽带底下，按钮没有 no-drag。 */
+  /* 网格行钉住剩余内容高度，避免文件面板把整个网格撑高，打断内部滚动链。 */
   gridRowPinned: /grid-template-rows:\s*minmax\(\s*0\s*,\s*1fr\s*\)/.test(appGridBlock),
-  headIconPositioned: /position:\s*relative/.test(panelHeadIconBlock),
-  headIconAboveBand: /z-index:\s*31/.test(panelHeadIconBlock),
-  headIconNoDrag: /app-region:\s*no-drag/.test(panelHeadIconBlock),
   explorerMinHeight: /min-height:\s*0/.test(panelExplorerBlock),
   mainMinHeight: /min-height:\s*0/.test(panelMainBlock),
   /* ② 滚动条要和侧边栏同一套（用户：样式需要和其他的一样） */
   scrollbarsMatchSidebar: panelScrollbarBlock.indexOf('display: block') >= 0
-    && panelScrollThumbBlock.indexOf('#334155') >= 0
-    && sidebarScrollThumbBlock.indexOf('#334155') >= 0,
+    && panelScrollThumbBlock.indexOf('var(--scrollbar-thumb)') >= 0
+    && sidebarScrollThumbBlock.indexOf('var(--scrollbar-thumb)') >= 0,
   /* ③ 2026-09-19 用户续报的三件事 */
   /* 文件列表宽度走 CSS 变量（它是 flex-basis，写 width 不生效） */
   explorerWidthVar: /flex:\s*0 0 var\(--explorer-width/.test(panelExplorerBlock),
@@ -564,15 +596,8 @@ const panelStatic = {
   explorerResizeUsable: explorerResizeBlock.indexOf('left: -4px') >= 0
     && explorerResizeBlock.indexOf('display: none') === -1,
   explorerResizeHiddenWithExplorer: explorerResizeHiddenBlock.indexOf('display: none') >= 0,
-  /* 「只看文件」模式下左右两枚折叠按钮都退场 —— 否则正好压在
-     .panel-head 右侧那组 VS Code / 终端按钮上（真机量过 30x30 全覆盖）。
-     注意 .sidebar-toggle 在**选择器**里而不是块里，得单独查 */
-  chatHiddenTogglesGone: chatHiddenToggleBlock.indexOf('display: none') >= 0
-    && cssSrc.indexOf('html.chat-hidden .sidebar-toggle') >= 0,
   /* 响应式覆盖不得把面板第三列写死（CSS/JS 打架 = 拖不动、宽度对不上） */
   panelColumnBad: panelColumnBad,
-  /* 只看文件模式下面板顶到窗口最左，顶栏得给红黄绿（x=16..68）让位 */
-  chatHiddenHeadPadding: /padding-left:\s*80px/.test(chatHiddenHeadBlock),
   /* 两条把手的高亮必须各用各的 body 类，共用一条的话拖这条另一条也亮 */
   /* 两条把手的高亮必须各用各的 body 类，共用一条的话拖这条另一条也亮。
      注意 body.resizing-panel 在**选择器**里而不是块里，得在全文里查。 */
@@ -824,9 +849,9 @@ const concurrencyStatic = {
    点了直接用系统默认浏览器打开当前软件的链接。
    另外「别的会话在跑」是真实状态（后端只有单个 agent），要有提示条说明白。 */
 const pageStatic = {
-  htmlWired: htmlSrc.indexOf('id="pageActions"') !== -1
-    && htmlSrc.indexOf('id="pageRefresh"') !== -1
-    && htmlSrc.indexOf('id="pageShare"') !== -1,
+  htmlWired: titlebarHtml.indexOf('id="pageActions"') !== -1
+    && titlebarHtml.indexOf('id="pageRefresh"') !== -1
+    && titlebarHtml.indexOf('id="pageShare"') !== -1,
   iconsExist: iconsSrc.indexOf("refresh: '<svg") !== -1 && iconsSrc.indexOf("external: '<svg") !== -1,
   clickWired: appSrc.indexOf("byId('pageRefresh').addEventListener('click', reloadPage)") !== -1
     && appSrc.indexOf("byId('pageShare').addEventListener('click', sharePageLink)") !== -1,
@@ -835,14 +860,13 @@ const pageStatic = {
   /* 链接 = location.origin（http/https 才有；file:// 的开发模式返回空串） */
   linkIsOrigin: /function appLink\(\)[\s\S]{0,420}?loc\.protocol !== 'http:'[\s\S]{0,320}?origin \+ '\/'/.test(appSrc),
   shareCopiesAndOpens: /async function sharePageLink\(\)[\s\S]{0,700}?navigator\.clipboard\.writeText\(link\)[\s\S]{0,300}?openExternalLink\(link\)/.test(appSrc),
-  /* 位置跟着 .sidebar-toggle 走：展开 140（214 − 8 − 30×2 − 6），折叠 54；都在拖拽带之上 */
-  cssPositioned: /left:\s*140px/.test(pageActionsBlock) && /z-index:\s*31/.test(pageActionsBlock)
-    && /top:\s*22px/.test(pageActionsBlock),
-  cssCollapsedMoves: /left:\s*54px/.test(collapsedPageActionsBlock),
-  macNoDrag: /top:\s*9px/.test(macPageActionsBlock)
-    && macPageActionsBlock.indexOf('-webkit-app-region: no-drag') >= 0,
-  macCollapsedRightOfToggle: /left:\s*118px/.test(macCollapsedPageActionsBlock),
-  hiddenInChatHidden: cssSrc.indexOf('html.chat-hidden .page-actions') !== -1,
+  /* 操作按钮在独立顶栏内按 flex 排列，离开窗口拖拽区。 */
+  controlsInHeaderFlow: /display:\s*flex/.test(pageActionsBlock)
+    && !/position:\s*absolute/.test(pageActionsBlock)
+    && /app-region:\s*no-drag/.test(titlebarButtonsBlock),
+  fileModeHasTopbarActions: cssSrc.indexOf('html.chat-hidden .page-actions') === -1
+    && cssSrc.indexOf('html.chat-hidden .panel-toggle') === -1
+    && /display:\s*inline-flex/.test(restoreChatBlock),
   /* 输入框上方那条提示：**只在并发池满时**出现。
      「别的会话在跑」不再提示 —— 那是正常并发（多实例池），用户 2026-09-19
      问「已经支持并发了，这个是不是就多余了」。留着这条守卫防回归。 */
@@ -940,7 +964,8 @@ const checks = `
   ok('底部容器背景透明', /\.sidebar-footer \{[^}]*background: transparent/.test(cssSrc))
   ok('底部渐隐渐变已删除', cssSrc.indexOf('linear-gradient(180deg, rgba(15, 23, 42, 0)') === -1)
   ok('底部浅色渐隐已删除', cssSrc.indexOf('linear-gradient(180deg, rgba(255, 255, 255, 0)') === -1)
-  ok('底部不再用 --sidebar 实心底', cssSrc.indexOf('background: var(--sidebar)') === -1)
+  const footerRules = cssSrc.match(/[^{}]*\.sidebar-footer[^{}]*\{[^}]*\}/g) || []
+  ok('底部不再用 --sidebar 实心底', footerRules.length > 0 && footerRules.every((rule) => rule.indexOf('background: var(--sidebar)') === -1))
 
   // --- 右键菜单：按内容自适应 + 文字左对齐 ---
   ok('菜单不再写死 150px 宽', cssSrc.indexOf('min-width: 150px') === -1)
@@ -1308,27 +1333,20 @@ const checks = `
     panelStatic.collapsedPanelMain)
   ok('面板收起时整块 display:none', panelStatic.panelHidden)
   ok('「只看文件」模式把前两列压成 0', panelStatic.chatHiddenColumns)
-  ok('面板折叠按钮 z-index 压过 macOS 拖拽带（30）', panelStatic.toggleZIndex)
-  ok('macOS 上面板按钮与红黄绿同一中线（top:9）', panelStatic.macToggleTop)
-  ok('面板按钮在 macOS 上退出拖拽带', panelStatic.macToggleNoDrag)
+  ok('侧栏/面板开关、页面操作和标题都在 #app 外的独立 header 中', panelStatic.titlebarContainsControls)
+  ok('48px 顶栏与剩余内容高度分离，开关按钮跟随顶栏布局', panelStatic.contentBelowTitlebar)
   ok('拖拽把手不是 display:none（否则拖不动）', panelStatic.resizeUsable)
   ok('#app 的网格行钉死在视口高（minmax(0,1fr)，不然面板把行撑爆、滚动条不出现）',
     panelStatic.gridRowPinned)
   ok('面板栏的 flex 中间层都有 min-height:0（滚动链不能断）',
     panelStatic.explorerMinHeight && panelStatic.mainMinHeight,
     'explorer=' + panelStatic.explorerMinHeight + ' main=' + panelStatic.mainMinHeight)
-  ok('macOS 上面板顶栏按钮用 relative + z-index 压过拖拽带',
-    panelStatic.headIconPositioned && panelStatic.headIconAboveBand,
-    'relative=' + panelStatic.headIconPositioned + ' z31=' + panelStatic.headIconAboveBand)
-  ok('macOS 上面板顶栏按钮退出拖拽区（否则按下变成拖窗口）', panelStatic.headIconNoDrag)
   ok('面板滚动条与侧边栏同一套配色/尺寸', panelStatic.scrollbarsMatchSidebar)
   ok('文件列表宽度写的是 --explorer-width（不是写死 px）', panelStatic.explorerWidthVar)
   ok('文件列表右缘有可拖的把手（不是 display:none）', panelStatic.explorerResizeUsable)
   ok('文件列表收起时把手跟着消失', panelStatic.explorerResizeHiddenWithExplorer)
-  ok('「只看文件」模式下左右两枚折叠按钮都退场', panelStatic.chatHiddenTogglesGone)
   ok('所有 #app.panel-open 三列规则都用 --panel-width 写第三列（响应式也不许写死）',
     panelStatic.panelColumnBad.length === 0, panelStatic.panelColumnBad.join(' | '))
-  ok('只看文件模式下顶栏给红黄绿让位（padding-left: 80px）', panelStatic.chatHiddenHeadPadding)
   ok('两条把手的高亮各用各的 body 类（不会一起亮）', panelStatic.resizeHighlightsSplit)
   ok('拖动时 iframe 不再吃鼠标事件（否则划过 PDF 把手就「卡住」）',
     panelStatic.iframeDisabledWhileResizing)
@@ -1715,17 +1733,14 @@ const checks = `
 
   /* ================= 2026-09-19 顶栏页面操作（刷新 / 转发）+ 并发提示 ================= */
 
-  ok('顶栏加了刷新与转发两枚按钮（挂在 #app 下，折叠侧边栏后也能用）', pageStatic.htmlWired, '#pageActions')
+  ok('刷新与转发放在独立顶栏中，折叠侧栏仍可使用', pageStatic.htmlWired, '#pageActions')
   ok('刷新 / 转发图标都在 icons.js 里', pageStatic.iconsExist, 'refresh + external')
   ok('两个按钮都接上了点击处理', pageStatic.clickWired, 'reloadPage / sharePageLink')
   ok('刷新走整页 reload（整页本来就是一个网页）', pageStatic.reloadIsFullPage, 'location.reload')
   ok('链接取 location.origin（http/https 才有；file:// 报空串）', pageStatic.linkIsOrigin, 'appLink')
   ok('转发 = 复制链接 + 甩给系统默认浏览器', pageStatic.shareCopiesAndOpens, 'clipboard + openExternal')
-  ok('这组按钮贴在折叠按钮左边、压过拖拽带（mac 上点得到）',
-    pageStatic.cssPositioned && pageStatic.cssCollapsedMoves, 'left 140 → 54')
-  ok('mac 上与红黄绿同中线 + 退出拖拽带；折叠后落到折叠按钮右边',
-    pageStatic.macNoDrag && pageStatic.macCollapsedRightOfToggle, 'top 9 + left 118')
-  ok('「只看文件」模式下这组按钮退场（别压在面板顶栏上）', pageStatic.hiddenInChatHidden, 'chat-hidden')
+  ok('页面操作按顶栏 flex 排列，点击区域退出窗口拖拽', pageStatic.controlsInHeaderFlow)
+  ok('只看文件时保留顶栏操作与返回聊天入口', pageStatic.fileModeHasTopbarActions)
   ok('「并发已满」提示条（HTML/CSS/逻辑齐，只在池满时露）',
     pageStatic.hintHtml && pageStatic.hintCss && pageStatic.hintLogic, '#composerRunHint')
   ok('会话存储已双写服务端（服务端优先 + 空 store 迁移 + local 立即兜底 + in-flight 合并 PUT）',
@@ -2230,7 +2245,82 @@ const checks = `
   state.runs = {}
   window.__dshRunningSessions = []
   window.__dshRunning = false
+  await waitPushes()
+  window.__uiStoreRemote.currentSessionId = 's1'
+  window.__uiStoreRemote.updatedAt = Date.now()
+  localStorage.removeItem('dsh-ui-store-stamp')
+  localStorage.removeItem('dsh-sessions-v1')
+  localStorage.removeItem('dsh-current-session')
+  sessionStore = {}
+  state.currentSessionId = ''
   await init()
+  await waitPushes()
+  ok('完整 init 在新端口从服务端恢复会话，启动布局不覆盖历史或当前 id',
+    state.currentSessionId === 's1' && localStorage.getItem('dsh-current-session') === 's1'
+      && window.__uiStoreRemote.currentSessionId === 's1'
+      && currentSession().id === 's1')
+
+  /* 顶栏跑真实渲染与按钮回调；几何/各平台预留空间由 shell-chrome/drag 负责。 */
+  const titlebarSession = currentSession()
+  const titlebarOriginalTitle = titlebarSession.title
+  const titlebarObserver = mutationObservers.find((observer) =>
+    observer.targets.some((entry) => entry.target === byId('app')))
+  const notifyTitlebar = () => { if (titlebarObserver) titlebarObserver.callback([]) }
+  ok('恢复会话后顶栏与窗口标题显示当前会话名',
+    byId('windowTitle').textContent === titlebarSession.title
+      && document.title === titlebarSession.title + ' · Agent')
+  titlebarSession.title = '独立顶栏会话'
+  renderWorkspaceList()
+  ok('会话重命名后渲染列表同时更新顶栏标题',
+    byId('windowTitle').textContent === '独立顶栏会话')
+  titlebarSession.title = titlebarOriginalTitle
+
+  const titlebarProjectsBackup = state.settings.projects
+  const titlebarActiveProjectBackup = state.activeProjectId
+  state.settings.projects = [{ id: 'titlebar_project', name: '顶栏项目', folders: ['/ws/titlebar'] }]
+  state.activeProjectId = 'titlebar_project'
+  state.currentSessionId = ''
+  renderWindowTitle()
+  ok('尚无会话时顶栏显示当前项目名', byId('windowTitle').textContent === '顶栏项目')
+  state.settings.projects = titlebarProjectsBackup
+  state.activeProjectId = titlebarActiveProjectBackup
+  state.currentSessionId = titlebarSession.id
+
+  const titlebarPanelTitleBackup = byId('panelTitle').textContent
+  byId('panelTitle').textContent = '审阅目录'
+  document.documentElement.classList.add('chat-hidden')
+  notifyTitlebar()
+  ok('只看文件模式的布局监听同步文件区标题',
+    byId('windowTitle').textContent === '审阅目录')
+  byId('restoreChat').click()
+  notifyTitlebar()
+  ok('返回聊天按钮经过真实文件面板委托恢复聊天与会话标题',
+    not(document.documentElement.classList.contains('chat-hidden'))
+      && byId('windowTitle').textContent === titlebarSession.title)
+  byId('panelTitle').textContent = titlebarPanelTitleBackup
+
+  const titlebarWasCollapsed = byId('app').classList.contains('sidebar-collapsed')
+  byId('sidebarToggle').click()
+  const titlebarSidebarExpanded = byId('sidebarToggle').getAttribute('aria-expanded')
+  const titlebarSidebarLabel = byId('sidebarToggle').getAttribute('aria-label')
+  byId('sidebarToggle').click()
+  ok('侧栏开关点击同步展开状态和可访问名称，再次点击恢复原布局',
+    titlebarSidebarExpanded === (titlebarWasCollapsed ? 'true' : 'false')
+      && titlebarSidebarLabel === (titlebarWasCollapsed ? '折叠侧边栏' : '展开侧边栏')
+      && byId('app').classList.contains('sidebar-collapsed') === titlebarWasCollapsed)
+
+  const titlebarPanelWasOpen = window.filePanel.isOpen()
+  byId('panelToggle').click()
+  notifyTitlebar()
+  const titlebarPanelExpanded = byId('panelToggle').getAttribute('aria-expanded')
+  const titlebarPanelLabel = byId('panelToggle').getAttribute('aria-label')
+  byId('panelToggle').click()
+  notifyTitlebar()
+  ok('顶栏面板按钮经过真实委托切换文件区并同步展开状态',
+    titlebarPanelExpanded === (titlebarPanelWasOpen ? 'false' : 'true')
+      && titlebarPanelLabel === (titlebarPanelWasOpen ? '展开文件面板' : '收起文件面板')
+      && window.filePanel.isOpen() === titlebarPanelWasOpen)
+
   state.currentSessionId = 's1'
   state.runs = { s1: true, s2: true }
   applyRunState()
@@ -2246,6 +2336,150 @@ const checks = `
   ok('停止后按钮回到「发送」态（只针对本会话）',
     sendEl.className.indexOf('hidden') === -1 && stopEl.className.indexOf('hidden') !== -1,
     'send=[' + sendEl.className + '] stop=[' + stopEl.className + ']')
+
+  /* ---- 首次启动：没有项目、没有新建会话，直接点发送 ---- */
+  settingsState.projects = []
+  settingsState.currentProjectId = ''
+  state.settings = settingsState
+  settingsState.workspacePath = '/ws/first'
+  state.workspacePath = '/ws/first'
+  state.activeProjectId = ''
+  state.currentSessionId = ''
+  state.runs = {}
+  state.pendingMessages.length = 0
+  window.__dshRunningSessions = []
+  sessionStore = { __recent__: [] }
+  window.__uiStoreRemote = null
+  window.__uiStorePuts = []
+  localStorage.removeItem('dsh-current-session')
+  renderMessages(null)
+  window.__sendCalls = []
+  const firstInput = byId('input')
+  firstInput.innerText = '第一次直接聊天'
+  sendEl.click()
+  await waitPushes()
+  const firstSession = currentSession()
+  const firstId = firstSession && firstSession.id
+  ok('无项目且未新建会话：点击发送自动生成有 id 的最近会话',
+    Boolean(firstId) && firstSession.scope === 'recent' && firstSession.projectId === ''
+      && getRecentSessions().length === 1 && window.__sendCalls.length === 1
+      && window.__sendCalls[0].sessionId === firstId,
+    'id=' + firstId)
+  ok('首次直接聊天有历史且出现在最近列表',
+    firstSession.messages.length === 1 && firstSession.messages[0].content === '第一次直接聊天'
+      && byId('chatList').children.length === 1,
+    'messages=' + firstSession.messages.length)
+  ok('自动生成的会话 id 同时保存到本地和服务端',
+    localStorage.getItem('dsh-current-session') === firstId
+      && window.__uiStoreRemote.currentSessionId === firstId,
+    'remote=' + window.__uiStoreRemote.currentSessionId)
+  await handleEvent({ type: 'finished', sessionId: firstId,
+    messages: [{ role: 'user', content: '第一次直接聊天' }, { role: 'assistant', content: '第一次回复' }] })
+  window.__sendCalls = []
+  firstInput.innerText = '第二句话'
+  await sendMessage()
+  ok('第二句话继续同一会话，发送完整上下文',
+    window.__sendCalls.length === 1 && window.__sendCalls[0].sessionId === firstId
+      && window.__sendCalls[0].history.length === 2
+      && window.__sendCalls[0].history[1].content === '第一次回复'
+      && getRecentSessions().length === 1,
+    'history=' + window.__sendCalls[0].history.length)
+  clearWaitingTimer()
+  await waitPushes()
+
+  /* 模拟刷新：状态先清空，服务端有刚才的记录。迁移 PUT 必须保留 currentSessionId。 */
+  state.currentSessionId = ''
+  sessionStore = {}
+  localStorage.removeItem('dsh-ui-store-stamp')
+  await loadSessionStore()
+  await waitPushes()
+  ok('刷新恢复首条自动会话，迁移保存不把服务端当前会话覆盖为空',
+    state.currentSessionId === firstId && currentSession().messages.length === 3
+      && window.__uiStoreRemote.currentSessionId === firstId,
+    'current=' + state.currentSessionId + ' remote=' + window.__uiStoreRemote.currentSessionId)
+  const getBackup = window.dsh.uiStoreGet
+  const putBackup = window.dsh.uiStorePut
+  delete window.dsh.uiStoreGet
+  delete window.dsh.uiStorePut
+  state.currentSessionId = ''
+  sessionStore = {}
+  await loadSessionStore()
+  ok('服务端不可用时，本地记录也能恢复首次自动会话',
+    state.currentSessionId === firstId && currentSession().messages.length === 3,
+    'current=' + state.currentSessionId)
+  window.dsh.uiStoreGet = getBackup
+  window.dsh.uiStorePut = putBackup
+
+  /* 首条发送尚未完成时仍有可停止的会话账本。 */
+  const sendBackup = window.dsh.send
+  let finishFirstSend = null
+  window.dsh.send = () => new Promise((resolve) => { finishFirstSend = resolve })
+  state.currentSessionId = ''
+  state.runs = {}
+  sessionStore = { __recent__: [] }
+  firstInput.innerText = '首条任务运行中'
+  const firstPending = sendMessage()
+  const runningFirstId = state.currentSessionId
+  ok('首次直接聊天运行中可停止，账本使用自动会话 id',
+    Boolean(runningFirstId) && currentRunning()
+      && stopEl.className.indexOf('hidden') === -1 && sendEl.className.indexOf('hidden') !== -1,
+    'running=' + runningFirstId)
+  finishFirstSend(true)
+  await firstPending
+  clearWaitingTimer()
+  window.dsh.send = sendBackup
+
+  settingsState.projects = [{ id: 'project_first', name: 'First', folders: ['/ws/first'] }]
+  settingsState.currentProjectId = 'project_first'
+  state.activeProjectId = 'project_first'
+  state.currentSessionId = ''
+  firstInput.innerText = '选中空项目后直接聊天'
+  await sendMessage()
+  ok('选中空项目后直接发送，会话归入该项目并保存当前 id',
+    currentSession().scope === 'project' && currentSession().projectId === 'project_first'
+      && state.activeProjectId === 'project_first'
+      && state.expandedProjects.project_first === true
+      && localStorage.getItem('dsh-current-session') === state.currentSessionId)
+  clearWaitingTimer()
+  state.currentSessionId = ''
+  state.activeProjectId = ''
+  firstInput.innerText = '主页直接聊天'
+  await sendMessage()
+  ok('主页直接发送与新建会话一致，归入最近列表',
+    currentSession().scope === 'recent' && state.activeProjectId === '')
+  clearWaitingTimer()
+
+  state.currentSessionId = ''
+  sessionStore = { __recent__: [] }
+  state.workspacePath = ''
+  window.__sendCalls = []
+  firstInput.innerText = '未配置工作区时的草稿'
+  await sendMessage()
+  ok('工作区未配置时提示错误并保留草稿，不产生无 id 聊天',
+    window.__sendCalls.length === 0 && state.currentSessionId === ''
+      && firstInput.innerText === '未配置工作区时的草稿')
+  state.workspacePath = '/ws/first'
+  settingsState.currentProjectId = ''
+  settingsState.projects = []
+  byId('projectModal').classList.add('hidden')
+  byId('newSession').click()
+  await waitPushes()
+  ok('独立工作区点击新建会话也能直接生成最近会话',
+    Boolean(currentSession()) && currentSession().scope === 'recent'
+      && byId('projectModal').classList.contains('hidden'))
+  window.dsh.isDesktop = false
+  window.dsh.pickNativeFolder = async () => ({ path: '', canceled: false })
+  state.projectFolders = []
+  byId('dirBrowserModal').classList.add('hidden')
+  await addProjectFolder()
+  ok('Linux 原生目录工具不可用时回退到内置目录浏览器',
+    not(byId('dirBrowserModal').classList.contains('hidden'))
+      && state.currentDirData.path === '/' && state.projectFolders.length === 0)
+  window.dsh.pickNativeFolder = async () => ({ path: '', canceled: true })
+  byId('dirBrowserModal').classList.add('hidden')
+  await addProjectFolder()
+  ok('用户取消原生选目录时不再弹出回退目录浏览器',
+    byId('dirBrowserModal').classList.contains('hidden') && state.projectFolders.length === 0)
 })().then(() => { harnessDone() }).catch((e) => { harnessError(e) })
 `
 
