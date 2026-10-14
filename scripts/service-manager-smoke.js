@@ -40,13 +40,13 @@ function delay(ms) {
 }
 
 /** 起一个 HTTP 假服务；isOurs=true 时返回我方身份标识。端口用 0 让系统分配，避免撞上用户的服务。 */
-function startFakeHttp(isOurs) {
+function startFakeHttp(isOurs, metadata) {
   return new Promise((resolve) => {
     const server = http.createServer((request, response) => {
       if (request.url && request.url.indexOf('/api/health') === 0) {
         response.writeHead(200, { 'content-type': 'application/json' })
         response.end(JSON.stringify(isOurs
-          ? { ok: true, app: sm.SERVICE_ID, pid: process.pid }
+          ? Object.assign({ ok: true, app: sm.SERVICE_ID, pid: process.pid }, metadata)
           : { hello: 'world' }))
         return
       }
@@ -108,6 +108,19 @@ async function groupA() {
 
   const ours = await startFakeHttp(true)
   check('A3 我方服务 probePort=ours', (await sm.probePort(ours.port, { probeTimeout: 400 })) === 'ours')
+
+  const expected = { expectedVersion: '0.1.3', expectedUiBuild: 'new-ui', expectedAgentHome: path.resolve('/tmp/agent-home') }
+  check('A7 旧服务缺少版本和界面标识，禁止复用', (await sm.probePort(ours.port, expected)) === 'other')
+  const current = await startFakeHttp(true, { version: '0.1.3', uiBuild: 'new-ui', agentHome: expected.expectedAgentHome })
+  check('A8 同版本同界面同数据目录允许复用', (await sm.probePort(current.port, expected)) === 'ours')
+  check('A9 旧版本禁止复用', (await sm.probePort(current.port, Object.assign({}, expected, { expectedVersion: '0.1.4' }))) === 'other')
+  check('A10 同版本旧界面禁止复用', (await sm.probePort(current.port, Object.assign({}, expected, { expectedUiBuild: 'different-ui' }))) === 'other')
+  check('A11 其他数据目录禁止复用', (await sm.probePort(current.port, Object.assign({}, expected, { expectedAgentHome: '/tmp/other-home' }))) === 'other')
+  const picked = await sm.pickPort(ours.port, Object.assign({}, expected, { candidates: [ours.port, current.port] }))
+  check('A12 跳过旧后台服务选择当前构建', picked && picked.port === current.port && picked.reuse)
+  const wrong = await sm.waitReady(current.port, Object.assign({}, expected, { expectedUiBuild: 'old-ui', readyTimeout: 300 }))
+  check('A13 旧界面不能通过就绪检测', !wrong.ok)
+  await closeServer(current.server)
 
   const other = await startFakeHttp(false)
   check('A4 别的 HTTP 服务 probePort=other', (await sm.probePort(other.port, { probeTimeout: 400 })) === 'other')

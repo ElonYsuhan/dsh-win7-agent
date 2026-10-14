@@ -329,9 +329,16 @@ async function boot() {
     return
   }
 
-  // 本地模式：先协商端口
+  const compatibility = {
+    expectedVersion: appVersion(),
+    expectedUiBuild: require(path.join(path.dirname(serviceScriptPath()), '..', 'src', 'main', 'agent', 'ui-build')).uiBuild(path.join(path.dirname(serviceScriptPath()), '..', 'src', 'renderer')),
+    expectedAgentHome: agentHomePath()
+  }
+
+  // 本地模式：只复用相同版本、界面和数据目录的服务
   setStartupState({ phase: 'probing' })
   const picked = await serviceManager.pickPort(config.lastPort, {
+    ...compatibility,
     basePort: DEFAULT_BASE_PORT,
     maxPort: serviceManager.DEFAULT_MAX_PORT
   })
@@ -362,6 +369,7 @@ async function boot() {
   })
 
   const ready = await serviceManager.waitReady(picked.port, {
+    ...compatibility,
     state: serviceState,
     readyTimeout: 25000
   })

@@ -73,9 +73,8 @@ const ALIASES = {
   'mac': 'mac-arm64'
 }
 
-/* `all` 的默认集合：mac 只出 arm64（Intel Mac 量太少，一个包多 88MB 运行时不值当）。
-   需要 Intel Mac 包时显式点名：node scripts/build-desktop.js mac-x64 */
-const ALL_TARGETS = ['win-x64', 'mac-arm64', 'linux-x64', 'linux-arm64']
+// Compile every supported desktop architecture.
+const ALL_TARGETS = Object.keys(TARGETS)
 
 const MIRRORS = [
   (name) => 'https://registry.npmmirror.com/-/binary/electron/' + ELECTRON_VERSION + '/' + name,

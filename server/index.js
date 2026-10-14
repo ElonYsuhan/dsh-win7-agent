@@ -29,6 +29,7 @@ try {
 let currentPort = PORT
 const AGENT_HOME = process.env.AGENT_HOME || path.resolve(process.cwd(), 'data')
 const RENDERER_DIR = path.resolve(__dirname, '..', 'src', 'renderer')
+const UI_BUILD = require('../src/main/agent/ui-build').uiBuild(RENDERER_DIR)
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -242,6 +243,8 @@ async function handleApi(request, response, url) {
       ok: true,
       app: SERVICE_ID,
       version: SERVICE_VERSION,
+      uiBuild: UI_BUILD,
+      agentHome: path.resolve(AGENT_HOME),
       pid: process.pid,
       port: currentPort,
       workspacePath: pool.getWorkspace()

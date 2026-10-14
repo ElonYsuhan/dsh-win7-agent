@@ -15,6 +15,7 @@
 
 const http = require('http')
 const net = require('net')
+const path = require('path')
 const { spawn } = require('child_process')
 
 const SERVICE_ID = 'dsh-agent-service'
@@ -102,6 +103,21 @@ function fetchHealth(port, timeout) {
   })
 }
 
+function compatibleHealth(health, settings) {
+  if (!health || health.app !== SERVICE_ID) return false
+  if (settings.expectedVersion && health.version !== settings.expectedVersion) return false
+  if (settings.expectedUiBuild && health.uiBuild !== settings.expectedUiBuild) return false
+  if (settings.expectedAgentHome) {
+    if (typeof health.agentHome !== 'string') return false
+    const normalize = (value) => {
+      const resolved = path.resolve(value)
+      return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+    }
+    if (normalize(health.agentHome) !== normalize(settings.expectedAgentHome)) return false
+  }
+  return true
+}
+
 /**
  * 判断端口状态。
  * @returns {Promise<'free'|'ours'|'other'>}
@@ -112,7 +128,7 @@ async function probePort(port, options) {
   const listening = await isPortListening(port, settings.probeTimeout)
   if (!listening) return 'free'
   const health = await fetchHealth(port, settings.probeTimeout)
-  if (health && health.app === SERVICE_ID) return 'ours'
+  if (compatibleHealth(health, settings)) return 'ours'
   return 'other'
 }
 
@@ -236,7 +252,7 @@ async function waitReady(port, options) {
       target = state.announcedPort
     }
     const health = await fetchHealth(target, settings.probeTimeout)
-    if (health && health.app === SERVICE_ID) {
+    if (compatibleHealth(health, settings) && (!state || !state.child || health.pid === state.child.pid)) {
       return { ok: true, port: target, health }
     }
     if (state && state.exited) {
@@ -353,6 +369,7 @@ function killByPort(port) {
 
 module.exports = {
   SERVICE_ID,
+  compatibleHealth,
   DEFAULT_BASE_PORT,
   DEFAULT_MAX_PORT,
   healthUrl: (port) => 'http://127.0.0.1:' + (toPort(port) || DEFAULT_BASE_PORT) + HEALTH_PATH,
