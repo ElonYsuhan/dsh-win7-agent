@@ -249,26 +249,38 @@
           </div>
           <fieldset class="brand-settings">
             <legend>品牌显示</legend>
-            <p class="settings-row-desc">自定义侧栏顶部的名称、图标和系统标签，修改后自动保存。</p>
-            <div class="settings-row">
-              <label for="brandNameInput">名称</label>
+            <p class="brand-description">自定义侧栏顶部的品牌信息，修改后自动保存。</p>
+            <div class="brand-setting-section">
+              <div class="brand-setting-heading">
+                <label class="brand-field-title" for="brandNameInput">名称</label>
+                <label class="brand-switch"><span>显示名称</span><input id="showBrandName" type="checkbox" checked></label>
+              </div>
               <input id="brandNameInput" type="text" maxlength="40" placeholder="Agent" autocomplete="off">
             </div>
-            <div class="brand-visibility">
-              <label><input id="showBrandName" type="checkbox" checked>显示名称</label>
-              <label><input id="showBrandIcon" type="checkbox" checked>显示图标</label>
-              <label><input id="showPlatformBadge" type="checkbox" checked>显示系统标签</label>
+            <div class="brand-setting-section brand-image-row">
+              <div class="brand-preview-frame"><img id="brandIconPreview" src="logo.png" width="36" height="36" alt="当前品牌图标"></div>
+              <div class="brand-image-content">
+                <div class="brand-setting-heading">
+                  <span class="brand-field-title">图标</span>
+                  <label class="brand-switch"><span>显示图标</span><input id="showBrandIcon" type="checkbox" checked></label>
+                </div>
+                <p id="brandIconHelp" class="brand-description">PNG、JPG 或 WebP，最大 5 MB</p>
+                <div class="brand-image-actions">
+                  <label class="brand-file-label" for="brandIconFile">替换图标
+                    <input id="brandIconFile" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="brandIconHelp brandSettingsStatus">
+                  </label>
+                  <button id="resetBrandIcon" class="brand-text-button" type="button">恢复默认</button>
+                </div>
+              </div>
             </div>
-            <div class="brand-icon-settings">
-              <img id="brandIconPreview" src="logo.png" width="32" height="32" alt="当前品牌图标">
-              <label class="brand-file-label" for="brandIconFile">替换图标
-                <input id="brandIconFile" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="brandIconHelp brandSettingsStatus">
-              </label>
-              <button id="resetBrandIcon" type="button">恢复默认图标</button>
-              <button id="resetBrand" type="button">全部恢复默认</button>
+            <div class="brand-setting-section brand-setting-heading">
+              <div><span class="brand-field-title">系统标签</span><p class="brand-description">在品牌名称旁显示 MAC、WIN 或 Linux</p></div>
+              <label class="brand-switch"><span class="brand-visually-hidden">显示系统标签</span><input id="showPlatformBadge" type="checkbox" checked></label>
             </div>
-            <p id="brandIconHelp" class="settings-row-desc">支持 PNG、JPG、WebP，最大 5 MB；图标会按比例缩放。</p>
-            <p id="brandSettingsStatus" class="settings-row-desc" role="status" aria-live="polite"></p>
+            <div class="brand-settings-footer">
+              <p id="brandSettingsStatus" class="brand-description" role="status" aria-live="polite"></p>
+              <button id="resetBrand" class="brand-text-button" type="button">恢复全部默认设置</button>
+            </div>
           </fieldset>
           <div class="settings-row">
             <div class="settings-row-label"><div class="settings-row-title">&#22238;&#22797;&#35821;&#35328;</div><div class="settings-row-desc">AI &#22238;&#22797;&#20351;&#29992;&#30340;&#40664;&#35748;&#35821;&#35328;</div></div>
