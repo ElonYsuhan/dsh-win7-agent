@@ -3,6 +3,7 @@
 ;(function () {
   const base = 'xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"'
   const icons = {
+    'markdown-preview': '<svg ' + base + '><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M6 7h3M6 11h3M14 12s1.5-3 3-3 3 3 3 3-1.5 3-3 3-3-3-3-3"/><circle cx="17" cy="12" r=".8"/></svg>',
     plus: '<svg ' + base + '><path d="M12 5v14M5 12h14"/></svg>',
     folder: '<svg ' + base + '><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
     more: '<svg ' + base + '><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>',

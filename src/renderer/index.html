@@ -101,14 +101,7 @@
          面板自带两栏：左边资源管理器（目录树），右边标签页 + 预览。 -->
     <aside id="filePanel" class="file-panel" aria-hidden="true">
       <div class="panel-resize" id="panelResize" title="拖拽调整宽度"></div>
-      <header class="panel-head">
-        <button id="panelExplorerToggle" class="icon-button small-icon" title="显示/隐藏文件目录"><span class="icon" data-icon="folder-tree"></span></button>
-        <span id="panelTitle" class="panel-title">文件</span>
-        <div class="panel-head-actions">
-          <button id="panelVscode" class="icon-button small-icon" title="仅显示文件区"><span class="icon" data-icon="vscode"></span></button>
-          <button id="panelTerminal" class="icon-button small-icon" title="终端"><span class="icon" data-icon="terminal"></span></button>
-        </div>
-      </header>
+      <span id="panelTitle" class="hidden" aria-hidden="true">文件</span>
       <div class="panel-body">
         <div id="panelExplorer" class="panel-explorer">
           <div class="panel-explorer-head">
@@ -120,7 +113,15 @@
         <div class="panel-main">
           <!-- 文件列表 | 预览 之间这条竖向分隔也支持拖宽度（面板左缘那条把手的镜像） -->
           <div class="explorer-resize" id="explorerResize" title="拖拽调整宽度"></div>
-          <div id="panelTabs" class="panel-tabs"></div>
+          <div class="panel-tabbar">
+            <div id="panelTabs" class="panel-tabs"></div>
+            <div class="panel-tab-actions">
+              <button id="markdownPreviewToggle" class="icon-button small-icon hidden" type="button" title="打开 Markdown 侧边预览" aria-label="打开 Markdown 侧边预览" aria-pressed="false"><span class="icon" data-icon="markdown-preview" aria-hidden="true"></span></button>
+              <button id="panelExplorerToggle" class="icon-button small-icon" type="button" title="显示/隐藏文件目录" aria-label="显示/隐藏文件目录"><span class="icon" data-icon="folder-tree" aria-hidden="true"></span></button>
+              <button id="panelVscode" class="icon-button small-icon" type="button" title="仅显示文件区" aria-label="仅显示文件区"><span class="icon" data-icon="vscode" aria-hidden="true"></span></button>
+              <button id="panelTerminal" class="icon-button small-icon" type="button" title="终端" aria-label="终端"><span class="icon" data-icon="terminal" aria-hidden="true"></span></button>
+            </div>
+          </div>
           <div id="panelPreview" class="panel-preview">
             <div class="panel-placeholder">选择一个文件预览</div>
           </div>

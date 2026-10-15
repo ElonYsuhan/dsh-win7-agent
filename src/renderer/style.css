@@ -4959,3 +4959,19 @@ button .dropdown-chevron svg, button .dropdown-check svg { width: 14px; height: 
 @media (prefers-reduced-motion: reduce) {
   .panel-tab[data-save-state="saving"] .panel-tab-save { animation: none; }
 }
+
+/* One compact header for the file area; controls live beside the tabs. */
+.panel-tabbar { display: flex; align-items: stretch; flex: 0 0 40px; height: 40px; min-height: 40px; min-width: 0; border-bottom: 1px solid var(--border); }
+.panel-tabbar .panel-tabs { flex: 1 1 0; min-width: 0; height: 39px; min-height: 0; border-bottom: 0; }
+.panel-tab-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; padding: 0 4px; }
+.panel-tab-actions .icon-button { width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 5px; }
+.panel-tab-actions .icon-button.active { background: var(--selection-bg); }
+.markdown-split { display: grid; grid-template-columns: minmax(0, var(--markdown-source-fr, 1fr)) 6px minmax(0, var(--markdown-preview-fr, 1fr)); flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.markdown-split > .code-editor { min-width: 0; min-height: 0; }
+.markdown-divider { background: var(--border); cursor: col-resize; touch-action: none; }
+.markdown-divider:hover, .markdown-divider:focus-visible, .markdown-split.is-resizing .markdown-divider { background: var(--muted); outline: none; }
+.markdown-split.is-resizing { user-select: none; }
+.markdown-side-preview { min-width: 0; min-height: 0; overflow: auto; overflow-wrap: anywhere; padding: 14px 18px 32px; background: var(--bg); }
+.markdown-side-preview pre { max-width: 100%; overflow-x: auto; }
+.markdown-side-preview img { max-width: 100%; height: auto; }
+.markdown-side-preview table { display: block; max-width: 100%; overflow-x: auto; }

@@ -100,6 +100,7 @@
        标签从 localStorage 恢复时 open 默认 true，两处共用同一个字段的话，
        重启软件后点终端图标等于 setTerminalMode(false)，终端反而被关掉（用户报的「重开不对」） */
     terminalView: false,
+    markdownPreview: false,
     context: null,
     contextKey: '',
     contextRevision: 0,
@@ -621,6 +622,7 @@
     if (not(ed.taNode)) return
     ed.text = ed.taNode.value
     if (ed.updateHighlight) ed.updateHighlight()
+    if (ed.updateMarkdownPreview) ed.updateMarkdownPreview()
     /* 输入法组字、按方向键也会触发 input —— 内容真变了才算脏 */
     const dirty = ed.text !== ed.loaded
     if (dirty !== ed.dirty) {
@@ -665,8 +667,103 @@
   }
 
   /** 编辑态那枚 textarea + 挂上监听。返回节点，由 renderPreview 决定挂哪儿。 */
+  function isMarkdownFile(target) {
+    return /\.(?:md|markdown|mdown)$/i.test(String(target || '')) || kindCache[target] === 'markdown'
+  }
+
+  function syncMarkdownPreviewButton() {
+    const button = byId('markdownPreviewToggle')
+    if (!button) return
+    const visible = isMarkdownFile(panel.active)
+    button.classList.toggle('hidden', !visible)
+    button.classList.toggle('active', visible && panel.markdownPreview)
+    button.setAttribute('aria-pressed', visible && panel.markdownPreview ? 'true' : 'false')
+    const label = panel.markdownPreview ? '关闭 Markdown 侧边预览' : '打开 Markdown 侧边预览'
+    button.title = label
+    button.setAttribute('aria-label', label)
+  }
+
+  function markdownSplit(source) {
+    const split = document.createElement('div')
+    split.className = 'markdown-split'
+    split.appendChild(source)
+    const divider = document.createElement('div')
+    divider.className = 'markdown-divider'
+    divider.tabIndex = 0
+    divider.setAttribute('role', 'separator')
+    divider.setAttribute('aria-label', '调整 Markdown 源码与预览宽度')
+    divider.setAttribute('aria-orientation', 'vertical')
+    divider.setAttribute('aria-valuemin', '10')
+    divider.setAttribute('aria-valuemax', '90')
+    split.appendChild(divider)
+    const preview = document.createElement('section')
+    preview.className = 'markdown-side-preview preview-markdown'
+    preview.setAttribute('aria-label', 'Markdown 预览')
+    split.appendChild(preview)
+    let ratio = Number(localStorage.getItem('dsh-markdown-split')) || 50
+    const applyRatio = (value, persist) => {
+      ratio = Math.max(10, Math.min(90, value))
+      split.style.setProperty('--markdown-source-fr', ratio + 'fr')
+      split.style.setProperty('--markdown-preview-fr', (100 - ratio) + 'fr')
+      divider.setAttribute('aria-valuenow', String(Math.round(ratio)))
+      if (persist) localStorage.setItem('dsh-markdown-split', String(ratio))
+    }
+    applyRatio(ratio, false)
+    let dragging = false
+    divider.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      dragging = true
+      split.classList.add('is-resizing')
+      divider.setPointerCapture(event.pointerId)
+    })
+    divider.addEventListener('pointermove', (event) => {
+      if (!dragging) return
+      const rect = split.getBoundingClientRect()
+      if (rect.width > 6) applyRatio((event.clientX - rect.left) / rect.width * 100, false)
+    })
+    const endDrag = () => {
+      if (!dragging) return
+      dragging = false
+      split.classList.remove('is-resizing')
+      applyRatio(ratio, true)
+    }
+    divider.addEventListener('pointerup', endDrag)
+    divider.addEventListener('pointercancel', endDrag)
+    divider.addEventListener('lostpointercapture', endDrag)
+    divider.addEventListener('keydown', (event) => {
+      let next = ratio
+      if (event.key === 'ArrowLeft') next -= 5
+      else if (event.key === 'ArrowRight') next += 5
+      else if (event.key === 'Home') next = 10
+      else if (event.key === 'End') next = 90
+      else return
+      event.preventDefault()
+      applyRatio(next, true)
+    })
+    const ed = panel.editor
+    const target = ed.path
+    let scheduled = false
+    const paint = () => {
+      scheduled = false
+      if (panel.editor.path !== target || !split.isConnected) return
+      if (typeof window.renderMarkdown === 'function') {
+        preview.innerHTML = window.renderMarkdown(ed.text)
+        if (window.highlightAll) window.highlightAll(preview)
+      } else preview.textContent = ed.text
+    }
+    ed.updateMarkdownPreview = () => {
+      if (scheduled) return
+      scheduled = true
+      requestAnimationFrame(paint)
+    }
+    ed.updateMarkdownPreview()
+    return split
+  }
+
   function editorBody() {
     const ed = panel.editor
+    ed.updateMarkdownPreview = null
     const wrapper = document.createElement('div')
     wrapper.className = 'code-editor'
     const highlight = document.createElement('pre')
@@ -1226,6 +1323,7 @@
   }
 
   function renderTabs() {
+    syncMarkdownPreviewButton()
     const host = byId('panelTabs')
     if (not(host)) return
     host.textContent = ''
@@ -1401,6 +1499,7 @@
     const kind = String(meta.kind || 'text')
     const ext = String(meta.ext || extOf(name))
     kindCache[target] = kind
+    syncMarkdownPreviewButton()
 
     if (kind === 'code' || kind === 'text' || kind === 'markdown') {
       let editing = editorIsFor(target)
@@ -1432,7 +1531,8 @@
 
       if (editing) {
         host.classList.add('is-editing')
-        host.appendChild(editorBody())
+        const source = editorBody()
+        host.appendChild(isMarkdownFile(target) && panel.markdownPreview ? markdownSplit(source) : source)
         return
       }
 
@@ -1608,6 +1708,24 @@
       if (target.closest('#panelToggle')) {
         event.preventDefault()
         toggleOpen()
+        return
+      }
+      if (target.closest('#markdownPreviewToggle')) {
+        event.preventDefault()
+        const current = panel.active
+        const ta = panel.editor.taNode
+        const selection = ta ? { start: ta.selectionStart, end: ta.selectionEnd, top: ta.scrollTop, left: ta.scrollLeft } : null
+        panel.markdownPreview = !panel.markdownPreview
+        syncMarkdownPreviewButton()
+        renderPreview().then(() => {
+          const next = panel.editor.taNode
+          if (selection && next && panel.active === current) {
+            next.setSelectionRange(selection.start, selection.end)
+            next.scrollTop = selection.top
+            next.scrollLeft = selection.left
+            next.dispatchEvent(new Event('scroll'))
+          }
+        })
         return
       }
       if (target.closest('#panelExplorerToggle')) {

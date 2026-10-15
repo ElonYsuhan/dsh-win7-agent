@@ -756,7 +756,7 @@ function scheduleTitleAlignment() {
   titleAlignmentFrame = requestAnimationFrame(() => {
     titleAlignmentFrame = null
     const title = byId('windowTitle'), header = byId('titlebarDrag')
-    const target = document.documentElement.classList.contains('chat-hidden') ? byId('panelTitle') : byId('messagesInner')
+    const target = document.documentElement.classList.contains('chat-hidden') ? byId('panelTabs') : byId('messagesInner')
     if (!title || !header || !target) return
     const bounds = header.getBoundingClientRect()
     let safeLeft = bounds.left + parseFloat(getComputedStyle(header).paddingLeft || '0')
