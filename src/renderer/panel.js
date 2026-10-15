@@ -101,6 +101,7 @@
        重启软件后点终端图标等于 setTerminalMode(false)，终端反而被关掉（用户报的「重开不对」） */
     terminalView: false,
     markdownPreview: false,
+    markdownAutoExplorer: false,
     context: null,
     contextKey: '',
     contextRevision: 0,
@@ -1716,6 +1717,16 @@
         const ta = panel.editor.taNode
         const selection = ta ? { start: ta.selectionStart, end: ta.selectionEnd, top: ta.scrollTop, left: ta.scrollLeft } : null
         panel.markdownPreview = !panel.markdownPreview
+        if (panel.markdownPreview) {
+          const main = document.querySelector('.panel-main')
+          if (panel.explorer && main && main.getBoundingClientRect().width < 480) {
+            panel.markdownAutoExplorer = true
+            setExplorer(false)
+          }
+        } else if (panel.markdownAutoExplorer) {
+          panel.markdownAutoExplorer = false
+          setExplorer(true)
+        }
         syncMarkdownPreviewButton()
         renderPreview().then(() => {
           const next = panel.editor.taNode
@@ -1729,6 +1740,7 @@
         return
       }
       if (target.closest('#panelExplorerToggle')) {
+        panel.markdownAutoExplorer = false
         setExplorer(not(panel.explorer))
         return
       }

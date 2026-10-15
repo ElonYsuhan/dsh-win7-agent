@@ -4975,3 +4975,5 @@ button .dropdown-chevron svg, button .dropdown-check svg { width: 14px; height: 
 .markdown-side-preview pre { max-width: 100%; overflow-x: auto; }
 .markdown-side-preview img { max-width: 100%; height: auto; }
 .markdown-side-preview table { display: block; max-width: 100%; overflow-x: auto; }
+
+#panelTitle, #markdownPreviewToggle.hidden { display: none !important; }
