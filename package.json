@@ -1,6 +1,6 @@
 {
   "name": "dsh-win7-agent",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "description": "Win7-compatible local Agent shell. Local workspace and local commands, remote OpenAI-compatible LLM.",
   "main": "src/main/main.js",

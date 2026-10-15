@@ -4889,3 +4889,19 @@ button .dropdown-chevron svg, button .dropdown-check svg { width: 14px; height: 
 .terminal-tab-close .icon svg { width: 18px; height: 18px; }
 /* Native window glyphs keep their platform-specific geometry. */
 .window-controls button { min-width: 0; min-height: 0; }
+
+/* Sidebar: readable labels, compact rows and distinct hover/selection states. */
+.sidebar { --sidebar-row-hover: #303030; --sidebar-row-selected: #3a3a3a; --sidebar-row-selected-hover: #424242; --sidebar-action-hover: #505050; }
+[data-theme="light"] .sidebar { --sidebar-row-hover: #e3e3e3; --sidebar-row-selected: #d8d8d8; --sidebar-row-selected-hover: #cecece; --sidebar-action-hover: #bfbfbf; }
+.sidebar .flat-item, .sidebar .session-item, .sidebar .workspace-row {
+  box-sizing: border-box; min-height: 38px; padding: 2px 8px; font-size: 15px; line-height: 20px; border-radius: 7px;
+}
+.sidebar .flat-name, .sidebar .session-title, .sidebar .workspace-name { font-size: 15px; line-height: 20px; }
+.sidebar .section-title { font-size: 13px; letter-spacing: 0; }
+.sidebar .flat-list { gap: 2px; }
+.sidebar .flat-item:hover, .sidebar .session-item:hover, .sidebar .workspace-row:hover { background: var(--sidebar-row-hover); }
+.sidebar .flat-item.active, .sidebar .session-item.active, .sidebar .workspace-row.active { background: var(--sidebar-row-selected); color: var(--text); }
+.sidebar .flat-item.active:hover, .sidebar .session-item.active:hover, .sidebar .workspace-row.active:hover { background: var(--sidebar-row-selected-hover); }
+.sidebar .flat-item:focus-visible, .sidebar .session-item:focus-visible, .sidebar .workspace-row:focus-visible { outline: 2px solid var(--muted); outline-offset: -2px; background: var(--sidebar-row-hover); }
+.sidebar .project-item:focus-within .project-more, .sidebar .project-item:focus-within .project-add, .sidebar .chat-item:focus-within .chat-more, .sidebar .chat-item:focus-within .chat-edit, .sidebar .chat-item:focus-within .chat-delete { opacity: 1; }
+.sidebar .project-more:hover, .sidebar .project-add:hover, .sidebar .chat-more:hover { background: var(--sidebar-action-hover); }
