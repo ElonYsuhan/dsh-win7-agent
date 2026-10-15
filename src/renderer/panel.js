@@ -38,8 +38,8 @@
 
   const MIN_PANEL = 240
   /** 会话区至少留这么宽 —— 面板拖到头也不许把它挤没（这就是「最大」那条边界）。
-      用户嫌 280 太小、拖不开，收到 120：会话区还剩一条看得见的，拖得回去。 */
-  const MIN_CHAT = 120
+      至少保留 320px，避免文件面板把聊天正文和输入框挤成窄条。 */
+  const MIN_CHAT = 320
   /** 资源管理器（文件列表）的宽度 */
   const DEFAULT_EXPLORER = 210
   const MIN_EXPLORER = 120
@@ -100,6 +100,9 @@
        标签从 localStorage 恢复时 open 默认 true，两处共用同一个字段的话，
        重启软件后点终端图标等于 setTerminalMode(false)，终端反而被关掉（用户报的「重开不对」） */
     terminalView: false,
+    context: null,
+    contextKey: '',
+    contextRevision: 0,
     roots: [],
     projectName: '',
     loading: false,
@@ -778,12 +781,44 @@
     document.documentElement.style.setProperty('--explorer-width', next + 'px')
   }
 
+  let projectPanelOpen = localStorage.getItem(OPEN_KEY) === '1'
+
+  function setContext(value) {
+    const context = value || {}
+    const key = JSON.stringify([context.scope, context.projectId || '', context.projectName || '', context.scope === 'recent' ? context.sessionId || '' : '', context.folders || [], context.workspacePath || ''])
+    const changed = key !== panel.contextKey
+    if (changed && panel.context && panel.context.scope === 'project') projectPanelOpen = panel.open
+    panel.context = context
+    const previousSession = panel.sessionId
+    refreshSessionContext()
+    if (!changed) {
+      if (previousSession !== panel.sessionId) renderTree()
+      return
+    }
+    panel.contextKey = key
+    panel.contextRevision += 1
+    panel.roots = []
+    panel.children = {}
+    panel.expanded = {}
+    panel.pending = {}
+    panel.loading = false
+    panel.error = ''
+    panel.projectName = context.scope === 'project' ? context.projectName || '' : ''
+    const title = byId('panelTitle')
+    if (title) title.textContent = panel.projectName || '会话文件'
+    clearKindCache()
+    renderTree()
+    if (context.scope !== 'project') setOpen(false)
+    else setOpen(projectPanelOpen)
+  }
+
   function setOpen(open) {
     const app = byId('app')
     if (not(app)) return
     /* 收起面板 = 用户先收工了：编辑器里没落盘的那一段先写掉 */
     if (not(open)) flushSave()
     panel.open = Boolean(open)
+    if (panel.context && panel.context.scope === 'project') projectPanelOpen = panel.open
     app.classList.toggle('panel-open', panel.open)
     const panelEl = byId('filePanel')
     if (panelEl) panelEl.setAttribute('aria-hidden', panel.open ? 'false' : 'true')
@@ -1007,7 +1042,7 @@
       return
     }
     if (not(panel.roots.length)) {
-      host.appendChild(emptyHint('当前项目还没有关联工作目录。'))
+      host.appendChild(emptyHint(panel.context && panel.context.scope === 'recent' ? '当前为普通会话，未关联项目目录。' : '当前项目还没有关联工作目录。'))
     }
     for (const root of panel.roots) {
       const row = treeNode(root.path, 'dir', root.name, { depth: 0 })
@@ -1048,6 +1083,13 @@
   }
 
   async function loadRoots() {
+    const revision = panel.contextRevision
+    if (panel.context && panel.context.scope !== 'project') {
+      panel.roots = []
+      panel.loading = false
+      renderTree()
+      return
+    }
     if (not(hasApi())) {
       renderTree()
       return
@@ -1057,6 +1099,7 @@
     renderTree()
     try {
       const data = await dsh().fsRoots()
+      if (revision !== panel.contextRevision) return
       panel.roots = (data && Array.isArray(data.roots) ? data.roots : []).map((item) => ({
         path: String(item.path || ''),
         name: String(item.name || baseOf(item.path))
@@ -1067,11 +1110,14 @@
       /* 只有一个根时默认展开，省一次点击 */
       if (panel.roots.length === 1) await toggleDir(panel.roots[0].path, true)
     } catch (error) {
+      if (revision !== panel.contextRevision) return
       panel.roots = []
       panel.error = friendlyError(error)
     } finally {
-      panel.loading = false
-      renderTree()
+      if (revision === panel.contextRevision) {
+        panel.loading = false
+        renderTree()
+      }
     }
   }
 
@@ -1442,7 +1488,7 @@
     const text = String(relative || '').trim()
     if (not(text) || text === '.') return ''
     if (/^([a-zA-Z]:[\\/]|\/)/.test(text)) return text
-    const root = panel.roots[0]
+    const root = panel.roots[0] || (panel.context && panel.context.workspacePath ? { path: panel.context.workspacePath } : null)
     if (not(root)) return ''
     const separator = root.path.indexOf('\\') >= 0 ? '\\' : '/'
     const trimmed = text.replace(/^[.][\\/]/, '')
@@ -1780,11 +1826,14 @@
     return tab
   }
   async function resolveDefaultTerminalCwd() {
+    const revision = panel.contextRevision
+    if (panel.context && panel.context.scope === 'recent') return panel.context.workspacePath || ''
     if (panel.roots.length > 0) return panel.roots[0].path
     const api = dsh()
     if (api && typeof api.fsRoots === "function") {
       try {
         const data = await api.fsRoots()
+        if (revision !== panel.contextRevision) return ""
         panel.roots = (data && Array.isArray(data.roots) ? data.roots : []).map((item) => ({ path: String(item.path || ""), name: String(item.name || "") })).filter((item) => item.path)
         if (panel.roots.length > 0) return panel.roots[0].path
       } catch (error) {}
@@ -2553,6 +2602,7 @@
    */
   window.filePanel = {
     init: init,
+    setContext: setContext,
     toggle: toggleOpen,
     open: () => setOpen(true),
     close: () => setOpen(false),

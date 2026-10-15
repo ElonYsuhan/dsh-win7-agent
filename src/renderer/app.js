@@ -512,6 +512,7 @@ function saveCurrentSessionId(sessionId) {
     else localStorage.removeItem('dsh-current-session')
   } catch (error) {}
   /* 调用点都在 state.currentSessionId 更新之后，payload 里直接带权威值 */
+  syncFilePanelContext()
   scheduleUiStorePush()
 }
 
@@ -1478,7 +1479,23 @@ function renderChatList() {
   }
 }
 
+function syncFilePanelContext() {
+  if (!window.filePanel || typeof window.filePanel.setContext !== 'function') return
+  const session = currentSession()
+  const projectId = session && session.scope !== 'recent' ? session.projectId : (!session ? state.activeProjectId : '')
+  const project = ((state.settings && state.settings.projects) || []).find((item) => item.id === projectId)
+  window.filePanel.setContext({
+    sessionId: session ? session.id : '',
+    scope: project ? 'project' : 'recent',
+    projectId: project ? project.id : '',
+    projectName: project ? getProjectName(project.id) : '',
+    folders: project ? project.folders || [] : [],
+    workspacePath: state.workspacePath || ''
+  })
+}
+
 function renderWorkspaceList() {
+  syncFilePanelContext()
   renderProjectList()
   renderChatList()
   renderWindowTitle()
