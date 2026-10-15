@@ -742,10 +742,48 @@ function renderWindowTitle() {
   const fileOnly = document.documentElement.classList.contains('chat-hidden')
   const title = fileOnly
     ? ((panelTitle && panelTitle.textContent) || '文件')
-    : ((session && session.title) || getProjectName(projectId) || workspaceLabel(state.workspacePath) || '新会话')
+    : ((session && session.scope !== 'recent' && getProjectName(session.projectId || projectId)) || (session && session.title) || getProjectName(projectId) || '新会话')
   if (element.textContent !== title) element.textContent = title
   element.title = title
   document.title = title + ' · Agent'
+  scheduleTitleAlignment()
+}
+
+let titleAlignmentFrame = null
+function scheduleTitleAlignment() {
+  if (typeof requestAnimationFrame !== 'function' || titleAlignmentFrame !== null) return
+  titleAlignmentFrame = requestAnimationFrame(() => {
+    titleAlignmentFrame = null
+    const title = byId('windowTitle'), header = byId('titlebarDrag')
+    const target = document.documentElement.classList.contains('chat-hidden') ? byId('panelTitle') : byId('messagesInner')
+    if (!title || !header || !target) return
+    const bounds = header.getBoundingClientRect()
+    let safeLeft = bounds.left + parseFloat(getComputedStyle(header).paddingLeft || '0')
+    for (const id of ['sidebarToggle', 'restoreChat', 'pageActions']) {
+      const node = byId(id)
+      if (!node) continue
+      const rect = node.getBoundingClientRect()
+      if (rect.width) safeLeft = Math.max(safeLeft, rect.right + 12)
+    }
+    const content = target.getBoundingClientRect()
+    const left = Math.max(safeLeft, content.left + parseFloat(getComputedStyle(target).paddingLeft || '0'))
+    const panel = byId('panelToggle')
+    const right = panel ? panel.getBoundingClientRect().left - 12 : bounds.right - 144
+    title.style.left = Math.round(left - bounds.left) + 'px'
+    title.style.width = Math.max(0, Math.floor(right - left)) + 'px'
+  })
+}
+
+function setupTitleAlignment() {
+  window.addEventListener('resize', scheduleTitleAlignment)
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(scheduleTitleAlignment)
+    for (const id of ['messagesInner', 'contentFrame', 'sidebar', 'filePanel']) {
+      const node = byId(id)
+      if (node) observer.observe(node)
+    }
+  }
+  scheduleTitleAlignment()
 }
 
 function findSessionById(sessionId) {
@@ -3849,6 +3887,7 @@ async function init() {
       flushPendingMessage()
     }, 1500)
   })
+  setupTitleAlignment()
   setupBrandSettings()
   byId('openSettings').addEventListener('click', openSettings)
   byId('closeSettings').addEventListener('click', closeSettings)

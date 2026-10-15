@@ -1,6 +1,6 @@
 {
   "name": "dsh-win7-shell",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "Thin Electron shell for loading an offline intranet agent service URL.",
   "main": "main.js",

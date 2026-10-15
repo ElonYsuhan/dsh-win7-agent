@@ -4817,3 +4817,12 @@ html.chat-hidden .panel-resize {
 .brand-file-label { position: relative; overflow: hidden; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
 .brand-file-label input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
 .brand-file-label:focus-within { outline: 2px solid var(--text); outline-offset: 2px; }
+
+/* Brand belongs to the sidebar; the context title follows the content column. */
+.sidebar .titlebar-brand { margin: 2px 0 18px; min-height: 24px; min-width: 0; justify-content: flex-start; }
+.sidebar .titlebar-app-name { min-width: 0; }
+.titlebar-drag .panel-toggle { margin-left: auto; }
+.titlebar-drag .window-title { position: absolute; top: 50%; transform: translateY(-50%); pointer-events: none; }
+@media (max-width: 900px) {
+  .sidebar .titlebar-brand { display: none; }
+}

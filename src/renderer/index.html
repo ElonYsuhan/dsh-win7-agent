@@ -16,17 +16,17 @@
       <button id="pageRefresh" type="button" class="icon-button" title="刷新页面" aria-label="刷新页面"><span class="icon" data-icon="refresh" aria-hidden="true"></span></button>
       <button id="pageShare" type="button" class="icon-button" title="在浏览器中打开并复制链接" aria-label="在浏览器中打开并复制链接"><span class="icon" data-icon="external" aria-hidden="true"></span></button>
     </div>
-    <div class="titlebar-brand">
-      <img id="brandIcon" src="logo.png" alt="" width="20" height="20">
-      <span id="brandName" class="titlebar-app-name">Agent</span>
-      <span id="brandBadge" class="brand-badge"></span>
-    </div>
-    <span class="titlebar-divider" aria-hidden="true"></span>
     <span id="windowTitle" class="window-title">新会话</span>
     <button id="panelToggle" type="button" class="icon-button panel-toggle" title="展开文件面板" aria-label="展开文件面板" aria-controls="filePanel" aria-expanded="false"><span class="icon" data-icon="panel-right" aria-hidden="true"></span></button>
   </header>
   <div id="app">
     <aside id="sidebar" class="sidebar">
+    <div class="titlebar-brand">
+      <img id="brandIcon" src="logo.png" alt="" width="20" height="20">
+      <span id="brandName" class="titlebar-app-name">Agent</span>
+      <span id="brandBadge" class="brand-badge"></span>
+    </div>
+
       <div class="sidebar-rail">
         <button id="railNewSession" class="rail-button" title="&#26032;&#24314;&#20250;&#35805;"><span class="icon" data-icon="plus"></span></button>
         <button id="railCreateWorkspace" class="rail-button" title="&#26032;&#24314;&#24037;&#20316;&#21306;"><span class="icon" data-icon="folder"></span></button>
@@ -249,7 +249,7 @@
           </div>
           <fieldset class="brand-settings">
             <legend>品牌显示</legend>
-            <p class="settings-row-desc">自定义顶栏中的名称、图标和系统标签，修改后自动保存。</p>
+            <p class="settings-row-desc">自定义侧栏顶部的名称、图标和系统标签，修改后自动保存。</p>
             <div class="settings-row">
               <label for="brandNameInput">名称</label>
               <input id="brandNameInput" type="text" maxlength="40" placeholder="Agent" autocomplete="off">
