@@ -4849,3 +4849,43 @@ html.chat-hidden .panel-resize {
 @media (max-width: 900px) {
   .sidebar .titlebar-brand { display: none; }
 }
+
+/* Compact branding editor: retain clear groups without consuming a full screen. */
+.brand-settings { padding: 10px 16px 2px; margin: 10px 0 16px; }
+.brand-setting-section { padding: 10px 0; }
+.brand-description { margin-top: 2px; line-height: 1.45; }
+.brand-name-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.brand-name-row > .brand-setting-heading { display: contents; }
+.brand-name-row .brand-field-title { grid-column: 1; grid-row: 1; }
+.brand-name-row #brandNameInput { grid-column: 2; grid-row: 1; margin: 0; height: 34px; }
+.brand-name-row .brand-switch { grid-column: 3; grid-row: 1; }
+.brand-image-row { grid-template-columns: 40px minmax(0, 1fr); gap: 12px; }
+.brand-preview-frame { width: 40px; height: 40px; border-radius: 8px; }
+.brand-preview-frame img { width: 28px; height: 28px; }
+.brand-image-actions { margin-top: 6px; gap: 8px; }
+.brand-settings .brand-file-label { padding: 5px 10px; }
+.brand-settings-footer { padding: 4px 0; }
+@media (max-width: 560px) {
+  .brand-name-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .brand-name-row .brand-switch { grid-column: 2; }
+  .brand-name-row #brandNameInput { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* Consistent desktop actions: larger glyphs and comfortable click targets. */
+button .icon svg, .icon-button .icon svg, .bubble-action .icon svg, .project-add .icon svg, .project-more .icon svg, .chat-more .icon svg, .workspace-add .icon svg, .rail-button .icon svg, .footer-button .icon svg { width: 20px; height: 20px; flex-shrink: 0; }
+.icon-button, button.small-icon, .bubble-action, .project-add, .project-more, .chat-more, .workspace-add {
+  width: 34px; height: 34px; min-width: 34px; min-height: 34px; padding: 6px; flex-shrink: 0;
+}
+.titlebar-drag .icon-button { width: 34px; height: 34px; min-width: 34px; padding: 6px; }
+#settingsModal .settings-content-head .icon-button { width: 34px; height: 34px; min-width: 34px; }
+.section-head .icon-button { width: 32px; height: 32px; min-width: 32px; padding: 5px; }
+.section-toggle, .project-folder-toggle, .project-toggle, .workspace-toggle { width: 28px; height: 28px; min-width: 28px; padding: 4px; }
+.section-toggle .icon svg, .project-folder-toggle .icon svg { width: 18px; height: 18px; }
+.project-item, .chat-item, .workspace-row { min-height: 36px; }
+button .dropdown-chevron svg, button .dropdown-check svg { width: 14px; height: 14px; }
+.send-button { width: 36px; height: 36px; min-width: 36px; }
+.terminal-tab-close { width: 28px; height: 28px; min-width: 28px; padding: 4px; }
+.terminal-new { width: 32px; height: 32px; min-width: 32px; padding: 5px; }
+.terminal-tab-close .icon svg { width: 18px; height: 18px; }
+/* Native window glyphs keep their platform-specific geometry. */
+.window-controls button { min-width: 0; min-height: 0; }
