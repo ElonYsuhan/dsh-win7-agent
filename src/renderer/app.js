@@ -146,7 +146,97 @@ function applyRuns(sessions, anyRunning) {
   state.runs = next
 }
 
+let brandIconDraft = ''
+
+function applyBrand(settings) {
+  const value = settings || {}
+  const icon = byId('brandIcon')
+  const name = byId('brandName')
+  const badge = byId('brandBadge')
+  if (icon) { icon.src = value.brandIcon || 'logo.png'; icon.hidden = value.showBrandIcon === false }
+  if (name) {
+    name.textContent = value.brandName === undefined ? 'Agent' : value.brandName
+    name.title = name.textContent
+    name.hidden = value.showBrandName === false || !name.textContent
+  }
+  if (badge) badge.hidden = value.showPlatformBadge === false
+  const group = document.querySelector('.titlebar-brand')
+  const divider = document.querySelector('.titlebar-divider')
+  if (group) {
+    group.hidden = Boolean(icon && icon.hidden && name && name.hidden && badge && badge.hidden)
+    if (divider) divider.hidden = group.hidden
+  }
+}
+
+function readBrandForm() {
+  return {
+    brandName: byId('brandNameInput').value.trim().slice(0, 40),
+    brandIcon: brandIconDraft,
+    showBrandName: byId('showBrandName').checked,
+    showBrandIcon: byId('showBrandIcon').checked,
+    showPlatformBadge: byId('showPlatformBadge').checked
+  }
+}
+
+function previewBrand() {
+  applyBrand(readBrandForm())
+  byId('brandIconPreview').src = brandIconDraft || 'logo.png'
+}
+
+function setupBrandSettings() {
+  for (const id of ['brandNameInput', 'showBrandName', 'showBrandIcon', 'showPlatformBadge']) {
+    const input = byId(id)
+    if (!input) continue
+    input.addEventListener(id === 'brandNameInput' ? 'input' : 'change', () => {
+      previewBrand()
+      scheduleSettingsSave()
+    })
+  }
+  const fileInput = byId('brandIconFile')
+  if (!fileInput) return
+  const status = byId('brandSettingsStatus')
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files && fileInput.files[0]
+    if (!file) return
+    fileInput.setAttribute('aria-invalid', 'false')
+    try {
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('请选择 PNG、JPG 或 WebP 图片。')
+      if (file.size > 5 * 1024 * 1024) throw new Error('图片不能超过 5 MB。')
+      const bitmap = await createImageBitmap(file)
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = canvas.height = 128
+        const scale = Math.min(128 / bitmap.width, 128 / bitmap.height)
+        const width = bitmap.width * scale, height = bitmap.height * scale
+        canvas.getContext('2d').drawImage(bitmap, (128 - width) / 2, (128 - height) / 2, width, height)
+        brandIconDraft = canvas.toDataURL('image/png')
+      } finally { bitmap.close() }
+      previewBrand()
+      await saveSettingsNow()
+      status.textContent = '图标已保存。'
+    } catch (error) {
+      fileInput.setAttribute('aria-invalid', 'true')
+      status.textContent = error.message || '图标保存失败，请重新选择。'
+    } finally { fileInput.value = '' }
+  })
+  byId('resetBrandIcon').addEventListener('click', () => {
+    brandIconDraft = ''
+    previewBrand()
+    scheduleSettingsSave()
+    status.textContent = '已恢复默认图标。'
+  })
+  byId('resetBrand').addEventListener('click', () => {
+    brandIconDraft = ''
+    byId('brandNameInput').value = 'Agent'
+    for (const id of ['showBrandName', 'showBrandIcon', 'showPlatformBadge']) byId(id).checked = true
+    previewBrand()
+    scheduleSettingsSave()
+    status.textContent = '已恢复默认品牌显示。'
+  })
+}
+
 function applyTheme(theme) {
+  applyBrand(state.settings)
   const value = theme === 'light' ? 'light' : 'dark'
   document.documentElement.setAttribute('data-theme', value)
   const button = byId('themeToggle')
@@ -2819,6 +2909,7 @@ function setupReplyLanguageDropdown() {
 
 function readSettingsForm() {
   return {
+    ...(byId('brandNameInput') ? readBrandForm() : {}),
     maxIterations: Math.max(1, Math.min(500, Number(byId('maxIterations').value) || 100)),
     /* 并发会话上限：后端按会话起 worker，这里就是「同时能跑几条」 */
     maxConcurrentRuns: Math.max(1, Math.min(64, Number(byId('maxConcurrentRuns').value) || 8)),
@@ -2833,6 +2924,13 @@ function readSettingsForm() {
 
 function fillSettingsForm() {
   const settings = state.settings || {}
+  if (byId('brandNameInput')) {
+    byId('brandNameInput').value = settings.brandName === undefined ? 'Agent' : settings.brandName
+    brandIconDraft = settings.brandIcon || ''
+    for (const key of ['showBrandName', 'showBrandIcon', 'showPlatformBadge']) byId(key).checked = settings[key] !== false
+    byId('brandIconPreview').src = brandIconDraft || 'logo.png'
+  }
+  applyBrand(settings)
   byId('maxIterations').value = settings.maxIterations || 100
   byId('maxConcurrentRuns').value = settings.maxConcurrentRuns || 8
   byId('maxTokens').value = settings.maxTokens === undefined ? 32768 : settings.maxTokens
@@ -2867,6 +2965,7 @@ let settingsSaveTimer = null
 async function saveSettingsNow() {
   if (not(state.settings)) return
   state.settings = await window.dsh.saveSettings(readSettingsForm())
+  applyBrand(state.settings)
   renderModelSelect()
   renderModelInfo()
   renderPermission()
@@ -3750,6 +3849,7 @@ async function init() {
       flushPendingMessage()
     }, 1500)
   })
+  setupBrandSettings()
   byId('openSettings').addEventListener('click', openSettings)
   byId('closeSettings').addEventListener('click', closeSettings)
   const settingsAutoSaveIds = ['maxIterations', 'maxConcurrentRuns', 'maxTokens', 'contextWindowTokens', 'keepRecentMessages', 'requestTimeoutSeconds', 'contextAutoCompress']

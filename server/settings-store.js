@@ -28,6 +28,11 @@ const DEFAULTS = {
      与 src/main/agent/settings.js 的默认值保持一致。 */
   maxConcurrentRuns: 8,
   theme: 'dark',
+  brandName: 'Agent',
+  brandIcon: '',
+  showBrandName: true,
+  showBrandIcon: true,
+  showPlatformBadge: true,
   replyLanguage: 'zh',
   disabledPlugins: [],
   models: [],
@@ -116,6 +121,9 @@ function normalize(data) {
   next.maxConcurrentRuns = Number.isFinite(concurrent) && concurrent >= 1
     ? Math.min(64, concurrent)
     : DEFAULTS.maxConcurrentRuns
+  next.brandName = typeof next.brandName === 'string' ? next.brandName.trim().slice(0, 40) : 'Agent'
+  next.brandIcon = typeof next.brandIcon === 'string' && next.brandIcon.length <= 200000 && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(next.brandIcon) ? next.brandIcon : ''
+  for (const key of ['showBrandName', 'showBrandIcon', 'showPlatformBadge']) next[key] = next[key] !== false
   if (not(next.theme)) next.theme = 'dark'
   next.replyLanguage = next.replyLanguage === 'en' ? 'en' : 'zh'
   next.disabledPlugins = Array.isArray(next.disabledPlugins)

@@ -4802,3 +4802,18 @@ html.chat-hidden .panel-resize {
   flex: 0 1 auto;
   max-width: calc(100% - 150px);
 }
+
+/* User brand customization shares the same titlebar on every platform. */
+.titlebar-brand img { object-fit: contain; }
+.titlebar-app-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.titlebar-brand [hidden], .titlebar-brand[hidden], .titlebar-divider[hidden] { display: none !important; }
+.brand-settings { margin: 12px 0 20px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.brand-settings legend { padding: 0 6px; font-weight: 600; }
+.brand-settings .settings-row { gap: 16px; }
+.brand-settings input[type="text"] { width: min(240px, 60%); min-width: 0; }
+.brand-visibility, .brand-icon-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.brand-visibility label { display: inline-flex; align-items: center; gap: 6px; }
+.brand-icon-settings img { object-fit: contain; flex: 0 0 32px; }
+.brand-file-label { position: relative; overflow: hidden; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.brand-file-label input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.brand-file-label:focus-within { outline: 2px solid var(--text); outline-offset: 2px; }
