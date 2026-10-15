@@ -432,8 +432,14 @@
       node.textContent = String(text || '')
       node.className = 'editor-status' + (tone ? ' ' + tone : '')
     }
-    const force = byId('editorForce')
-    if (force) force.classList.toggle('hidden', panel.editor.conflict !== true)
+    const ed = panel.editor
+    ed.statusText = String(text || '')
+    const tab = panel.tabs.find((item) => item.path === ed.path)
+    if (tab) {
+      tab.saveState = ed.conflict ? 'conflict' : (tone === 'error' ? 'error' : (ed.statusText.indexOf('保存中') === 0 ? 'saving' : (ed.dirty ? 'dirty' : 'saved')))
+      tab.saveMessage = ed.statusText
+      renderTabs()
+    }
   }
 
   /** 一句人话提示。编辑态写进状态行；预览态也复用它，免得再造一套提示 */
@@ -492,6 +498,7 @@
     ed.text = decoded.text
     ed.loaded = decoded.text
     ed.encoding = decoded.encoding
+    ed.kind = String(meta.kind || 'text')
     /* 换行风格在这里定下来，往后每次保存都按它编回去 */
     ed.eol = detectEol(decoded.text)
     ed.mtime = Number(meta.mtime || 0)
@@ -613,6 +620,7 @@
     const ed = panel.editor
     if (not(ed.taNode)) return
     ed.text = ed.taNode.value
+    if (ed.updateHighlight) ed.updateHighlight()
     /* 输入法组字、按方向键也会触发 input —— 内容真变了才算脏 */
     const dirty = ed.text !== ed.loaded
     if (dirty !== ed.dirty) {
@@ -659,24 +667,56 @@
   /** 编辑态那枚 textarea + 挂上监听。返回节点，由 renderPreview 决定挂哪儿。 */
   function editorBody() {
     const ed = panel.editor
+    const wrapper = document.createElement('div')
+    wrapper.className = 'code-editor'
+    const highlight = document.createElement('pre')
+    highlight.className = 'editor-highlight'
+    highlight.setAttribute('aria-hidden', 'true')
+    const code = document.createElement('code')
+    highlight.appendChild(code)
+    wrapper.appendChild(highlight)
     const ta = document.createElement('textarea')
     ta.id = 'panelEditor'
     ta.setAttribute('aria-label', '文件编辑器：' + baseOf(ed.path))
     ta.className = 'preview-editor'
     ta.spellcheck = false
-    /* wrap=off：代码不折行，横向自己滚；这跟 <pre> 的行为一致 */
     ta.setAttribute('wrap', 'off')
     ta.value = ed.text
+    const syncScroll = () => {
+      highlight.scrollTop = ta.scrollTop
+      highlight.scrollLeft = ta.scrollLeft
+    }
+    let scheduled = false
+    const paint = () => {
+      scheduled = false
+      if (panel.editor.taNode !== ta) return
+      const text = ta.value + (ta.value.endsWith('\n') ? ' ' : '')
+      if (ed.kind !== 'text' && typeof window.highlightCode === 'function') code.innerHTML = window.highlightCode(text, extOf(baseOf(ed.path)))
+      else code.textContent = text
+      syncScroll()
+    }
+    ed.updateHighlight = () => {
+      if (scheduled) return
+      scheduled = true
+      requestAnimationFrame(paint)
+    }
     ta.addEventListener('input', onEditorInput)
-    /* 失焦也写一次：用户点别处收工时不必等那 350ms */
+    ta.addEventListener('scroll', syncScroll)
     ta.addEventListener('blur', () => { flushSave() })
     ta.addEventListener('keydown', onEditorKeydown)
+    wrapper.appendChild(ta)
+    const status = document.createElement('span')
+    status.className = 'editor-status'
+    status.setAttribute('role', 'status')
+    status.setAttribute('aria-live', 'polite')
+    wrapper.appendChild(status)
     ed.taNode = ta
-    ed.statusNode = byId('editorStatus')
+    ed.statusNode = status
+    paint()
     editorMessage(ed.conflict
-      ? '文件已被外部修改，没敢覆盖 —— 点「强制保存」覆盖它'
-      : (ed.dirty ? '编辑中…' : '自动保存已开启'), ed.conflict ? 'warn' : '')
-    return ta
+      ? '文件已被外部修改，尚未覆盖'
+      : (ed.dirty ? '编辑中…' : '已保存'), ed.conflict ? 'warn' : '')
+    return wrapper
   }
 
   /**
@@ -699,14 +739,6 @@
     status.id = 'editorStatus'
     status.className = 'editor-status'
     bar.appendChild(status)
-
-    const force = document.createElement('button')
-    force.type = 'button'
-    force.id = 'editorForce'
-    force.className = 'preview-bar-btn danger hidden'
-    force.textContent = '强制保存'
-    force.title = '忽略「文件已被外部修改」，用我这里的内容覆盖'
-    bar.appendChild(force)
 
     return bar
   }
@@ -1211,6 +1243,22 @@
       label.title = dirty ? tab.path + '（有改动未保存）' : tab.path
       node.appendChild(label)
 
+      const phase = tab.saveState || (dirty ? 'dirty' : '')
+      node.setAttribute('data-save-state', phase)
+      const failed = phase === 'error' || phase === 'conflict'
+      const save = document.createElement(failed ? 'button' : 'span')
+      save.className = 'panel-tab-save'
+      save.title = tab.saveMessage || (dirty ? '未保存' : '已保存')
+      save.setAttribute('aria-label', save.title)
+      if (failed) {
+        save.type = 'button'
+        save.id = phase === 'conflict' ? 'editorForce' : 'editorRetry'
+        save.title += phase === 'conflict' ? '；点击确认强制保存' : '；点击重试'
+        save.textContent = '!'
+      } else if (phase === 'saved') save.innerHTML = window.renderIcon('check')
+      else if (phase) save.textContent = phase === 'saving' ? '◌' : '●'
+      node.appendChild(save)
+
       const close = document.createElement('button')
       close.type = 'button'
       close.className = 'panel-tab-close'
@@ -1380,7 +1428,7 @@
         renderTabs()
       }
 
-      host.appendChild(previewBar(meta, editing))
+      if (!editing) host.appendChild(previewBar(meta, false))
 
       if (editing) {
         host.classList.add('is-editing')
@@ -1586,7 +1634,12 @@
       }
       if (target.closest('#editorForce')) {
         event.preventDefault()
-        forceSave()
+        if (window.confirm('文件已被外部修改。确定用当前编辑内容覆盖磁盘文件吗？')) forceSave()
+        return
+      }
+      if (target.closest('#editorRetry')) {
+        event.preventDefault()
+        flushSave()
         return
       }
 

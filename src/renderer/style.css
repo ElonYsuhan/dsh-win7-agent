@@ -4905,3 +4905,57 @@ button .dropdown-chevron svg, button .dropdown-check svg { width: 14px; height: 
 .sidebar .flat-item:focus-visible, .sidebar .session-item:focus-visible, .sidebar .workspace-row:focus-visible { outline: 2px solid var(--muted); outline-offset: -2px; background: var(--sidebar-row-hover); }
 .sidebar .project-item:focus-within .project-more, .sidebar .project-item:focus-within .project-add, .sidebar .chat-item:focus-within .chat-more, .sidebar .chat-item:focus-within .chat-edit, .sidebar .chat-item:focus-within .chat-delete { opacity: 1; }
 .sidebar .project-more:hover, .sidebar .project-add:hover, .sidebar .chat-more:hover { background: var(--sidebar-action-hover); }
+
+/* Respond to the actual composer width, including file-pane resizing. */
+.composer-card { container-type: inline-size; container-name: composer; min-width: 0; }
+.composer-toolbar { min-width: 0; }
+.composer-toolbar .toolbar-left { flex: 0 1 auto; }
+.composer-toolbar .toolbar-right { flex: 1 1 auto; justify-content: flex-end; min-width: 0; }
+.composer-toolbar #composerModelDropdown { min-width: 0; flex: 0 1 auto; }
+.composer-toolbar .composer-model { max-width: 180px; min-width: 0; }
+.composer-toolbar .send-button { flex: 0 0 36px; }
+@container composer (max-width: 480px) {
+  .composer-toolbar [data-permission-label], .composer-toolbar .permission-dropdown .dropdown-chevron { display: none; }
+  .composer-toolbar .permission-dropdown .pill-button { width: 34px; height: 34px; padding: 6px; gap: 0; }
+  .composer-toolbar .composer-model { max-width: 150px; }
+}
+@container composer (max-width: 380px) {
+  .composer-toolbar .permission-dropdown { display: none; }
+  .composer-toolbar .composer-model { max-width: 130px; }
+}
+@container composer (max-width: 300px) {
+  .composer-toolbar #composerModelDropdown { display: none; }
+}
+@container composer (max-width: 150px) {
+  .composer-toolbar .toolbar-left { display: none; }
+}
+
+/* Matching explorer/tab headers; save state lives in the tab, not a second row. */
+.panel-explorer-head, .panel-tabs { height: 40px; min-height: 40px; flex: 0 0 40px; box-sizing: border-box; }
+.panel-explorer-head { padding: 3px 6px 3px 10px; }
+.panel-tabs:empty { display: flex; }
+.panel-tab { position: relative; height: 100%; padding: 0 8px 0 12px; max-width: 240px; box-sizing: border-box; }
+.panel-tab.dirty .panel-tab-label::after { display: none; }
+.panel-tab-save { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 13px; }
+.panel-tab-save svg { width: 16px; height: 16px; }
+.panel-tab .panel-tab-close { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; pointer-events: none; }
+.panel-tab:hover .panel-tab-close, .panel-tab:focus-within .panel-tab-close { opacity: 1; pointer-events: auto; }
+.panel-tab:hover .panel-tab-save, .panel-tab:focus-within .panel-tab-save { opacity: 0; }
+.panel-tab[data-save-state="error"] .panel-tab-save, .panel-tab[data-save-state="conflict"] .panel-tab-save { opacity: 1; margin-right: 28px; color: var(--error-text); cursor: pointer; }
+.code-editor { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.code-editor .editor-highlight, .code-editor .preview-editor {
+  position: absolute; inset: 0; box-sizing: border-box; width: 100%; height: 100%; margin: 0; padding: 12px 14px 24px; border: 0; border-radius: 0;
+  font-family: "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", Menlo, monospace; font-size: 13px; line-height: 20px; font-variant-ligatures: none; letter-spacing: normal; tab-size: 2; white-space: pre; word-break: normal; overflow-wrap: normal;
+}
+.code-editor .editor-highlight { overflow: hidden; pointer-events: none; color: var(--text); background: transparent; }
+.code-editor .editor-highlight code { font: inherit; line-height: inherit; padding: 0; border: 0; background: transparent; white-space: inherit; }
+.code-editor .preview-editor { z-index: 1; resize: none; overflow: auto; background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--text); outline: none; }
+.code-editor .preview-editor::selection { background: rgba(128, 128, 128, .35); color: transparent; }
+.code-editor > .editor-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.code-editor:focus-within { outline: 1px solid var(--muted); outline-offset: -1px; }
+.panel-tab[data-save-state="saving"] .panel-tab-save { animation: tab-save-spin 1s linear infinite; }
+@keyframes tab-save-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .panel-tab[data-save-state="saving"] .panel-tab-save { animation: none; }
+}
