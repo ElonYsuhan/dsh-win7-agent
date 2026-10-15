@@ -31,9 +31,9 @@
 
   /** 超过这个大小的文件不给编辑（下载式的大文件，编辑没有意义还得整块进内存） */
   const MAX_EDIT_BYTES = 5 * 1024 * 1024
-  /** 自动保存的防抖窗口：停手 700ms 就写盘。太短会一个字符一次写，
+  /** 自动保存的防抖窗口：停手 350ms 就写盘。太短会一个字符一次写，
       太长（>1.5s）用户会觉得「我明明改完了怎么还没存」。 */
-  const AUTOSAVE_DELAY = 700
+  const AUTOSAVE_DELAY = 350
   let terminalResizeObserver = null
 
   const MIN_PANEL = 240
@@ -410,8 +410,8 @@
 
      用户 2026-09-19 定的交互：「可读文件，支持编辑保存为实时保存」。
      契约：
-       · 预览区顶上一条工具条，「编辑」进去 / 「完成」出来
-       · 打字停 700ms 自动写盘；切标签、关标签、关面板、Ctrl+S 都立刻写
+       · 文本文件打开即编辑，工具条只显示编码、换行和保存状态
+       · 打字停 350ms 自动写盘；切标签、关标签、关面板、Ctrl+S 都立刻写
        · 写回时按**原编码 + 原换行**编回去（见 encodeText / applyEol）
        · 期间文件被外部改过（mtime 变了）→ 不覆盖，标黄提示，要人点「强制保存」
      编解码那一层在文件上半部分（跟着 decodeBytes 走），这里只管交互与落盘。 */
@@ -480,6 +480,12 @@
         : '这不是文本文件，没法编辑。')
       return
     }
+    activateEditor(target, meta, decoded)
+    renderTabs()
+    await renderPreview()
+  }
+
+  function activateEditor(target, meta, decoded) {
     const ed = panel.editor
     ed.path = target
     ed.active = true
@@ -493,13 +499,12 @@
     ed.dirty = false
     ed.conflict = false
     ed.saving = false
-    renderTabs()
-    renderPreview()
   }
 
-  /** 退出编辑：先把没落盘的最后一段写掉（用户点「完成」就是「我改完了」的意思） */
+  /** 内部释放入口：仅在成功保存后放开编辑状态。 */
   async function stopEdit() {
     await flushSave()
+    if (panel.editor.dirty) return
     const ed = panel.editor
     ed.active = false
     ed.path = ''
@@ -507,13 +512,6 @@
     ed.statusNode = null
     renderTabs()
     renderPreview()
-  }
-
-  async function toggleEdit() {
-    const target = panel.active
-    if (not(target)) return
-    if (editorIsFor(target)) await stopEdit()
-    else await startEdit(target)
   }
 
   function scheduleSave() {
@@ -548,6 +546,21 @@
   }
 
   async function saveNow(force) {
+    const ed = panel.editor
+    const target = ed.path
+    if (ed.savePromise) {
+      await ed.savePromise
+      if (ed.path === target && ed.dirty && !ed.conflict) return saveNow(force)
+      return
+    }
+    const task = performSave(force)
+    ed.savePromise = task
+    try { await task } finally {
+      if (ed.savePromise === task) ed.savePromise = null
+    }
+  }
+
+  async function performSave(force) {
     const ed = panel.editor
     if (not(ed.active) || not(ed.path) || ed.saving || not(ed.dirty)) return
     const api = dsh()
@@ -648,41 +661,32 @@
     const ed = panel.editor
     const ta = document.createElement('textarea')
     ta.id = 'panelEditor'
+    ta.setAttribute('aria-label', '文件编辑器：' + baseOf(ed.path))
     ta.className = 'preview-editor'
     ta.spellcheck = false
     /* wrap=off：代码不折行，横向自己滚；这跟 <pre> 的行为一致 */
     ta.setAttribute('wrap', 'off')
     ta.value = ed.text
     ta.addEventListener('input', onEditorInput)
-    /* 失焦也写一次：用户点别处收工时不必等那 700ms */
+    /* 失焦也写一次：用户点别处收工时不必等那 350ms */
     ta.addEventListener('blur', () => { flushSave() })
     ta.addEventListener('keydown', onEditorKeydown)
     ed.taNode = ta
     ed.statusNode = byId('editorStatus')
     editorMessage(ed.conflict
       ? '文件已被外部修改，没敢覆盖 —— 点「强制保存」覆盖它'
-      : (ed.dirty ? '编辑中…' : '已打开'), ed.conflict ? 'warn' : '')
+      : (ed.dirty ? '编辑中…' : '自动保存已开启'), ed.conflict ? 'warn' : '')
     return ta
   }
 
   /**
    * 预览区顶上那条工具条。
-   * 编辑态：完成 + 编码/换行 + 状态 + （冲突时）强制保存
-   * 预览态：编辑（可编辑时才有）+ 大小 + 状态
+   * 文本：编码/换行 + 自动保存状态 + （冲突时）强制保存
+   * 其他文件：大小 + 状态
    */
   function previewBar(meta, editing) {
     const bar = document.createElement('div')
     bar.className = 'preview-bar'
-
-    if (editing || canEdit(meta)) {
-      const toggle = document.createElement('button')
-      toggle.type = 'button'
-      toggle.id = 'panelEditToggle'
-      toggle.className = 'preview-bar-btn' + (editing ? ' active' : '')
-      toggle.textContent = editing ? '完成' : '编辑'
-      toggle.title = editing ? '退出编辑（内容已自动保存）' : '编辑这个文件（停手即自动保存）'
-      bar.appendChild(toggle)
-    }
 
     const label = document.createElement('span')
     label.className = 'preview-bar-label'
@@ -1221,28 +1225,31 @@
 
   /** 编辑器只服一个文件：换文件/关标签时把没落盘的最后一段写掉再放手 */
   async function releaseEditorIfLeaving(target) {
-    if (not(panel.editor.active)) return
-    if (panel.editor.path === target) return
+    if (not(panel.editor.active)) return true
+    if (panel.editor.path === target) return true
     await flushSave()
+    if (panel.editor.dirty) return false
     panel.editor.active = false
     panel.editor.path = ''
     panel.editor.taNode = null
     panel.editor.statusNode = null
+    return true
   }
 
-  function closeTab(target) {
-    const index = tabIndex(target)
+  async function closeTab(target) {
+    let index = tabIndex(target)
     if (index < 0) return
     if (panel.editor.active && panel.editor.path === target) {
-      /* 先把最后一段写掉，再关 —— 关标签不等于丢弃改动 */
-      flushSave().then(() => {
-        panel.editor.active = false
-        panel.editor.path = ''
-        panel.editor.taNode = null
-        panel.editor.statusNode = null
-        renderTabs()
-      })
+      /* 等保存结束；失败或冲突时保留编辑内容和标签，避免丢失改动。 */
+      await flushSave()
+      if (panel.editor.dirty) return
+      panel.editor.active = false
+      panel.editor.path = ''
+      panel.editor.taNode = null
+      panel.editor.statusNode = null
     }
+    index = tabIndex(target)
+    if (index < 0) return
     panel.tabs.splice(index, 1)
     if (panel.active === target) {
       const next = panel.tabs[index] || panel.tabs[index - 1] || null
@@ -1256,7 +1263,7 @@
   async function openFile(target, options) {
     const name = baseOf(target)
     /* 换到别的文件：把上一个文件没落盘的写掉，编辑器跟着转场 */
-    await releaseEditorIfLeaving(target)
+    if ((await releaseEditorIfLeaving(target)) === false) return
     if (tabIndex(target) < 0) {
       panel.tabs.push({ path: target, name: name, kind: (options && options.kind) || kindCache[target] || 'text' })
       /* 标签页最多留 12 个，前面的一律关掉（内存 + 视觉都好） */
@@ -1348,7 +1355,7 @@
     kindCache[target] = kind
 
     if (kind === 'code' || kind === 'text' || kind === 'markdown') {
-      const editing = editorIsFor(target)
+      let editing = editorIsFor(target)
       let decoded = null
       if (editing) {
         /* 编辑态下正文以编辑框为准，**不再从磁盘读一遍** ——
@@ -1365,6 +1372,12 @@
       if (not(decoded)) {
         host.appendChild(card('读取失败', 'warning', [target]))
         return
+      }
+
+      if (!editing && canEdit(meta) && typeof dsh().fsWrite === 'function') {
+        activateEditor(target, meta, decoded)
+        editing = true
+        renderTabs()
       }
 
       host.appendChild(previewBar(meta, editing))
@@ -1569,11 +1582,6 @@
       }
       if (target.closest('#panelTerminal')) {
         toggleTerminal()
-        return
-      }
-      if (target.closest('#panelEditToggle')) {
-        event.preventDefault()
-        toggleEdit()
         return
       }
       if (target.closest('#editorForce')) {
@@ -2586,7 +2594,7 @@
       applyWidth(panel.width)
     })
 
-    /* 关页面/重启前把最后一段写掉。异步的写不一定跑得完，但防抖只有 700ms，
+    /* 关页面/重启前把最后一段写掉。异步的写不一定跑得完，但防抖只有 350ms，
        真正能丢的也就是「打完最后一个字就立刻关窗」那一瞬 —— 值得试一次。 */
     window.addEventListener('beforeunload', () => {
       flushSave()
