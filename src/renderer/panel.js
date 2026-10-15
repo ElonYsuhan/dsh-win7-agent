@@ -1722,6 +1722,7 @@
           if (panel.explorer && main && main.getBoundingClientRect().width < 480) {
             panel.markdownAutoExplorer = true
             setExplorer(false)
+            localStorage.setItem(EXPLORER_KEY, '1')
           }
         } else if (panel.markdownAutoExplorer) {
           panel.markdownAutoExplorer = false
