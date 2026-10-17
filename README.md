@@ -1,6 +1,6 @@
 # Agent
 
-A small Windows 7 compatible local coding agent. Renamed from `DSH Agent`; the
+A Cordis-based, Windows 7 compatible local coding agent. Renamed from `DSH Agent`; the
 repository directory keeps its historical name `dsh-win7-agent`, and an install
 made under the old name migrates its data directory on first launch.
 
@@ -341,7 +341,13 @@ Notes:
 
 ## Plugins
 
-The local Agent now has a plugin host inspired by dsh.
+The Agent uses actual Cordis as its mandatory runtime foundation. Version 0.3.0
+separates contracts, pure flow policy, immutable state transitions and upper-layer
+runtime plugins. Session journals support progress recovery after interruption. The default profile
+provides replaceable model, context, session, tools, permissions, prompts, skills
+and agent-loop services. Existing tool plugins use a compatibility adapter.
+See [Architecture](docs/ARCHITECTURE.md) for the extension contract and offline
+vendor workflow.
 
 Built-in plugins:
 

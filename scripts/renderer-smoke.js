@@ -351,6 +351,8 @@ const sandbox = {
     removeItem: (k) => storage.delete(k)
   },
   document: documentStub,
+  // Browser layout APIs used by title alignment and panel visibility.
+  getComputedStyle: (element) => Object.assign({ paddingLeft: '0px', display: 'block' }, element.style || {}),
   requestAnimationFrame: (fn) => setTimeout(fn, 0),
   settingsState,
   harnessResults: null
@@ -453,7 +455,7 @@ const htmlSrc = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'index.html')
 const toolsSrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'agent', 'tools.js'), 'utf8')
 const appSrc = readRenderer('app.js')
 const policySrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'agent', 'permission-policy.js'), 'utf8')
-const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'agent', 'agent.js'), 'utf8')
+const agentSrc = ['src/main/agent/agent.js', 'src/main/runtime/run-turn.js', 'src/main/flow/prompt-policy.js'].map((file) => fs.readFileSync(path.join(ROOT, file), 'utf8')).join('\n')
 const serverSrc = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8')
 const poolSrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'agent', 'agent-pool.js'), 'utf8')
 const mainSrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'main.js'), 'utf8')
@@ -687,7 +689,7 @@ const panelStatic = {
   /* 冲突：mtime 不一样就不覆盖，要人点「强制保存」（force → expectedMtime 传 0 = 不检查） */
   editorConflictGuard: panelSrc.indexOf('MTIME_CONFLICT') !== -1
     && panelSrc.indexOf('force ? 0 : ed.mtime') !== -1
-    && panelSrc.indexOf("toggle.id = 'panelEditToggle'") !== -1,
+    && panelSrc.indexOf("window.confirm('文件已被外部修改。确定用当前编辑内容覆盖磁盘文件吗？')") !== -1,
   editorCss: cssSrc.indexOf('.preview-editor') >= 0
     && cssSrc.indexOf('.preview-bar') >= 0
     && cssSrc.indexOf('.editor-status') >= 0
@@ -1456,8 +1458,8 @@ const checks = `
     fp.defaultWidth(1000) === 460 && fp.defaultWidth(1440) === 547 && fp.defaultWidth(2400) === 720,
     [fp.defaultWidth(1000), fp.defaultWidth(1440), fp.defaultWidth(2400)].join(','))
 
-  ok('clampWidth 的上限只由边界决定（视口 − 会话区左沿 − 120），不再写死 760',
-    fp.clampWidth(9999, 1440, 260) === 1060 && fp.clampWidth(9999, 1440, 0) === 1320,
+  ok('clampWidth 的上限只由边界决定（视口 − 会话区左沿 − 320），不再写死 760',
+    fp.clampWidth(9999, 1440, 260) === 860 && fp.clampWidth(9999, 1440, 0) === 1120,
     fp.clampWidth(9999, 1440, 260) + '/' + fp.clampWidth(9999, 1440, 0))
   ok('clampWidth 下限 240，会话区再窄也不被挤没',
     fp.clampWidth(10, 1440, 260) === 240 && fp.clampWidth(9999, 1440, 1200) === 240,
@@ -1524,10 +1526,13 @@ const checks = `
     && fp.fmtSize(3 * 1024 * 1024) === '3.0 MB',
     [fp.fmtSize(0), fp.fmtSize(2048), fp.fmtSize(3 * 1024 * 1024)].join(' / '))
 
+  const pathContextBackup = fp._state.context
+  fp._state.context = null
   const pathResults = pathCases.map((item) => {
     fp._state.roots = item.roots
     return { label: item.label, got: fp.absoluteFor(item.input), want: item.expect }
   })
+  fp._state.context = pathContextBackup
   const badPath = pathResults.filter((item) => item.got !== item.want)
   ok('工具给的文件路径都能还原成绝对路径（含 Windows 反斜杠）',
     badPath.length === 0, badPath.map((item) => item.label + ':' + item.got + '≠' + item.want).join(' | '))
@@ -1995,6 +2000,8 @@ const checks = `
 
   /* ③ 正在跑的会话切回来：过程接着画，别另起一块空的 */
   const s2Live = findSessionById('s2')
+  delete s2Live.processTimeline
+  delete s2Live.legacyProcessHtml
   s2Live.processHtml = '<div class="thinking-tool">工具调用：grep</div>'
   state.currentSessionId = 's2'
   state.runs = { s2: true }
@@ -2119,6 +2126,8 @@ const checks = `
      （表现：重载页面 / 切走再切回后，只剩最后一轮的思考过程，前面的都没了）。 */
   const s1keep = findSessionById('s1')
   state.currentSessionId = 's1'
+  delete s1keep.processTimeline
+  delete s1keep.legacyProcessHtml
   s1keep.processHtml = ''
   s1keep.messages = []
   delete state.processBuffers.s1
@@ -2145,12 +2154,56 @@ const checks = `
   const twoTurnBlocks = document.getElementById('messagesInner').querySelectorAll('.thinking-block')
   ok('重载 / 切走再切回后，两轮的过程都还在',
     twoTurnBlocks.length >= 1
-      && domText(twoTurnBlocks[0]).indexOf('第一轮思考') !== -1
-      && domText(twoTurnBlocks[0]).indexOf('第二轮思考') !== -1,
+      && Array.from(twoTurnBlocks).map(domText).join('').indexOf('第一轮思考') !== -1
+      && Array.from(twoTurnBlocks).map(domText).join('').indexOf('第二轮思考') !== -1,
     'blocks=' + twoTurnBlocks.length + ' text=' + domText(twoTurnBlocks[0]).slice(0, 70))
   state.runs = {}
   window.__dshRunningSessions = []
   applyRunState()
+
+  /* 真正序列化再加载：每段过程应保留在对应回复之前，而非全部挪到最前面。 */
+  const traceSession = findSessionById('s1')
+  delete traceSession.processTimeline
+  delete traceSession.legacyProcessHtml
+  traceSession.processHtml = ''
+  traceSession.messages = []
+  renderMessages(traceSession)
+  await handleEvent({ type: 'assistant:thinking', sessionId: 's1', text: '定位过程甲' })
+  await handleEvent({ type: 'assistant:message', sessionId: 's1', text: '定位回复甲' })
+  await handleEvent({ type: 'assistant:thinking', sessionId: 's1', text: '定位过程乙' })
+  await handleEvent({ type: 'tool:start', sessionId: 's1', name: 'read_file', args: { path: 'trace.js' } })
+  await handleEvent({ type: 'tool:result', sessionId: 's1', name: 'read_file', result: '定位工具结果' })
+  await handleEvent({ type: 'assistant:message', sessionId: 's1', text: '定位回复乙' })
+  await handleEvent({ type: 'finished', sessionId: 's1', messages: [
+    { role: 'assistant', content: '定位回复甲' }, { role: 'assistant', content: '定位回复乙' }
+  ] })
+  const reloadedTrace = JSON.parse(JSON.stringify(findSessionById('s1')))
+  renderMessages(reloadedTrace)
+  const traceText = domText(document.getElementById('messagesInner'))
+  ok('序列化恢复后每段过程仍在对应回复前，第二段不再被挪到会话开头',
+    traceText.indexOf('定位过程甲') < traceText.indexOf('定位回复甲')
+      && traceText.indexOf('定位回复甲') < traceText.indexOf('定位过程乙')
+      && traceText.indexOf('定位过程乙') < traceText.indexOf('定位回复乙'))
+  ok('恢复后的工具调用和结果没有丢失，也不重复',
+    traceText.indexOf('trace.js') !== -1 && traceText.split('定位工具结果').length === 2
+      && reloadedTrace.processTimeline.length === 2)
+
+  const backgroundTrace = findSessionById('s2')
+  delete backgroundTrace.processTimeline
+  backgroundTrace.processHtml = ''
+  delete state.processBuffers.s2
+  await handleEvent({ type: 'assistant:thinking', sessionId: 's2', text: '后台过程一' })
+  await handleEvent({ type: 'assistant:message', sessionId: 's2', text: '后台回复一' })
+  await handleEvent({ type: 'assistant:thinking', sessionId: 's2', text: '后台过程二' })
+  await handleEvent({ type: 'assistant:message', sessionId: 's2', text: '后台回复二' })
+  await handleEvent({ type: 'finished', sessionId: 's2', messages: [
+    { role: 'assistant', content: '后台回复一' }, { role: 'assistant', content: '后台回复二' }
+  ] })
+  ok('后台会话按回复分段，finished 不重复保存已经定位的过程',
+    backgroundTrace.processTimeline.length === 2
+      && backgroundTrace.processTimeline[0].html.indexOf('后台过程一') !== -1
+      && backgroundTrace.processTimeline[1].html.indexOf('后台过程一') === -1
+      && backgroundTrace.processTimeline[1].html.indexOf('后台过程二') !== -1)
 
   /* ⑨ 模型切换的显示：点回「这家自己那个 model」时也不能漏渲染。
      selectProviderModel 里 name === model.model 的早返回分支只调了 renderProviderList，
@@ -2184,6 +2237,8 @@ const checks = `
      再来的增量保存回去时，旧内容只能出现一次（否则每次切回都翻一倍）。 */
   state.currentSessionId = 's2'
   const s2Resume = findSessionById('s2')
+  delete s2Resume.processTimeline
+  delete s2Resume.legacyProcessHtml
   s2Resume.processHtml = '<div class="thinking-tool">工具调用：abc</div>'
   state.runs = { s2: true }
   window.__dshRunningSessions = ['s2']
@@ -2226,6 +2281,8 @@ const checks = `
   window.__dshRunningSessions = []
   applyRunState()
   const s1Send = findSessionById('s1')
+  delete s1Send.processTimeline
+  delete s1Send.legacyProcessHtml
   s1Send.processHtml = '<div class="thinking-tool">上一轮留下的思考痕迹</div>'
   s1Send.messages = []
   window.__sendCalls = []
@@ -2263,6 +2320,10 @@ const checks = `
   /* 顶栏跑真实渲染与按钮回调；几何/各平台预留空间由 shell-chrome/drag 负责。 */
   const titlebarSession = currentSession()
   const titlebarOriginalTitle = titlebarSession.title
+  const titlebarOriginalScope = titlebarSession.scope
+  // Project sessions show the project name. Use a recent session to verify renaming.
+  titlebarSession.scope = 'recent'
+  renderWindowTitle()
   const titlebarObserver = mutationObservers.find((observer) =>
     observer.targets.some((entry) => entry.target === byId('app')))
   const notifyTitlebar = () => { if (titlebarObserver) titlebarObserver.callback([]) }
@@ -2297,6 +2358,7 @@ const checks = `
   ok('返回聊天按钮经过真实文件面板委托恢复聊天与会话标题',
     not(document.documentElement.classList.contains('chat-hidden'))
       && byId('windowTitle').textContent === titlebarSession.title)
+  titlebarSession.scope = titlebarOriginalScope
   byId('panelTitle').textContent = titlebarPanelTitleBackup
 
   const titlebarWasCollapsed = byId('app').classList.contains('sidebar-collapsed')

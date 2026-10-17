@@ -121,7 +121,9 @@ class AgentPool {
       return existing
     }
     const self = this
-    const worker = new Agent(
+    const factory = this.pluginHost && this.pluginHost.get('agents')
+    const create = factory ? (...args) => factory.create(...args) : (...args) => new Agent(...args)
+    const worker = create(
       this.settings,
       (event) => self.emit(self.tag(key, event)),
       (request) => self.approve(request, key),
@@ -294,6 +296,10 @@ class AgentPool {
     const worker = this.workers.get(keyOf(sessionId))
     if (worker) worker.clear()
     return true
+  }
+
+  executionStates() {
+    return Object.fromEntries(Array.from(this.workers, ([id, worker]) => [id, worker.state.execution]))
   }
 
   listPlugins() {

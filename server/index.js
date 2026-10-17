@@ -134,8 +134,9 @@ let shuttingDown = false
 async function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
+  clearPendingApprovals()
   try { await pool.dispose() } catch (error) {}
-  try { pluginHost.dispose() } catch (error) {}
+  try { await pluginHost.dispose() } catch (error) {}
   try { teardownAll() } catch (error) {}
   try { clearPendingApprovals() } catch (error) {}
   try { await uiStore.flush() } catch (error) {}
@@ -204,7 +205,9 @@ function stateValue() {
     runningSessions: pool.runningSessions(),
     maxConcurrentRuns: pool.maxConcurrentRuns,
     plugins: pluginHost.listPlugins(),
-    tools: pluginHost.listTools()
+    tools: pluginHost.listTools(),
+    executions: pool.executionStates(),
+    runtime: pluginHost.runtimeInfo()
   }
 }
 
@@ -312,6 +315,7 @@ async function handleApi(request, response, url) {
   if (url.pathname === '/api/settings' && request.method === 'POST') {
     const body = await readBody(request)
     const next = settingsStore.update(body)
+    await pluginHost.configure()
     if (next.workspacePath) {
       pool.setWorkspace(next.workspacePath)
     }
@@ -544,4 +548,11 @@ function startListen(port) {
   server.listen(port, HOST)
 }
 
-startListen(PORT)
+pluginHost.ready().then(() => pluginHost.configure()).then(() => startListen(PORT)).catch(async (error) => {
+  console.error('[agent-service] runtime boot failed:', error)
+  try { await pluginHost.dispose() } catch (cleanupError) { console.error(cleanupError) }
+  process.exitCode = 2
+})
+
+process.on('SIGTERM', () => { shutdown().catch((error) => { console.error(error); process.exitCode = 2 }) })
+process.on('SIGINT', () => { shutdown().catch((error) => { console.error(error); process.exitCode = 2 }) })

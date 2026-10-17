@@ -12,6 +12,7 @@ const DEFAULTS = {
   model: process.env.MODEL_NAME || '',
   temperature: 0.2,
   maxIterations: 100,
+  turnTimeoutMs: 0,
   autoApproveReads: true,
   approveWrites: true,
   approveCommands: true,
@@ -121,6 +122,7 @@ function normalize(data) {
   next.maxConcurrentRuns = Number.isFinite(concurrent) && concurrent >= 1
     ? Math.min(64, concurrent)
     : DEFAULTS.maxConcurrentRuns
+  next.turnTimeoutMs = Math.max(0, Math.min(86400000, Math.floor(Number(next.turnTimeoutMs) || 0)))
   next.brandName = typeof next.brandName === 'string' ? next.brandName.trim().slice(0, 40) : 'Agent'
   next.brandIcon = typeof next.brandIcon === 'string' && next.brandIcon.length <= 200000 && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(next.brandIcon) ? next.brandIcon : ''
   for (const key of ['showBrandName', 'showBrandIcon', 'showPlatformBadge']) next[key] = next[key] !== false

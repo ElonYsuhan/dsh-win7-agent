@@ -181,6 +181,22 @@ async function main() {
     ok('服务端起来了（/api/health 200）', healthy, serviceLog.split('\n')[0] || '')
     if (not(healthy)) throw new Error('service did not start: ' + serviceLog)
 
+    const runtimeState = await httpRequest(base + '/api/state')
+    ok('真实服务由 Cordis 启动，核心插件均已激活',
+      runtimeState.body.runtime.engine === 'cordis'
+        && runtimeState.body.runtime.plugins.filter((item) => item.core).every((item) => item.state === 'active'))
+    const savePlugins = (disabledPlugins) => httpRequest(base + '/api/settings', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ disabledPlugins })
+    })
+    await savePlugins(['builtin/fs-tools'])
+    const disabledState = await httpRequest(base + '/api/state')
+    ok('HTTP 设置停用插件后，其 Cordis 实例真实卸载',
+      disabledState.body.runtime.plugins.some((item) => item.name === 'builtin/fs-tools' && item.state === 'disabled'))
+    await savePlugins([])
+    const enabledState = await httpRequest(base + '/api/state')
+    ok('HTTP 设置重新启用插件，Cordis 实例恢复 active',
+      enabledState.body.runtime.plugins.some((item) => item.name === 'builtin/fs-tools' && item.state === 'active'))
+
     /* 挂一条 SSE 收集事件 */
     const sseClient = http.request(base + '/api/events', (response) => {
       response.setEncoding('utf8')
@@ -221,6 +237,9 @@ async function main() {
       runningMid.join(','))
     ok('/api/state 带上并发上限', stateMid.body && stateMid.body.maxConcurrentRuns === 2,
       String(stateMid.body && stateMid.body.maxConcurrentRuns))
+
+    ok('/api/state 暴露来源于状态模型的运行步骤',
+      stateMid.body.executions.sess_a.status === 'running' && stateMid.body.executions.sess_a.step === 1 && stateMid.body.executions.sess_a.attempt === 1)
 
     /* ② 同会话重入 / 池满 */
     const again = await post({ sessionId: 'sess_a', text: 'again', history: [] })
@@ -296,6 +315,7 @@ async function main() {
       return (snapshot.body.runningSessions || []).length === 0
     }, 8000).catch(() => false)
     const drained = await httpRequest(base + '/api/state')
+    ok('取消与完成分别保留不同的持久状态', drained.body.executions.sess_a.status === 'cancelled' && drained.body.executions.sess_b.status === 'completed')
     ok('两条都收尾后账本彻底清空',
       (drained.body && drained.body.runningSessions || []).length === 0,
       JSON.stringify(drained.body && drained.body.runningSessions))

@@ -7,7 +7,7 @@ ENV HOST=0.0.0.0
 ENV PORT=8080
 
 COPY package.json ./package.json
-COPY src/main/agent ./src/main/agent
+COPY src/main ./src/main
 COPY src/renderer ./src/renderer
 COPY server ./server
 

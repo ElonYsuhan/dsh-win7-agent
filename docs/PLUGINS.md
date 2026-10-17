@@ -1,6 +1,6 @@
 # Agent Plugin System
 
-The local Win7 Agent uses a lightweight plugin host inspired by dsh.
+The local Win7 Agent uses Cordis as its core runtime, with a compatibility host for existing tool plugins.
 
 A plugin is a CommonJS module that exports an object:
 
@@ -118,3 +118,22 @@ const service = ctx.get('gitService')
 
 Plugins run in the same process as the Agent. Treat plugin code as trusted.
 For fully offline machines, ship plugin dependencies inside the plugin directory.
+
+## Cordis core (0.2.0)
+
+The host is now backed by actual Cordis. Read [ARCHITECTURE.md](ARCHITECTURE.md)
+for the mandatory extension contract, native plugin examples and pinned version.
+Existing `apply(ctx)` plugins keep working. `inject: ['serviceName']` declares
+required services. Missing services defer activation; removing a provider
+suspends its dependents and restoring it reactivates them.
+
+Native plugins export `cordis: true` and receive the native Cordis context.
+Legacy `ctx.effect(disposer)` retains its historical semantics; native
+`ctx.effect(() => acquireAndReturnDisposer())` runs acquisition immediately.
+Legacy `ctx.get(name)` should be paired with declared `inject` dependencies.
+
+`use()` now returns a Cordis fiber. After loading plugins, call `await host.ready()`
+before synchronous tool/service inspection. `await host.unload(name)` removes an
+individual plugin; `await host.dispose()` settles all cleanup. Use
+`host.inspectPlugins()` for native runtime status. Settings disable/re-enable
+uses real fiber disposal/remounting; no runtime download is required.

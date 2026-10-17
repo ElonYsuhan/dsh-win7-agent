@@ -1,6 +1,6 @@
 {
   "name": "dsh-win7-agent",
-  "version": "0.1.13",
+  "version": "0.3.2",
   "private": true,
   "description": "Win7-compatible local Agent shell. Local workspace and local commands, remote OpenAI-compatible LLM.",
   "main": "src/main/main.js",
@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "check": "node scripts/check-syntax.js && node scripts/check-win7-compat.js && node scripts/settings-migration-smoke.js && node scripts/renderer-smoke.js && node scripts/web-bridge-smoke.js && node scripts/platform-smoke.js && node scripts/ui-store-smoke.js && node scripts/self-validate-smoke.js && node scripts/service-manager-smoke.js && node scripts/installer-smoke.js && node scripts/shell-menu-smoke.js && node scripts/shell-chrome-smoke.js && node scripts/window-controls-smoke.js && node scripts/plugin-smoke.js && node scripts/agent-smoke.js && node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js",
+    "check": "node scripts/check-runtime-architecture.js && node scripts/cordis-runtime-smoke.js && node scripts/layered-agent-smoke.js && node scripts/check-syntax.js && node scripts/check-win7-compat.js && node scripts/settings-migration-smoke.js && node scripts/renderer-smoke.js && node scripts/web-bridge-smoke.js && node scripts/platform-smoke.js && node scripts/ui-store-smoke.js && node scripts/self-validate-smoke.js && node scripts/service-manager-smoke.js && node scripts/installer-smoke.js && node scripts/shell-menu-smoke.js && node scripts/shell-chrome-smoke.js && node scripts/window-controls-smoke.js && node scripts/plugin-smoke.js && node scripts/agent-smoke.js && node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js",
     "check:win7": "node scripts/check-win7-compat.js",
     "check:renderer": "node scripts/renderer-smoke.js && node scripts/web-bridge-smoke.js",
     "check:platform": "node scripts/platform-smoke.js",
@@ -37,7 +37,10 @@
     "smoke:context": "node scripts/context-compression-smoke.js",
     "smoke:permission": "node scripts/permission-smoke.js",
     "check:skills": "node scripts/plugin-smoke.js && node scripts/agent-smoke.js",
-    "check:theme": "node scripts/theme-smoke.js"
+    "check:theme": "node scripts/theme-smoke.js",
+    "check:runtime": "node scripts/check-runtime-architecture.js && node scripts/cordis-runtime-smoke.js && node scripts/layered-agent-smoke.js",
+    "vendor:cordis": "node scripts/vendor-cordis.js",
+    "check:node16": "node scripts/check-node16.js"
   },
   "devDependencies": {
     "electron": "22.3.27",

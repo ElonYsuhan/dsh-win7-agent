@@ -1,0 +1,20 @@
+{
+  "name": "cordis",
+  "version": "4.0.0-rc.11",
+  "target": "node16.17",
+  "format": "cjs",
+  "repository": "https://github.com/cordiverse/cordis",
+  "packages": {
+    "cordis": {
+      "version": "4.0.0-rc.11",
+      "integrity": "sha512-03PHbcYJzp84XRKnW7jd17g26bPvG5UvSyhyjxGIu/1VQs3bweNMACo3t1W0ikzoZ7q+wytHyk8jJsaIQOkPkA==",
+      "license": "MIT"
+    },
+    "cosmokit": {
+      "version": "1.8.1",
+      "integrity": "sha512-PDBv4l90xZKrUsZ0vtoycgZpO/j4iFsqJXrAxsyBDsnQRI7ZMJXIjgDJsKNjd5L8jnVnnlrDCdhkFbTncgCVjQ==",
+      "license": "MIT"
+    }
+  },
+  "sha256": "a1845159b80f662bc41b7da4339873bcddeeb5385ee9c5d0a1b0921264d7f1b5"
+}

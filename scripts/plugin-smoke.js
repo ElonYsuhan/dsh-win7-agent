@@ -28,6 +28,7 @@ async function main() {
       })
     }
   })
+  await host.ready()
   const names = host.listTools().map((tool) => tool.name)
   console.log('tools:', names.join(','))
   console.log('plugins:', host.listPlugins().join(','))
@@ -66,7 +67,7 @@ async function main() {
   console.log('skills:', skillList.length, '| index chars:', prompt.length - 4)
   console.log('skill prompt block chars:', mdSkills.systemPromptBlock().length)
 
-  host.dispose()
+  await host.dispose()
   fs.rmSync(root, { recursive: true, force: true })
 }
 

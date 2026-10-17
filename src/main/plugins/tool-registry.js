@@ -1,14 +1,18 @@
 'use strict'
 
 const not = (value) => value ? false : true
-const { decideToolPermission, buildApprovalRequest } = require('../agent/permission-policy')
+const defaultPolicy = require('../agent/permission-policy')
+const defaultContracts = require('../contracts')
 
 class ToolRegistry {
-  constructor() {
+  constructor(policy, contracts) {
+    this.contracts = contracts || defaultContracts
+    this.policy = policy || defaultPolicy
     this.tools = new Map()
   }
 
   register(tool) {
+    this.contracts.assertTool(tool)
     if (not(tool) || typeof tool !== 'object') {
       throw new Error('PLUGIN_TOOL_INVALID: tool must be an object')
     }
@@ -21,15 +25,24 @@ class ToolRegistry {
     if (this.tools.has(tool.name)) {
       throw new Error('PLUGIN_TOOL_DUPLICATE: ' + tool.name)
     }
-    this.tools.set(tool.name, {
+    const entry = {
       name: tool.name,
       description: tool.description || '',
       parameters: tool.parameters || { type: 'object', properties: {} },
       execute: tool.execute,
       permission: tool.permission || 'write',
-      plugin: tool.plugin || 'unknown'
-    })
-    return () => this.tools.delete(tool.name)
+      plugin: tool.plugin || 'unknown',
+      active: true,
+      pending: new Set(),
+      controllers: new Set()
+    }
+    this.tools.set(tool.name, entry)
+    return async () => {
+      entry.active = false
+      for (const controller of entry.controllers) controller.abort()
+      if (this.tools.get(tool.name) === entry) this.tools.delete(tool.name)
+      await Promise.allSettled(Array.from(entry.pending))
+    }
   }
 
   get(name) {
@@ -53,7 +66,27 @@ class ToolRegistry {
 
   async execute(name, args, context) {
     const tool = this.get(name)
-    if (not(tool)) throw new Error('UNKNOWN_TOOL: ' + name)
+    if (not(tool) || !tool.active) throw new Error('UNKNOWN_TOOL: ' + name)
+    const controller = new AbortController()
+    const signal = context && context.signal
+    const onAbort = () => controller.abort()
+    if (signal) {
+      if (signal.aborted) controller.abort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+    }
+    tool.controllers.add(controller)
+    const input = Object.assign({}, context, { signal: controller.signal })
+    const pending = this.executeEntry(tool, name, args, input)
+    tool.pending.add(pending)
+    try { return await pending } finally {
+      tool.pending.delete(pending)
+      tool.controllers.delete(controller)
+      if (signal) signal.removeEventListener('abort', onAbort)
+    }
+  }
+
+  async executeEntry(tool, name, args, context) {
+    this.contracts.assertArguments(tool.parameters, args || {})
     const settings = (context && context.settings) || {}
     /* 热插拔兜底：插件被禁用后，即使模型仍拿着旧定义调用也拒绝执行 */
     const disabled = Array.isArray(settings.disabledPlugins) ? settings.disabledPlugins : []
@@ -63,7 +96,7 @@ class ToolRegistry {
     const mode = settings.permissionMode || 'workspace'
     const permission = tool.permission || 'write'
     // 唯一的权限闸口：deny 直接拒绝，ask 先走审批，allow 才落到工具本体
-    const decision = decideToolPermission(permission, mode, args || {})
+    const decision = this.policy.decideToolPermission(permission, mode, args || {})
     if (decision === 'deny') {
       return 'DENIED: ' + name + ' is blocked by read-only permission'
     }
@@ -71,9 +104,17 @@ class ToolRegistry {
       if (not(context) || typeof context.approve !== 'function') {
         return 'DENIED: ' + name + ' requires approval but no approver is available'
       }
-      const approved = await context.approve(buildApprovalRequest(permission, args || {}))
+      const approved = await new Promise((resolve, reject) => {
+        const abort = () => reject(new Error('ABORTED'))
+        if (context.signal.aborted) return abort()
+        context.signal.addEventListener('abort', abort, { once: true })
+        Promise.resolve().then(() => context.approve(this.policy.buildApprovalRequest(permission, args || {}))).then(resolve, reject)
+          .finally(() => context.signal.removeEventListener('abort', abort))
+      })
       if (not(approved)) return 'DENIED: ' + name + ' was not approved'
     }
+    if (context.signal.aborted) throw new Error('ABORTED')
+    if (!tool.active) return 'DISABLED: ' + name + ' was unloaded while awaiting approval'
     return tool.execute(args || {}, context || {})
   }
 }

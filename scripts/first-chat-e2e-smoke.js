@@ -118,6 +118,7 @@ async function main() {
         modelRequests.push(JSON.parse(body))
         replies.push((text) => {
           res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' })
+          res.write('data: ' + JSON.stringify({ choices: [{ delta: { reasoning_content: '检查过程：' + text }, finish_reason: null }] }) + '\n\n')
           res.write('data: ' + JSON.stringify({ choices: [{ delta: { role: 'assistant', content: text }, finish_reason: 'stop' }] }) + '\n\n')
           res.end('data: [DONE]\n\n')
         })
@@ -217,6 +218,30 @@ async function main() {
     ok('刷新初始化保持服务端历史和当前会话 id', finalStore.data.store.currentSessionId === sessionId
       && allSessions(finalStore.data.store.sessions).length === 1
       && chatMessages(allSessions(finalStore.data.store.sessions)[0].messages).length === 4)
+    const traceOrder = await driver.evaluate('Array.from(document.querySelectorAll("#messagesInner > *")).map(function(node){return node.textContent})')
+    const firstTrace = traceOrder.findIndex((text) => text.indexOf('检查过程：' + FIRST_REPLY) !== -1)
+    const firstAnswer = traceOrder.findIndex((text) => text.indexOf(FIRST_REPLY) !== -1 && text.indexOf('检查过程：') === -1)
+    const secondTrace = traceOrder.findIndex((text) => text.indexOf('检查过程：' + SECOND_REPLY) !== -1)
+    ok('刷新后两轮真实流式思考在各自回复之前，第二轮仍位于第一轮回复之后',
+      firstTrace !== -1 && firstAnswer > firstTrace && secondTrace > firstAnswer, JSON.stringify(traceOrder))
+    await driver.close()
+    service.kill('SIGTERM')
+    await waitFor(() => service.exitCode !== null || service.signalCode !== null, '旧服务完整退出')
+    service = spawn(process.execPath, [path.join(ROOT, 'server/index.js')], {
+      cwd: ROOT, env: Object.assign({}, process.env, {
+        HOST: '127.0.0.1', PORT: String(port), PORT_MAX_ATTEMPTS: '1', AGENT_HOME: home, WORKSPACE_PATH: workspace
+      }), stdio: ['ignore', 'pipe', 'pipe']
+    })
+    service.stdout.on('data', (chunk) => { logs += chunk.toString() })
+    service.stderr.on('data', (chunk) => { logs += chunk.toString() })
+    await waitFor(async () => (await request('GET', base + '/api/health')).status === 200, '磁盘恢复后的新服务启动')
+    await driver.launch(base + '/', { electronPath: path.join(ROOT, 'node_modules/electron/dist', binary),
+      noSandbox: process.env.SMOKE_NO_SANDBOX === '1' })
+    browserChild = driver.child
+    await waitFor(() => driver.evaluate('typeof currentSession === "function" && currentSession() && currentSession().processTimeline && currentSession().processTimeline.length === 2'), '全新浏览器进程从服务端恢复过程')
+    const reopened = await driver.evaluate('document.getElementById("messagesInner").textContent')
+    ok('浏览器和服务进程全部关闭后重开，无本地缓存仍从磁盘恢复两轮思考',
+      reopened.indexOf('检查过程：' + FIRST_REPLY) !== -1 && reopened.indexOf('检查过程：' + SECOND_REPLY) !== -1)
     ok('测试只调用了两次本机模型替身', modelRequests.length === 2)
   } catch (error) {
     console.error('FAIL  ' + (error.stack || error))

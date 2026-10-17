@@ -829,6 +829,87 @@ function addThinkingBlock(html) {
   messagesContent().appendChild(details)
 }
 
+/* UI 过程按模型回复定位；不进入发给模型的 messages，也不参与执行状态迁移。 */
+function recordProcessTimeline(sessionId, event) {
+  const session = findSessionById(sessionId)
+  if (not(session)) return
+  const processTypes = ['assistant:thinking', 'tool:start', 'tool:result', 'notice', 'capability:missing']
+  const isProcess = processTypes.indexOf(event.type) !== -1
+  if (not(isProcess) && event.type !== 'assistant:message' && event.type !== 'finished') return
+  if (not(Array.isArray(session.processTimeline))) {
+    if (not(isProcess)) return
+    const resumed = sessionId === state.currentSessionId && state.currentThinking && state.thinkingBase === ''
+      && state.currentThinking.innerHTML === session.processHtml
+    session.legacyProcessHtml = resumed ? '' : (session.processHtml || '')
+    session.processTimeline = []
+    session.legacyMessageCount = Array.isArray(session.messages) ? session.messages.length : 0
+  }
+  const entries = session.processTimeline
+  let entry = entries[entries.length - 1]
+  if (event.type === 'assistant:message' || event.type === 'finished') {
+    if (state.processBuffers[sessionId]) {
+      commitProcessRecord(sessionId)
+      dropProcessRecord(sessionId)
+      entry = entries[entries.length - 1]
+    }
+    const messages = Array.isArray(event.messages) ? event.messages : []
+    const lastAssistant = messages.slice().reverse().find((item) => item.role === 'assistant' && typeof item.content === 'string' && item.content)
+    const text = event.text || (lastAssistant && lastAssistant.content)
+    if (entry && not(entry.beforeText) && text) {
+      entry.beforeText = String(text)
+      saveSessionStore()
+    }
+    return
+  }
+  /* 内容由前台/后台共用的保存入口写入，避免重复记录同一增量。 */
+}
+
+function saveProcessTimelineContent(session, html) {
+  const entries = session.processTimeline
+  let entry = entries[entries.length - 1]
+  if (not(entry) || entry.beforeText) {
+    entry = { html: '', beforeText: '', afterMessage: Array.isArray(session.messages) ? session.messages.length : 0 }
+    entries.push(entry)
+  }
+  entry.html = html
+  session.processHtml = trimProcessHtml([session.legacyProcessHtml || ''].concat(entries.map((item) => item.html)).filter(Boolean).join(THINKING_TURN_SEP))
+  saveSessionStore()
+}
+
+function renderProcessTimeline(session, list, runningHere) {
+  const remaining = session.processTimeline.slice()
+  if (session.legacyProcessHtml) addThinkingBlock(session.legacyProcessHtml)
+  for (let messageIndex = 0; messageIndex < list.length; messageIndex += 1) {
+    const message = list[messageIndex]
+    if (message.role === 'user') addUserBubble(message.content)
+    if (message.role === 'tool' && message.content && messageIndex < (session.legacyMessageCount || 0)) {
+      const content = document.createElement('div')
+      appendProcessToolResult(content, message.name || '工具', message.content)
+      addThinkingBlock(content.innerHTML)
+    }
+    if (message.role !== 'assistant' || not(message.content)) continue
+    const text = Array.isArray(message.content) ? extractUserContent(message.content).text : message.content
+    const index = remaining.findIndex((entry) => entry.beforeText === text && messageIndex >= (entry.afterMessage || 0))
+    if (index !== -1) {
+      /* 压缩/断线造成定位回复缺失时，仍保留之前未匹配的过程。 */
+      for (const entry of remaining.splice(0, index + 1)) {
+        if (entry.html) addThinkingBlock(entry.html)
+      }
+    }
+    if (text) addBubble('assistant', text, { markdown: true })
+  }
+  let activeHtml = ''
+  for (const entry of remaining) {
+    if (runningHere && not(entry.beforeText)) activeHtml += entry.html || ''
+    else if (entry.html) addThinkingBlock(entry.html)
+  }
+  if (runningHere) {
+    dropProcessRecord(session.id)
+    resumeThinking(activeHtml)
+    scheduleWaitingHint()
+  }
+}
+
 function renderMessages(session) {
   clearMessages()
   state.currentAssistant = null
@@ -853,11 +934,20 @@ function renderMessages(session) {
   const runningHere = Boolean(session && session.id === state.currentSessionId && currentRunning())
   const seedHtml = runningHere && session && session.processHtml ? session.processHtml : ''
   const staticProcessHtml = runningHere ? '' : processHtml
+  if (session && Array.isArray(session.processTimeline)) {
+    renderProcessTimeline(session, list, runningHere)
+    scrollToBottom()
+    return
+  }
   let processRendered = false
   let toolThinking = null
   for (const message of list) {
-    if (message.role === 'user') addUserBubble(message.content)
+    if (message.role === 'user') {
+      toolThinking = null
+      addUserBubble(message.content)
+    }
     if (message.role === 'assistant' && message.content) {
+      toolThinking = null
       const assistantText = Array.isArray(message.content) ? extractUserContent(message.content).text : message.content
       if (assistantText) {
         if (not(processRendered) && staticProcessHtml) {
@@ -868,7 +958,7 @@ function renderMessages(session) {
       }
     }
     if (message.role === 'tool' && message.content) {
-      if (staticProcessHtml) continue
+      /* 旧数据只有会话级过程 HTML：仍在工具原位置恢复结果，不能全部隐藏。 */
       if (not(toolThinking)) {
         const details = document.createElement('details')
         details.className = 'thinking-block'
@@ -2205,6 +2295,10 @@ function mergeProcessHtml(base, fresh) {
 function saveThinkingProcess(content) {
   const session = findSessionById(state.currentSessionId)
   if (not(session) || not(content)) return
+  if (Array.isArray(session.processTimeline)) {
+    saveProcessTimelineContent(session, content.innerHTML)
+    return
+  }
   /* 本轮块里的内容 + 此前记下的（state.thinkingBase）一起写回，不能只写本轮 ——
      否则会话里第二轮一开始，第一轮的思考过程就被整段覆盖掉了。 */
   const merged = mergeProcessHtml(state.thinkingBase || '', content.innerHTML)
@@ -2255,7 +2349,10 @@ function processRecord(sessionId) {
     /* 续上这条会话已经记下的部分：它可能刚才是当前会话（过程活在 DOM 里，已经同步进
        processHtml），用户切走之后才轮到我们接手 —— 不续的话前半段会被整段盖掉。 */
     const session = findSessionById(key)
-    if (session && session.processHtml) content.innerHTML = session.processHtml
+    if (session && Array.isArray(session.processTimeline)) {
+      const last = session.processTimeline[session.processTimeline.length - 1]
+      if (last && not(last.beforeText)) content.innerHTML = last.html || ''
+    } else if (session && session.processHtml) content.innerHTML = session.processHtml
     state.processBuffers[key] = content
   }
   return state.processBuffers[key]
@@ -2267,6 +2364,10 @@ function commitProcessRecord(sessionId) {
   if (not(content)) return
   const session = findSessionById(key)
   if (not(session)) return
+  if (Array.isArray(session.processTimeline)) {
+    saveProcessTimelineContent(session, content.innerHTML)
+    return
+  }
   const html = content.innerHTML
   const merged = mergeProcessHtml('', html)
   if (session.processHtml === merged) return
@@ -2422,6 +2523,7 @@ async function handleEvent(event) {
   if (event.type === 'user') return
   const eventSessionId = event.sessionId ? String(event.sessionId) : ''
   const isCurrent = eventSessionId === '' || eventSessionId === state.currentSessionId
+  recordProcessTimeline(eventSessionId || state.currentSessionId, event)
 
   if (event.type === 'finished') {
     settleRun(eventSessionId, event)
@@ -2781,6 +2883,22 @@ function setupPermissionDropdowns() {
 }
 /* 内置插件的展示信息：标题 / 图标 / 说明 */
 const PLUGIN_META = {
+  'builtin/browser-tools': { title: '浏览器工具', icon: 'plugin', description: '浏览器操作、页面检查与自动化测试' },
+  'builtin/self-validate': { title: '运行验证', icon: 'plugin', description: '管理后台进程、等待服务就绪并记录验证结果' },
+  'core/contracts': { title: '协议契约', icon: 'plugin', description: '服务接口与事件校验' },
+  'core/state': { title: '会话状态', icon: 'plugin', description: '会话状态与合法迁移' },
+  'core/flow': { title: '流程策略', icon: 'plugin', description: 'Agent 执行策略' },
+  'core/config': { title: '运行配置', icon: 'plugin', description: 'Agent 运行配置' },
+  'core/permissions': { title: '权限管理', icon: 'plugin', description: '工具操作权限与审批' },
+  'core/tools': { title: '工具注册', icon: 'plugin', description: '工具校验与调度' },
+  'core/prompts': { title: '提示词管理', icon: 'plugin', description: '组装模型提示词' },
+  'core/context': { title: '上下文管理', icon: 'plugin', description: '处理模型上下文' },
+  'core/skills': { title: '技能管理', icon: 'plugin', description: '技能内容处理' },
+  'core/llm': { title: '模型服务', icon: 'plugin', description: '模型请求与响应校验' },
+  'core/sessions': { title: '会话存储', icon: 'plugin', description: '事件日志、快照与恢复' },
+  'core/memory': { title: '记忆管理', icon: 'plugin', description: '会话记忆与上下文压缩' },
+  'core/agent-loop': { title: '执行循环', icon: 'plugin', description: 'Agent 执行、超时与取消' },
+  'core/agents': { title: '智能体管理', icon: 'plugin', description: 'Agent 实例生命周期' },
   'builtin/fs-tools': { title: '\u6587\u4ef6\u8bfb\u5199', icon: 'folder', description: '\u6d4f\u89c8\u3001\u8bfb\u53d6\u3001\u521b\u5efa\u3001\u7f16\u8f91\u5de5\u4f5c\u533a\u5185\u7684\u6587\u4ef6\uff08list_dir / read_file / write_file / edit_file\uff09' },
   'builtin/search-tools': { title: '\u5185\u5bb9\u641c\u7d22', icon: 'model', description: '\u6309\u5173\u952e\u8bcd\u641c\u7d22\u5de5\u4f5c\u533a\u6587\u4ef6\u5185\u5bb9\uff08search_files\uff09' },
   'builtin/shell-tools': { title: '\u547d\u4ee4\u6267\u884c', icon: 'send', description: '\u5728\u5de5\u4f5c\u533a\u91cc\u6267\u884c\u672c\u5730\u547d\u4ee4\uff0c\u53d7\u6743\u9650\u6863\u4f4d\u7ea6\u675f\uff08run_command\uff09' },
@@ -2828,7 +2946,7 @@ function renderPlugins(plugins, tools) {
     return
   }
   for (const name of pluginNames) {
-    const meta = PLUGIN_META[name] || { title: name, icon: 'plugin', description: '' }
+    const meta = PLUGIN_META[name] || { title: '扩展插件', icon: 'plugin', description: '' }
     const pluginTools = toolItems.filter((tool) => tool && tool.plugin === name)
     const enabled = isPluginEnabled(name)
 

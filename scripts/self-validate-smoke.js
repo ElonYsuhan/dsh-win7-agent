@@ -201,6 +201,7 @@ async function main() {
     const host = new PluginHost({ workspaceRoot: workspace, settings: { data: {}, permissionMode: 'full' } })
     host.use(plugin)
     const names = plugin.PROCESS_TOOLS.map((item) => item.name)
+    await host.ready()
     const registered = new Set(host.tools.list().map((item) => item.name))
     const allRegistered = names.every((name) => registered.has(name))
     ok('插件注册：6 个自验证工具都注册进 registry',

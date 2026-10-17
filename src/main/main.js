@@ -103,7 +103,7 @@ function createWindow() {
   })
 }
 
-function createAgent() {
+async function createAgent() {
   const userData = app.getPath('userData')
   settings = new Settings(userData)
   settings.sessionRoot = path.join(userData, 'sessions')
@@ -118,6 +118,8 @@ function createAgent() {
   })
   pluginHost.loadBuiltins()
   pluginHost.loadFromDirectory(path.join(userData, 'plugins'))
+  await pluginHost.ready()
+  await pluginHost.configure()
   /* 一条会话一台 worker（与 server/index.js 同一套池，见 src/main/agent/agent-pool.js） */
   pool = new AgentPool({
     settings,
@@ -141,14 +143,18 @@ function createAgent() {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   hideApplicationMenu(Menu)
-  createAgent()
+  await createAgent()
   applyWindowTheme([], settings.data.theme, nativeTheme)
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+}).catch((error) => {
+  console.error('[agent] runtime boot failed:', error)
+  dialog.showErrorBox('Agent startup failed', String(error.message || error))
+  app.quit()
 })
 
 app.on('window-all-closed', () => {
@@ -156,13 +162,20 @@ app.on('window-all-closed', () => {
 })
 
 /* 退出前收掉终端的子 shell，别留孤儿进程 */
-app.on('will-quit', () => {
-  try { if (pool) pool.dispose() } catch (error) {}
-  try { if (pluginHost) pluginHost.dispose() } catch (error) {}
-  try {
-    if (terminalApiModule) terminalApiModule.teardownAll()
-  } catch (error) {}
+let runtimeQuitReady = false
+app.on('before-quit', (event) => {
+  if (runtimeQuitReady) return
+  event.preventDefault()
+  if (runtimeShutdown) return
+  runtimeShutdown = (async () => {
+    try { if (pool) await pool.dispose() } catch (error) { console.error(error) }
+    try { if (pluginHost) await pluginHost.dispose() } catch (error) { console.error(error) }
+    try { if (terminalApiModule) terminalApiModule.teardownAll() } catch (error) { console.error(error) }
+    runtimeQuitReady = true
+    app.quit()
+  })()
 })
+let runtimeShutdown = null
 
 /* 双击顶栏 —— 原生标题栏没了，这个手势得自己接（见 titlebarDoubleClickAction） */
 ipcMain.on('shell:titlebar-dblclick', (event) => {
@@ -181,8 +194,9 @@ ipcMain.handle('window:action', (event, action) => applyWindowAction(BrowserWind
 
 ipcMain.handle('app:get-state', () => stateValue())
 
-ipcMain.handle('settings:save', (_event, patch) => {
+ipcMain.handle('settings:save', async (_event, patch) => {
   const next = settings.update(patch || {})
+  await pluginHost.configure()
   if (patch && Object.prototype.hasOwnProperty.call(patch, 'theme')) applyWindowTheme([mainWindow], next.theme, nativeTheme)
   if (next.workspacePath) pool.setWorkspace(next.workspacePath)
   return next
@@ -200,7 +214,9 @@ function stateValue() {
     runningSessions: pool.runningSessions(),
     maxConcurrentRuns: pool.maxConcurrentRuns,
     plugins: pool.listPlugins(),
-    tools: pool.listTools()
+    tools: pool.listTools(),
+    executions: pool.executionStates(),
+    runtime: pluginHost.runtimeInfo()
   }
 }
 
