@@ -3,6 +3,12 @@
 本工程的目标运行环境是 **Windows 7 SP1 x64**。
 **所有新增或修改的代码，必须在 Win7 上可运行。不满足此前提的改动不予合入。**
 
+**兼容性限制的是技术版本，不是架构思想。** 为 Win7 采用固定版本、适配器或构建期转换，
+同时保持契约优先、职责分离、受控状态迁移和可验证的执行机制。
+交付路径涉及的依赖、工具和二进制都必须固定明确兼容版本；构建机可使用较新工具，
+但必须验证输出能在目标运行时执行。未经 Win7 真机验证的部分应明确标注。
+长期规则见根目录 `AGENTS.md` 和 `docs/ARCHITECTURE.md`。
+
 目标机零依赖：不安装 Node.js、npm、Python 或任何运行时，全部由打包产物自带。
 
 ---
@@ -478,3 +484,11 @@ rename 迁移（旧目录存在且新目录不存在时才动）。
 | P1 | `src/main/agent/tools.js` `runCommand` | 子进程输出按默认 UTF-8 解码，Win7 中文版 `cmd.exe` 输出 GBK，中文结果会乱码 |
 | P2 | `server/index.js` `pickNativeFolder` | 依赖 `powershell.exe` + WinForms 选目录，精简版 Win7 会失败（当前降级为返回空串，不崩，但功能不可用） |
 | ~~P3~~ | `package.json` `check` | **已修**：改为 `scripts/check-syntax.js`（61 文件）+ `scripts/check-win7-compat.js`（禁用 API/CSS 守卫）+ `scripts/renderer-smoke.js` + `service-manager` / `installer` / `shell-menu` / `shell-chrome` 四条冒烟 |
+
+## 知识库固定离线组件例外（2026-10-18）
+
+SQLite 3.54.0 为经知识库落地方案授权的唯一随包组件例外，使用独立 C bridge，
+不引入 Node ABI addon 或 npm dependencies。SQLite 源码与 SHA3、构建器和 flags
+固定入库；目标机直接运行随包文件，不安装工具链。Windows 目标锁定 Win7 API，
+Linux 构建为静态 musl，Mac 双架构分别构建；Win7 真机尚未验证时必须如实标注。
+见 docs/KNOWLEDGE-STORAGE-ADR.md。该例外不改变其它依赖禁令或 Electron/Node 上限。

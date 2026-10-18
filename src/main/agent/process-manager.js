@@ -119,6 +119,10 @@ class ProcessManager {
         entry.droppedBytes += Buffer.byteLength(removed)
       }
     }
+    /* 同 llm.js：必须先 setEncoding，否则子进程输出的中文被 chunk 切断时
+       会解出 U+FFFD（命令结果里出现黑菱形）。 */
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     child.stdout.on('data', append)
     child.stderr.on('data', append)
     child.on('error', (error) => {

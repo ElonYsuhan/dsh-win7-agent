@@ -1,6 +1,6 @@
 {
   "name": "dsh-win7-agent",
-  "version": "0.3.2",
+  "version": "0.4.3",
   "private": true,
   "description": "Win7-compatible local Agent shell. Local workspace and local commands, remote OpenAI-compatible LLM.",
   "main": "src/main/main.js",
@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "check": "node scripts/check-runtime-architecture.js && node scripts/cordis-runtime-smoke.js && node scripts/layered-agent-smoke.js && node scripts/check-syntax.js && node scripts/check-win7-compat.js && node scripts/settings-migration-smoke.js && node scripts/renderer-smoke.js && node scripts/web-bridge-smoke.js && node scripts/platform-smoke.js && node scripts/ui-store-smoke.js && node scripts/self-validate-smoke.js && node scripts/service-manager-smoke.js && node scripts/installer-smoke.js && node scripts/shell-menu-smoke.js && node scripts/shell-chrome-smoke.js && node scripts/window-controls-smoke.js && node scripts/plugin-smoke.js && node scripts/agent-smoke.js && node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js",
+    "check": "node scripts/check-runtime-architecture.js && node scripts/cordis-runtime-smoke.js && node scripts/layered-agent-smoke.js && node scripts/check-syntax.js && node scripts/check-win7-compat.js && node scripts/settings-migration-smoke.js && node scripts/renderer-smoke.js && node scripts/check-ui-dialogs.js && node scripts/web-bridge-smoke.js && node scripts/platform-smoke.js && node scripts/ui-store-smoke.js && node scripts/self-validate-smoke.js && node scripts/service-manager-smoke.js && node scripts/installer-smoke.js && node scripts/update-takeover-smoke.js && node scripts/shell-menu-smoke.js && node scripts/shell-chrome-smoke.js && node scripts/window-controls-smoke.js && node scripts/plugin-smoke.js && node scripts/mcp-smoke.js && node scripts/knowledge-native-smoke.js && node scripts/knowledge-smoke.js && node scripts/knowledge-session-smoke.js && node scripts/workflows-smoke.js && node scripts/document-mcp-smoke.js && node scripts/agent-smoke.js && node scripts/llm-stream-smoke.js && node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js && node scripts/release-retention-smoke.js && node scripts/agent-ux-smoke.js && node scripts/tasks-smoke.js && node scripts/task-lifecycle-smoke.js",
     "check:win7": "node scripts/check-win7-compat.js",
     "check:renderer": "node scripts/renderer-smoke.js && node scripts/web-bridge-smoke.js",
     "check:platform": "node scripts/platform-smoke.js",
@@ -36,11 +36,19 @@
     "make:icons": "python scripts/make-logo.py",
     "smoke:context": "node scripts/context-compression-smoke.js",
     "smoke:permission": "node scripts/permission-smoke.js",
-    "check:skills": "node scripts/plugin-smoke.js && node scripts/agent-smoke.js",
+    "check:skills": "node scripts/plugin-smoke.js && node scripts/mcp-smoke.js && node scripts/agent-smoke.js",
     "check:theme": "node scripts/theme-smoke.js",
     "check:runtime": "node scripts/check-runtime-architecture.js && node scripts/cordis-runtime-smoke.js && node scripts/layered-agent-smoke.js",
     "vendor:cordis": "node scripts/vendor-cordis.js",
-    "check:node16": "node scripts/check-node16.js"
+    "check:node16": "node scripts/check-node16.js",
+    "check:ux": "node scripts/agent-ux-smoke.js",
+    "check:ux:browser": "node scripts/agent-ux-e2e-smoke.js",
+    "check:llm": "node scripts/llm-stream-smoke.js",
+    "check:mcp": "node scripts/mcp-smoke.js",
+    "check:tasks": "node scripts/tasks-smoke.js && node scripts/task-lifecycle-smoke.js",
+    "check:tasks:browser": "node scripts/tasks-e2e-smoke.js",
+    "check:documents": "node scripts/document-mcp-smoke.js",
+    "check:documents:browser": "node scripts/document-mcp-e2e-smoke.js"
   },
   "devDependencies": {
     "electron": "22.3.27",
@@ -88,6 +96,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "asarUnpack": [
+      "src/main/knowledge/vendor/sqlite/**"
+    ]
   }
 }

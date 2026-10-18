@@ -46,6 +46,7 @@ function renderInline(text) {
   for (let index = 0; index < images.length; index += 1) {
     rendered = rendered.replace('@@DSH_IMAGE_' + index + '@@', images[index])
   }
+  rendered = rendered.replace(/\[来源:([a-f0-9]{32})\]/g, '<button type="button" class="knowledge-citation" data-knowledge-source="$1">查看来源</button>')
   return rendered
 }
 

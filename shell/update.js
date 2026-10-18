@@ -56,13 +56,18 @@ function apply(state) {
 
   byId('hint').textContent = running
     ? PHASE_HINT[phase]
-    : (phase === 'failed' ? '更新没有完成。' : '检测到本机已经有一份旧版本。')
+    : (phase === 'failed' ? '更新没有完成。' : '检测到旧程序，正在自动更新…')
 
   byId('steps').classList.toggle('hidden', not(running) && not(phase === 'failed'))
   renderSteps(phase)
 
   // 运行中不让点按钮，避免重复触发替换
-  byId('actions').classList.toggle('hidden', running)
+  byId('actions').classList.toggle('hidden', phase !== 'failed')
+  if (phase === 'failed') {
+    byId('update').disabled = false
+    byId('update').textContent = '重试更新'
+    byId('cancel').disabled = false
+  }
   byId('keep').classList.toggle('hidden', phase === 'failed' || !!window.__oldRunning)
 
   const status = byId('status')
@@ -91,7 +96,7 @@ async function init() {
   byId('newPath').textContent = info.newPath
 
   if (info.oldRunning) {
-    byId('note').textContent = '旧版本正在运行，点「立即更新」会先把它关掉，再替换文件并从原位置重启。' +
+    byId('note').textContent = '正在自动关闭旧程序并更新。' +
       '会话、设置、工作区都在数据目录里，不会被删除。'
   }
 

@@ -40,6 +40,10 @@ async function run(userText, history, images, memory) {
   let timedOut = false
   let flowCancelled = false
   let deadline = null
+  const unattended = this.settings.data.unattended
+  let remainingTokens = unattended ? unattended.tokenBudget : 0
+  let taskRequests = 0
+  let taskOutputBytes = 0
   try {
     limits = contracts.assertLimits(flow.limits(this.settings.data))
     maxIterations = limits.maxSteps
@@ -50,7 +54,7 @@ async function run(userText, history, images, memory) {
     this.record(EVENTS.START, { id: 'turn_' + Date.now().toString(36) + '_' + (this.state.sequence + 1), maxSteps: maxIterations })
     started = true
     if (limits.turnTimeoutMs > 0) deadline = setTimeout(() => { timedOut = true; this.abort() }, limits.turnTimeoutMs)
-    const systemContent = await this.plugins.buildSystemPrompt(this.systemPrompt(), signal, this.executionContext)
+    const systemContent = await this.plugins.buildSystemPrompt(this.systemPrompt(), signal, this.executionContext, this)
     const preparedHistory = this.messages.slice()
     if (preparedHistory[0] && preparedHistory[0].role === 'system') preparedHistory[0] = { role: 'system', content: systemContent }
     else preparedHistory.unshift({ role: 'system', content: systemContent })
@@ -77,17 +81,26 @@ async function run(userText, history, images, memory) {
       let dsmlSuppressed = false
       while (this.state.execution.attempt < limits.maxAttempts) {
         const attempt = this.state.execution.attempt
-        await this.ensureContextBudget(systemContent, signal)
+        if (!unattended) await this.ensureContextBudget(systemContent, signal)
         if (signal.aborted) break
         const requestMessages = await this.buildRequestMessages(systemContent)
+        if (unattended) {
+          const reserved = Buffer.byteLength(JSON.stringify(requestMessages), 'utf8') + Buffer.byteLength(JSON.stringify(this.plugins.getToolDefinitions()), 'utf8') + Number(this.settings.data.maxTokens) + 1024
+          if (++taskRequests > unattended.maxRequests || reserved > remainingTokens) throw new Error('TASK_BUDGET_EXCEEDED: request/token budget')
+          remainingTokens -= reserved
+        }
         try {
           this.record(EVENTS.REQUEST, {})
           result = await this.service('llm').request({
             settings: this.settings.data,
             messages: requestMessages,
-            tools: this.state.execution.toolsEnabled ? this.plugins.getToolDefinitions() : [],
+            tools: this.state.execution.toolsEnabled ? this.plugins.getToolDefinitions().filter(t => !unattended || unattended.tools.includes(t.function.name)) : [],
             signal,
             onDelta: (delta) => {
+              if (unattended) {
+                taskOutputBytes += Buffer.byteLength(JSON.stringify(delta), 'utf8')
+                if (taskOutputBytes > unattended.outputBytes) throw new Error('TASK_OUTPUT_LIMIT')
+              }
               if (delta.type === 'content') {
                 streamedContent += delta.text
                 /* 流式阶段检测到 DSML 泄漏：停止转发正文增量，等完成后由 skill 清理接管 */
@@ -103,13 +116,14 @@ async function run(userText, history, images, memory) {
               }
             }
           })
+          if (unattended && Buffer.byteLength(JSON.stringify(result), 'utf8') > unattended.outputBytes) throw new Error('TASK_OUTPUT_LIMIT')
           contracts.assertModelResult(result)
           lastError = null
           break
         } catch (error) {
           result = null
           lastError = error
-          const retry = contracts.assertDecision(flow.retry({ error: error.message, toolsEnabled: this.state.execution.toolsEnabled, attempt, aborted: signal.aborted, contextLengthError: this.contextService.isContextLengthError(error) }), ['stop', 'without-tools', 'compact'])
+          const retry = unattended ? 'stop' : contracts.assertDecision(flow.retry({ error: error.message, toolsEnabled: this.state.execution.toolsEnabled, attempt, aborted: signal.aborted, contextLengthError: this.contextService.isContextLengthError(error) }), ['stop', 'without-tools', 'compact'])
           this.record(EVENTS.REQUEST_FAILED, { reason: String(error.message || error), decision: retry })
           if (retry === 'without-tools') {
             this.record(EVENTS.TOOLS_DISABLED, {})
@@ -180,7 +194,7 @@ async function run(userText, history, images, memory) {
         const name = call.function.name
         const args = safeJsonParse(call.function.arguments)
         this.record(EVENTS.TOOL_START, { id: call.id, name })
-        this.emit({ type: 'tool:start', name, args: args || {} })
+        this.emit({ type: 'tool:start', id: call.id, name, args: args || {} })
         let toolResult = ''
         if (not(args)) {
           toolResult = 'ERROR: invalid JSON arguments for ' + name
@@ -209,9 +223,14 @@ async function run(userText, history, images, memory) {
           this.emit({ type: 'capability:missing', plugin: pluginName, text: noticeText })
         }
         this.appendMessage({ role: 'tool', tool_call_id: call.id, content: clipped })
-        this.record(EVENTS.TOOL_END, { id: call.id, name, outcome: flow.outcome(clipped, signal.aborted) })
-        this.emit({ type: 'tool:result', name, result: clipped })
+        const outcome = flow.outcome(clipped, signal.aborted)
+        this.record(EVENTS.TOOL_END, { id: call.id, name, outcome })
+        this.emit({ type: 'tool:result', id: call.id, name, outcome, result: clipped })
         this.saveSession()
+        if (unattended && ['denied', 'disabled'].includes(outcome)) {
+          for (const skipped of calls.slice(calls.indexOf(call) + 1)) this.appendMessage({ role: 'tool', tool_call_id: skipped.id, content: 'DENIED: unattended batch halted after blocked operation' })
+          break
+        }
       }
       const afterTools = contracts.assertDecision(flow.next({ phase: 'tools', execution: this.state.execution, calls, deniedCount: this.state.execution.deniedCount, maxDenied: limits.maxDenied, aborted: signal.aborted }), ['cancel', 'complete', 'tools', 'blocked'])
       if (afterTools === 'cancel') { flowCancelled = true; break }
@@ -221,7 +240,7 @@ async function run(userText, history, images, memory) {
         return
       }
       if (afterTools === 'blocked') {
-        const text = 'Permission mode is read-only, so file writes and commands are blocked. Please switch the permission mode to Workspace edit or Full access and try again.'
+        const text = unattended ? '无人值守任务遇到未授权操作，已拒绝并停止，请查看被拦截的操作。' : 'Permission mode is read-only, so file writes and commands are blocked. Please switch the permission mode to Workspace edit or Full access and try again.'
         const finalMessage = { role: 'assistant', content: text }
         this.appendMessage(finalMessage)
         this.record(EVENTS.BLOCK, { reason: 'repeated permission denial' })

@@ -400,6 +400,9 @@ function runCommand(root, command, cwd, timeoutMs, ctx) {
         killProcessTree(child)
       }
     }
+    /* 同 llm.js：先 setEncoding 再挂监听，中文输出才不会被 chunk 边界切成 U+FFFD */
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     child.stdout.on('data', append)
     child.stderr.on('data', append)
     child.on('error', (error) => {

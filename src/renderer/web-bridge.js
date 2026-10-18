@@ -23,6 +23,7 @@
   function ensureEvents() {
     if (eventSource) return
     eventSource = new EventSource('/api/events')
+    eventSource.onopen = () => dispatch({ type: 'connection', connected: true })
     eventSource.onmessage = (message) => {
       try {
         dispatch(JSON.parse(message.data))
@@ -31,6 +32,7 @@
       }
     }
     eventSource.onerror = () => {
+      dispatch({ type: 'connection', connected: false, message: '事件连接断开，正在自动重连' })
       dispatch({ type: 'status', text: 'event stream disconnected' })
     }
   }
@@ -72,7 +74,7 @@
     saveSettings: (patch) => request('POST', '/api/settings', patch),
     pickWorkspace: async () => {
       const current = await request('GET', '/api/state')
-      const chosen = nativeShell ? await nativeShell.pickFolder() : window.prompt('服务器工作区路径', current.workspacePath || '')
+      const chosen = nativeShell ? await nativeShell.pickFolder() : await window.appDialogs.prompt('服务器工作区路径', current.workspacePath || '')
       if (not(chosen)) return current.workspacePath
       const state = await request('POST', '/api/workspace', { path: chosen })
       return state.workspacePath
@@ -84,7 +86,7 @@
     mkdirServerDir: (target, name) => request('POST', '/api/fs/mkdir', { path: target, name }),
     createWorkspace: async () => {
       const current = await request('GET', '/api/state')
-      const chosen = nativeShell ? await nativeShell.pickFolder() : window.prompt('新建工作区路径', current.workspacePath || '')
+      const chosen = nativeShell ? await nativeShell.pickFolder() : await window.appDialogs.prompt('新建工作区路径', current.workspacePath || '')
       if (not(chosen)) return current.workspacePath
       const state = await request('POST', '/api/workspace', { path: chosen })
       return state.workspacePath
@@ -111,6 +113,11 @@
        localStorage 按 origin（协议+主机+端口）隔离，端口一换就是新空间 ——
        这份服务端存储跟端口无关，是「换端口记录还在」的那半边。
        与 src/main/preload.js 的 IPC 版签名一致。 */
+    taskRequest: (action, data) => action === 'list' ? request('GET', '/api/tasks') : action === 'conversation' ? request('GET', '/api/tasks/conversation?runId='+encodeURIComponent(data.runId)) : request('POST', '/api/tasks'+(action==='save'?'':'/'+action),data),
+    workflowRequest: (action,data) => action==='list'?request('GET','/api/workflows'):request('POST','/api/workflows/'+action,data||{}),
+    knowledgeRequest: (action, data) => action === 'list' ? request('GET', '/api/knowledge') : request('POST', '/api/knowledge/' + action, data || {}),
+    knowledgeUpload: async (raw, file) => { const query = new URLSearchParams(raw); const response = await fetch('/api/knowledge/import?' + query.toString(), { method: 'POST', body: file }); const value = await response.json(); if (!response.ok) throw new Error(value.error || 'KNOWLEDGE_IMPORT_FAILED'); return value },
+    mcpRequest: (action, data) => action === 'list' ? request('GET', '/api/mcp') : request('POST', '/api/mcp/' + action, data || {}),
     uiStoreGet: () => request('GET', '/api/ui-store'),
     uiStorePut: (store) => request('PUT', '/api/ui-store', store),
     /* ---- 终端（三期，与 src/main/preload.js 同一套接口）----

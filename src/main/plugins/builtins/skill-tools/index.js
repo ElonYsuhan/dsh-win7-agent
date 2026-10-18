@@ -14,8 +14,10 @@ const mdSkills = require('../../../agent/md-skills')
 module.exports = {
   name: 'builtin/skill-tools',
   version: '0.1.0',
+  inject: ['skillLibrary'],
   description: 'Bundled markdown skills (SKILL.md) index and loader.',
   apply(ctx) {
+    const library = ctx.get('skillLibrary')
     ctx.registerTool({
       name: 'load_skill',
       permission: 'read',
@@ -29,7 +31,7 @@ module.exports = {
         required: ['name']
       },
       execute: async (args) => {
-        const result = mdSkills.read(args && args.name, args && args.file)
+        const result = library.read(args && args.name, args && args.file)
         if (result.ok) return result.text
         const payload = { error: result.error }
         if (result.files) payload.files = result.files
@@ -49,13 +51,13 @@ module.exports = {
         }
       },
       execute: async (args) => {
-        const result = mdSkills.search(args && args.query, args && args.limit)
+        const result = library.search(args && args.query, args && args.limit)
         return JSON.stringify(result)
       }
     })
 
     /* 技能清单进系统提示（短索引，正文按需取） */
-    ctx.addSystemPrompt(() => mdSkills.systemPromptBlock())
+    ctx.addSystemPrompt(() => library.prompt())
 
     const info = mdSkills.stats()
     ctx.logger.info('skills loaded: ' + info.count + ' from ' + info.root)

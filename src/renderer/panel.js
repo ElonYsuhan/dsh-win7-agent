@@ -382,9 +382,7 @@
 
   /* ------------------------------------------------------------ 后端接口 */
 
-  function dsh() {
-    return window.dsh || null
-  }
+  function dsh() { return window.dsh || null }
 
   function hasApi() {
     const api = dsh()
@@ -1537,24 +1535,7 @@
         return
       }
 
-      if (kind === 'markdown' && window.renderMarkdown) {
-        const box = document.createElement('div')
-        box.className = 'preview-markdown'
-        box.innerHTML = window.renderMarkdown(decoded.text)
-        if (window.highlightAll) window.highlightAll(box)
-        host.appendChild(box)
-        return
-      }
-      const pre = document.createElement('pre')
-      pre.className = kind === 'code' ? 'preview-code' : 'preview-text'
-      const code = document.createElement('code')
-      if (kind === 'code' && window.highlightCode) {
-        code.innerHTML = window.highlightCode(decoded.text, ext)
-      } else {
-        code.textContent = decoded.text
-      }
-      pre.appendChild(code)
-      host.appendChild(pre)
+      window.filePreview.render(host,{kind,text:decoded.text,ext,name})
       return
     }
 
@@ -1570,28 +1551,7 @@
         host.appendChild(card('无法内嵌预览', 'warning', [target]))
         return
       }
-      if (kind === 'image') {
-        const img = document.createElement('img')
-        img.className = 'preview-image'
-        img.alt = name
-        img.src = url
-        host.appendChild(img)
-        return
-      }
-      if (kind === 'pdf') {
-        const frame = document.createElement('iframe')
-        frame.className = 'preview-pdf'
-        frame.title = name
-        frame.src = url
-        host.appendChild(frame)
-        host.classList.add('is-fit')
-        return
-      }
-      const media = document.createElement(kind === 'audio' ? 'audio' : 'video')
-      media.className = 'preview-media'
-      media.controls = true
-      media.src = url
-      host.appendChild(media)
+      window.filePreview.render(host,{kind,url,name})
       return
     }
 
@@ -1701,18 +1661,8 @@
 
   /* ------------------------------------------------------------ 事件绑定 */
 
-  function bindClick() {
-    document.addEventListener('click', (event) => {
-      const target = event.target
-      if (not(target) || typeof target.closest !== 'function') return
-
-      if (target.closest('#panelToggle')) {
-        event.preventDefault()
-        toggleOpen()
-        return
-      }
-      if (target.closest('#markdownPreviewToggle')) {
-        event.preventDefault()
+  function toggleMarkdownPreview() {
+    if (!isMarkdownFile(panel.active)) return
         const current = panel.active
         const ta = panel.editor.taNode
         const selection = ta ? { start: ta.selectionStart, end: ta.selectionEnd, top: ta.scrollTop, left: ta.scrollLeft } : null
@@ -1738,6 +1688,22 @@
             next.dispatchEvent(new Event('scroll'))
           }
         })
+
+  }
+
+  function bindClick() {
+    document.addEventListener('click', (event) => {
+      const target = event.target
+      if (not(target) || typeof target.closest !== 'function') return
+
+      if (target.closest('#panelToggle')) {
+        event.preventDefault()
+        toggleOpen()
+        return
+      }
+      if (target.closest('#markdownPreviewToggle')) {
+        event.preventDefault()
+        toggleMarkdownPreview()
         return
       }
       if (target.closest('#panelExplorerToggle')) {
@@ -1765,7 +1731,7 @@
       }
       if (target.closest('#editorForce')) {
         event.preventDefault()
-        if (window.confirm('文件已被外部修改。确定用当前编辑内容覆盖磁盘文件吗？')) forceSave()
+        window.appDialogs.confirm('文件已被外部修改。确定用当前编辑内容覆盖磁盘文件吗？').then(ok=>{if(ok)forceSave()})
         return
       }
       if (target.closest('#editorRetry')) {
@@ -2793,9 +2759,13 @@
    *    不能把整个 IIFE 带走 —— 那样接口也没了，外面连「面板坏了」都看不出来。
    */
   window.filePanel = {
+    sessionFiles: () => {refreshSessionContext();loadSessionFiles();return panel.sessionFiles.slice()},
     init: init,
     setContext: setContext,
     toggle: toggleOpen,
+    toggleMarkdownPreview: toggleMarkdownPreview,
+    closeActive: () => panel.active ? closeTab(panel.active) : Promise.resolve(),
+    menuState: () => ({ file: Boolean(panel.active), markdown: Boolean(panel.active && isMarkdownFile(panel.active)), panel: panel.open, preview: panel.markdownPreview }),
     open: () => setOpen(true),
     close: () => setOpen(false),
     isOpen: () => panel.open,

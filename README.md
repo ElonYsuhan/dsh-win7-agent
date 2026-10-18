@@ -25,6 +25,8 @@ commands stay on the Windows machine.
 - OpenAI-compatible chat completions client with streaming.
 - Human approval for file writes and command execution.
 - Session history stored under Electron userData.
+- MCP client connectors for trusted local stdio servers and intranet Streamable HTTP servers;
+  discovered tools are registered through the existing permission and approval boundary.
 
 ## Requirements
 

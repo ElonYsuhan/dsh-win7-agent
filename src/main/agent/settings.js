@@ -2,6 +2,7 @@
 
 const fs = require('fs')
 const path = require('path')
+const mcpContract = require('../contracts/mcp')
 
 const DEFAULT_MODEL_ID = 'default'
 const DEFAULT_MODEL_NAME = '\u9ed8\u8ba4\u6a21\u578b'
@@ -36,6 +37,9 @@ const DEFAULTS = {
   showPlatformBadge: true,
   replyLanguage: 'zh',
   disabledPlugins: [],
+  disabledSkills: [],
+  mcpServers: [],
+  disabledBuiltinMcp: [],
   models: [],
   currentModelId: '',
   recentWorkspaces: [],
@@ -126,9 +130,12 @@ function normalize(data) {
   for (const key of ['showBrandName', 'showBrandIcon', 'showPlatformBadge']) next[key] = next[key] !== false
   if (not(next.theme)) next.theme = 'dark'
   next.replyLanguage = next.replyLanguage === 'en' ? 'en' : 'zh'
+  next.disabledSkills = Array.isArray(next.disabledSkills) ? Array.from(new Set(next.disabledSkills.filter((id) => typeof id === 'string' && id.length <= 1024))) : []
   next.disabledPlugins = Array.isArray(next.disabledPlugins)
     ? next.disabledPlugins.map((item) => String(item || '')).filter(Boolean)
     : []
+  next.mcpServers = mcpContract.normalizeServers(next.mcpServers)
+  next.disabledBuiltinMcp = Array.isArray(next.disabledBuiltinMcp) ? next.disabledBuiltinMcp.filter(id => id === 'documents') : []
   return next
 }
 

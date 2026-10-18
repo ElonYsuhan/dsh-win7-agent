@@ -52,15 +52,15 @@ const APP_TITLE = 'Agent'
 const PRODUCT_VERSION = require(path.join(ROOT, 'package.json')).version || '0.1.0'
 
 const TARGETS = {
-  'win-x64': { electron: 'win32-x64', binary: APP_NAME + '.exe', bundle: null, mark: 'aw' },
+  'win-x64': { electron: 'win32-x64', binary: APP_NAME + '.exe', bundle: null, mark: 'icon' },
   // 目标名（= 产物名）用 mac，Electron 的发行包名仍然是 darwin —— 两者不能混。
   // 产物直接给同事看，`Agent-mac-arm64-0.1.0.zip` 一眼知道是 Mac；
   // 早先叫 darwin-arm64，字面上看不出平台。
-  'mac-arm64': { electron: 'darwin-arm64', binary: null, bundle: APP_NAME + '.app', mark: 'am' },
-  'mac-x64': { electron: 'darwin-x64', binary: null, bundle: APP_NAME + '.app', mark: 'am' },
-  'linux-x64': { electron: 'linux-x64', binary: APP_NAME, bundle: null, mark: 'al' },
+  'mac-arm64': { electron: 'darwin-arm64', binary: null, bundle: APP_NAME + '.app', mark: 'icon' },
+  'mac-x64': { electron: 'darwin-x64', binary: null, bundle: APP_NAME + '.app', mark: 'icon' },
+  'linux-x64': { electron: 'linux-x64', binary: APP_NAME, bundle: null, mark: 'icon' },
   // 银河麒麟 V10（飞腾/鲲鹏等国产 ARM 机器）用这个；结构跟 linux-x64 完全同构
-  'linux-arm64': { electron: 'linux-arm64', binary: APP_NAME, bundle: null, mark: 'al' }
+  'linux-arm64': { electron: 'linux-arm64', binary: APP_NAME, bundle: null, mark: 'icon' }
 }
 
 // 旧命令名与常见写法都接受，免得历史习惯直接报 unknown target
@@ -337,9 +337,9 @@ function appPackageJson() {
  * 把 Shell 壳 + 服务端 + agent 实现 + 图标塞进 resources/app。
  *
  * mark 是本平台那枚图标的文件名前缀（am / al / aw）：包内界面里显示的
- * logo.png 会被换成对应平台的那一枚，这样 mac 包的界面不会顶着 Win 的标。
+ * 所有平台的 logo.png 均来自统一的 icon.png。
  */
-function fillAppDir(appDir, mark) {
+function fillAppDir(appDir, mark, targetKey) {
   rmrf(appDir)
   mkdirp(appDir)
 
@@ -357,7 +357,7 @@ function fillAppDir(appDir, mark) {
   //      打包后 404」。所以下面顺手对账一次，宁可构建失败也别把坏包发出去。
   const serviceDir = path.join(appDir, 'service')
   mkdirp(serviceDir)
-  const SERVICE_FILES = ['index.js', 'settings-store.js', 'file-api.js', 'native-folder.js', 'terminal-api.js', 'ui-store.js']
+  const SERVICE_FILES = ['index.js', 'settings-store.js', 'file-api.js', 'native-folder.js', 'terminal-api.js', 'ui-store.js', 'task-api.js', 'mcp-api.js', 'knowledge-api.js', 'workflow-api.js']
   for (const name of SERVICE_FILES) {
     copyFile(path.join(ROOT, 'server', name), path.join(serviceDir, name))
   }
@@ -374,11 +374,19 @@ function fillAppDir(appDir, mark) {
 
   // agent 实现 + Web 界面
   copyDir(path.join(ROOT, 'src'), path.join(appDir, 'src'))
+  const nativeDir = path.join(appDir, 'src/main/knowledge/vendor/sqlite')
+  const nativeName = { 'mac-arm64': 'darwin-arm64', 'mac-x64': 'darwin-x64', 'win-x64': 'win32-x64.exe', 'linux-x64': 'linux-x64', 'linux-arm64': 'linux-arm64' }[targetKey]
+  const nativeManifest = JSON.parse(fs.readFileSync(path.join(nativeDir, 'manifest.json'), 'utf8'))
+  if (!nativeName || !nativeManifest.files[nativeName] || !fs.existsSync(path.join(nativeDir, nativeName))) throw new Error('KNOWLEDGE_NATIVE_NOT_BUILT: ' + targetKey)
+  const nativeHash = require('crypto').createHash('sha256').update(fs.readFileSync(path.join(nativeDir, nativeName))).digest('hex')
+  if (nativeHash !== nativeManifest.files[nativeName]) throw new Error('KNOWLEDGE_NATIVE_HASH_MISMATCH: ' + targetKey)
+  for (const name of fs.readdirSync(nativeDir)) if (name !== nativeName && name !== 'manifest.json' && name !== 'NOTICE.txt') fs.unlinkSync(path.join(nativeDir, name))
+
 
   // 图标资源（运行期给 BrowserWindow 设 icon 要用到）
   if (fs.existsSync(ICON_DIR)) copyDir(ICON_DIR, path.join(appDir, 'assets', 'icons'))
 
-  // 界面品牌标覆盖成本平台那枚（必须在 copyDir(src) 之后）
+  // 界面品牌标统一使用同一图标（必须在 copyDir(src) 之后）
   const markPng = path.join(ICON_DIR, mark + '.png')
   if (fs.existsSync(markPng)) {
     copyFile(markPng, path.join(appDir, 'src', 'renderer', 'logo.png'))
@@ -412,7 +420,7 @@ function applyWindowsBranding(exePath) {
     log('WARN skip exe branding, not found: ' + exePath)
     return false
   }
-  const icoPath = path.join(ICON_DIR, 'aw.ico')
+  const icoPath = path.join(ICON_DIR, 'icon.ico')
   if (!fs.existsSync(icoPath)) {
     log('WARN skip exe branding, missing ' + icoPath + ' (run scripts/make-logo.py)')
     return false
@@ -476,7 +484,7 @@ function applyWindowsBranding(exePath) {
 
 /** macOS：直接覆盖 bundle 里那份 Electron 默认图标。 */
 function applyMacIcon(bundleDir) {
-  const icns = path.join(ICON_DIR, 'am.icns')
+  const icns = path.join(ICON_DIR, 'icon.icns')
   if (!fs.existsSync(icns)) {
     log('WARN skip mac icon, missing ' + icns + ' (run scripts/make-logo.py)')
     return false
@@ -573,7 +581,7 @@ function buildWindows(unpacked, outDir, targetKey) {
     if (fs.existsSync(targetExe)) rmrf(targetExe)
     fs.renameSync(sourceExe, targetExe)
   }
-  fillAppDir(path.join(outDir, 'resources', 'app'), target.mark)
+  fillAppDir(path.join(outDir, 'resources', 'app'), target.mark, targetKey)
   // Electron 自带的默认应用不再需要
   rmrf(path.join(outDir, 'resources', 'default_app.asar'))
   applyWindowsBranding(targetExe)
@@ -589,7 +597,7 @@ function buildLinux(unpacked, outDir, targetKey) {
     fs.renameSync(sourceBin, targetBin)
     fs.chmodSync(targetBin, 0o755)
   }
-  fillAppDir(path.join(outDir, 'resources', 'app'), target.mark)
+  fillAppDir(path.join(outDir, 'resources', 'app'), target.mark, targetKey)
   rmrf(path.join(outDir, 'resources', 'default_app.asar'))
 }
 
@@ -615,7 +623,7 @@ function buildDarwin(unpacked, outDir, targetKey) {
   }
 
   applyMacIcon(path.join(outDir, bundleName))
-  fillAppDir(path.join(contents, 'Resources', 'app'), target.mark)
+  fillAppDir(path.join(contents, 'Resources', 'app'), target.mark, targetKey)
   rmrf(path.join(contents, 'Resources', 'default_app.asar'))
 
   // 改了 bundle 会让原签名失效，重新做一次 ad-hoc 签名，避免 macOS 直接报「已损坏」
@@ -684,6 +692,7 @@ async function main() {
   for (const key of keys) {
     results.push(await buildTarget(key, { noZip }))
   }
+  if (!noZip) require('./release-retention').prune(OUT_ROOT)
   log('all done:')
   for (const item of results) log('  ' + item)
 }

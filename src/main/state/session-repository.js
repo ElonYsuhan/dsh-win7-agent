@@ -51,6 +51,13 @@ class SessionRepository {
     fs.mkdirSync(agent.sessionDir, { recursive: true })
     fs.writeFileSync(file + '.tmp', JSON.stringify({ version: 2, ...agent.state }, null, 2), 'utf8')
     fs.renameSync(file + '.tmp', file)
+    // 快照写成功之后，日志里 <= 快照序号的事件全是重复的，必须清掉：
+    // ① 每轮开头 replaceHistory 会把整份历史作为一条事件再写一遍，不清就按轮次**平方**增长；
+    // ② 每轮 sessions.load() 会把整份日志 readFileSync + 逐行 JSON.parse 读回内存。
+    // 实测（同一会话 12 轮）：不清时 events.jsonl 已 4.8MB、进程 RSS 98MB；
+    // 40 轮时 RSS 涨到 380MB 且不回落。清空是安全的：load() 对空日志放行
+    // （tail=0，不触发 SESSION_SNAPSHOT_AHEAD_OF_JOURNAL），后续事件从 sequence+1 继续追加。
+    try { fs.writeFileSync(this.files(agent).journal, '') } catch (error) { /* 清不掉只是慢，不该让 save 失败 */ }
   }
 }
 module.exports = { SessionRepository }

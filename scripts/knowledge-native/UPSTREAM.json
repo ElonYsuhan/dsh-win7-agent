@@ -1,0 +1,7 @@
+{
+  "version": "3.54.0",
+  "url": "https://www.sqlite.org/2026/sqlite-amalgamation-3540000.zip",
+  "archiveSha256": "68e913b0fe8ec6b4e5f391c594a28872884e80d6cd042a1e50c957be46b5aa4d",
+  "sourceSha256": "2da161e310ef0aba3465f22a4d12b8a43723236f0942fa76e8aac523c3317243",
+  "license": "SQLite public domain; https://www.sqlite.org/copyright.html"
+}

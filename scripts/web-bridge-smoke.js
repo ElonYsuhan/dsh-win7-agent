@@ -53,7 +53,7 @@ function harness(nativeShell) {
   const window = {
     shell: nativeShell || undefined,
     open: (target, disposition, features) => opened.push({ target, disposition, features }),
-    prompt: (label, initial) => { prompts.push({ label, initial }); return '/chosen/browser' },
+    appDialogs: { prompt: async (label, initial) => { prompts.push({ label, initial }); return '/chosen/browser' } },
     addEventListener: (type, callback) => { if (type === 'beforeunload') unload.push(callback) }
   }
   const sandbox = {

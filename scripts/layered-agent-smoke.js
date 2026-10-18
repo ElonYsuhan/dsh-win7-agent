@@ -80,9 +80,16 @@ async function main() {
     const saved = host.get('sessions').load(agent)
     assert(saved.messages.some((m) => m.content === 'normal result'))
     assert.strictEqual(saved.execution.status, 'completed')
-    const onDisk = fs.readFileSync(path.join(agent.sessionDir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
-    assert(onDisk.some((e) => e.type === EVENTS.START) && onDisk.some((e) => e.type === EVENTS.COMPLETE))
-    assert(onDisk.every((e, i) => e.sequence === i + 1))
+    /* 持久化的唯一真相是快照：save() 之后日志必须被清空。
+       不清的话每轮 replaceHistory 会把整份历史再写一遍（按轮次平方增长），
+       下一轮 sessions.load() 又把整份日志读回内存 —— 2026-10-17 的内存实测就是查到这里。
+       所以这里改成断言「日志已空 + 快照带着完整事实 + 序号单调」，而不是去日志里找事件。 */
+    const onDisk = fs.readFileSync(path.join(agent.sessionDir, 'events.jsonl'), 'utf8')
+    assert.strictEqual(onDisk, '', 'journal must be truncated after the snapshot is written')
+    const snapshot = JSON.parse(fs.readFileSync(path.join(agent.sessionDir, 'last-session.json'), 'utf8'))
+    assert(snapshot.messages.some((m) => m.content === 'normal result'), 'snapshot must carry the conversation')
+    assert.strictEqual(snapshot.execution.status, 'completed')
+    assert(snapshot.sequence > 0, 'snapshot must carry the event sequence')
 
     model = async () => ({ content: 'bad', toolCalls: [{ function: { name: 'x', arguments: {} } }] })
     await agent.run('invalid model result', [])
@@ -140,16 +147,23 @@ async function main() {
       event(EVENTS.TOOL_START, 5, { id: 'unknown-effect', name: 'counter' })
     ]
     for (const e of crashEvents) { journal.append(crash, e); crash.state = state.reduce(crash.state, e) }
+    /* 日志在轮次收尾 save() 时会被截断（快照才是唯一真相），所以「恢复时记了一条 INTERRUPT」
+       要在这一轮**还没收尾**的时候验 —— 正好借模型被调用的这一刻读日志。 */
+    let sawInterrupt = false
     model = async (request) => {
       assert(request.messages.some((m) => m.role === 'tool' && m.tool_call_id === 'unknown-effect'))
+      const lines = fs.readFileSync(path.join(crash.sessionDir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean)
+      sawInterrupt = lines.some((line) => JSON.parse(line).type === EVENTS.INTERRUPT)
       return { content: 'recovered context', toolCalls: [] }
     }
     const resumed = new Agent(settings, () => {}, async () => true, crash.sessionDir, host)
     await resumed.run('continue')
     assert.strictEqual(resumed.state.execution.status, 'completed')
     assert.strictEqual(toolRuns, 1, 'uncertain side effects must not automatically replay')
-    const replay = fs.readFileSync(path.join(crash.sessionDir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
-    assert(replay.some((e) => e.type === EVENTS.INTERRUPT))
+    assert(sawInterrupt, 'recovery must record INTERRUPT so the uncertain previous turn is not silently trusted')
+    const resumedSnapshot = JSON.parse(fs.readFileSync(path.join(crash.sessionDir, 'last-session.json'), 'utf8'))
+    assert(resumedSnapshot.execution.status === 'completed')
+    assert.strictEqual(fs.readFileSync(path.join(crash.sessionDir, 'events.jsonl'), 'utf8'), '')
     await resumed.dispose()
     await agent.dispose()
 

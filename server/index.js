@@ -78,10 +78,12 @@ function json(response, status, value) {
 
 function readBody(request) {
   return new Promise((resolve, reject) => {
-    let body = ''
+    let body = '', bytes = 0
+    request.setEncoding('utf8')
     request.on('data', (chunk) => {
-      body += chunk.toString('utf8')
-      if (body.length > 1024 * 1024) {
+      bytes += Buffer.byteLength(chunk, 'utf8')
+      body += chunk
+      if (bytes > 1024 * 1024) {
         request.destroy()
         reject(new Error('BODY_TOO_LARGE'))
       }
@@ -102,10 +104,12 @@ function readBody(request) {
    可到几 MB），卡 1MB 的 readBody 会把它劈成 413。其余小请求照旧走 readBody。 */
 function readBodyLimit(request, limit) {
   return new Promise((resolve, reject) => {
-    let body = ''
+    let body = '', bytes = 0
+    request.setEncoding('utf8')
     request.on('data', (chunk) => {
-      body += chunk.toString('utf8')
-      if (body.length > limit) {
+      bytes += Buffer.byteLength(chunk, 'utf8')
+      body += chunk
+      if (bytes > limit) {
         request.destroy()
         reject(new Error('BODY_TOO_LARGE'))
       }
@@ -135,6 +139,7 @@ async function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
   clearPendingApprovals()
+  try { await pluginHost.get('tasks').close() } catch (error) {}
   try { await pool.dispose() } catch (error) {}
   try { await pluginHost.dispose() } catch (error) {}
   try { teardownAll() } catch (error) {}
@@ -207,6 +212,8 @@ function stateValue() {
     plugins: pluginHost.listPlugins(),
     tools: pluginHost.listTools(),
     executions: pool.executionStates(),
+    skills: pluginHost.requireService('skillLibrary').list(),
+    mcp: pluginHost.get('mcp') ? pluginHost.get('mcp').status() : { servers: [], connected: 0, tools: 0 },
     runtime: pluginHost.runtimeInfo()
   }
 }
@@ -241,6 +248,10 @@ function serveStatic(request, response, pathname) {
 }
 
 async function handleApi(request, response, url) {
+  if (await require('./task-api').handleTaskApi(request, response, url, { tasks: pluginHost.get('tasks'), json, readBody })) return true
+  if (await require('./workflow-api').handleWorkflowApi(request,response,url,{workflows:pluginHost.get('workflows'),json,readBody,emit:broadcast}))return true
+  if (await require('./knowledge-api').handleKnowledgeApi(request, response, url, { isRunning: id => pool.isRunning(id), projects: () => settingsStore.all().projects || [], knowledge: pluginHost.get('knowledge'), json, readBody, workspace: () => pool.getWorkspace() })) return true
+  if (await require('./mcp-api').handleMcpApi(request, response, url, { mcp: pluginHost.get('mcp'), json, readBody })) return true
   if (url.pathname === '/api/health' && request.method === 'GET') {
     json(response, 200, {
       ok: true,
@@ -316,6 +327,9 @@ async function handleApi(request, response, url) {
     const body = await readBody(request)
     const next = settingsStore.update(body)
     await pluginHost.configure()
+    if (Object.prototype.hasOwnProperty.call(body || {}, 'mcpServers') || Object.prototype.hasOwnProperty.call(body || {}, 'disabledBuiltinMcp')) {
+      try { await pluginHost.get('mcp').reload() } catch (error) { console.error('[mcp] reload failed:', error.message) }
+    }
     if (next.workspacePath) {
       pool.setWorkspace(next.workspacePath)
     }
@@ -422,7 +436,8 @@ async function handleApi(request, response, url) {
     return true
   }
   if (url.pathname === '/api/chat' && request.method === 'POST') {
-    const body = await readBody(request)
+    // Chat carries history and image attachments; keep small-control APIs at 1 MB.
+    const body = await readBodyLimit(request, 40 * 1024 * 1024)
     /* sessionId = 这条消息属于哪条会话（渲染层每条会话有自己的 id）。
        没带就退化成 'default' 那台 worker —— 老客户端行为不变。 */
     const sessionId = String(body.sessionId || '')
@@ -548,7 +563,12 @@ function startListen(port) {
   server.listen(port, HOST)
 }
 
-pluginHost.ready().then(() => pluginHost.configure()).then(() => startListen(PORT)).catch(async (error) => {
+pluginHost.ready().then(() => pluginHost.configure()).then(async () => {
+  try { await pluginHost.get('mcp').ready() } catch (error) { console.error('[mcp] startup failed:', error.message) }
+  pluginHost.get('knowledge').attach(broadcast)
+  pluginHost.get('tasks').attach({pool,home:AGENT_HOME,emit:broadcast})
+  startListen(PORT)
+}).catch(async (error) => {
   console.error('[agent-service] runtime boot failed:', error)
   try { await pluginHost.dispose() } catch (cleanupError) { console.error(cleanupError) }
   process.exitCode = 2

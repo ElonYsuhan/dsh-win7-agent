@@ -860,9 +860,11 @@ async function runInElectron() {
     result = await win.webContents.executeJavaScript(PROBE)
     /* 品牌行系统徽章（2026-09-19 用户要的）：真机上 init 应该已经把它填好 */
     await new Promise((resolve) => setTimeout(resolve, 250))
-    const badgeText = await win.webContents.executeJavaScript(
-      "(() => { const b = document.getElementById('brandBadge'); return b ? String(b.textContent).trim() : '' })()")
-    check('顶栏系统徽章显示实际平台', badgeText === (isMac ? 'Mac' : (process.platform === 'win32' ? 'Win' : 'Linux')), 'badge=' + badgeText)
+    /* 侧栏品牌行（logo + 名称 + 系统徽章）已按用户要求移除（2026-10-17）：
+       这里从「徽章显示实际平台」反转成「品牌行不再出现」。 */
+    const brandGone = await win.webContents.executeJavaScript(
+      "(() => !document.querySelector('.titlebar-brand') && !document.getElementById('brandBadge'))()")
+    check('侧栏不再有品牌行（logo / 名称 / 系统徽章）', brandGone === true, 'brandGone=' + brandGone)
     /* 输入框高度链诊断（2026-09-19 用户：莫名其妙变高了）—— 量出真数字再谈修复 */
     const composer = await win.webContents.executeJavaScript(PROBE_COMPOSER)
     check('输入框高度链诊断（空输入框应 ≤60px）', composer.inputH <= 60, JSON.stringify(composer))
@@ -1463,8 +1465,10 @@ async function runInElectron() {
       return { html: bg && bg.processHtml ? String(bg.processHtml) : '', blocks: blocks.length, text: text.slice(0, 140) };
     })()`)
     check('真机（走 IPC 真事件）：后台会话的过程被记进它自己的 processHtml（思考 + 工具调用 + 工具结果都在）',
-      bgState.html.indexOf('后台在想_MARKER') >= 0 && bgState.html.indexOf('read_file') >= 0
-        && bgState.html.indexOf('TOOL_RESULT_MARKER') >= 0 && bgState.html.indexOf('thinking-tool') >= 0,
+      /* 过程改成步骤时间线（P0）后，标题是人话「读取 a.js」，不再是原始工具名 + .thinking-tool */
+      bgState.html.indexOf('后台在想_MARKER') >= 0 && bgState.html.indexOf('读取 a.js') >= 0
+        && bgState.html.indexOf('TOOL_RESULT_MARKER') >= 0 && bgState.html.indexOf('tl-step') >= 0
+        && bgState.html.indexOf('tl-ok') >= 0,
       'html=' + bgState.html.slice(0, 180))
     check('真机：后台会话的过程没有被画进当前会话的画布',
       bgState.text.indexOf('后台在想_MARKER') === -1, 'text=' + bgState.text)
@@ -1488,7 +1492,10 @@ async function runInElectron() {
     })()`)
     check('真机：切回后台跑过的会话，思考过程画得出来（用户报的「没了」）',
       clicked === true && afterSwitch.current === 'smoke_bg' && afterSwitch.blocks >= 1
-        && afterSwitch.text.indexOf('后台在想_MARKER') >= 0 && afterSwitch.text.indexOf('read_file') >= 0,
+        && afterSwitch.text.indexOf('后台在想_MARKER') >= 0 && afterSwitch.text.indexOf('读取 a.js') >= 0
+        /* 折叠条摘要按步数显示（老实现是一排同名「思考过程」，看不出有几步） */
+        /* 后台这一轮现在是「思考 + 工具」两步（并行会话去掉了那句「已获取工具结果，继续思考…」） */
+        && afterSwitch.text.indexOf('2 步') >= 0,
       JSON.stringify(afterSwitch))
   }
 

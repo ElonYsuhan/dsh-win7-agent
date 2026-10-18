@@ -240,8 +240,12 @@ async function groupD() {
 
   // D5 端口被占时自动顺延（把已就绪服务的端口再交给一个新实例）
   if (ready.ok) {
-    const second = launch(ready.port)
+    const second = launch(ready.port, { AGENT_HOME: path.join(agentHome, 'second-service') })
     const ready2 = await sm.waitReady(ready.port + 1, { readyTimeout: 15000, probeTimeout: 500, state: second })
+    // Distinct stores may select adjacent ports; one store must have only one scheduler.
+    const duplicate = launch(ready.port + 5)
+    for (let i=0; i<100 && !duplicate.exited; i++) await delay(25)
+    check('D5b 同数据目录的第二个调度服务拒绝启动', duplicate.exited && duplicate.stderrTail.includes('TASK_OWNER_LOCKED'))
     check('D5 端口被占自动顺延', ready2.ok === true && ready2.port > ready.port,
       'first=' + ready.port + ' second=' + ready2.port + ' reason=' + (ready2.reason || 'ok'))
   } else {

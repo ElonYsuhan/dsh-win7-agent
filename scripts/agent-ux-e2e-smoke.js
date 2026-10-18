@@ -1,0 +1,73 @@
+'use strict'
+// Real Chromium UI acceptance, isolated home/workspace; no model or external service calls.
+const assert=require('assert'),fs=require('fs'),os=require('os'),path=require('path'),http=require('http')
+const {spawn}=require('child_process')
+const {BrowserDriver}=require('../src/main/agent/browser-driver')
+const ROOT=path.resolve(__dirname,'..')
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+async function wait(check,label){for(let i=0;i<100;i++){try{const v=await check();if(v)return v}catch(e){}await sleep(100)}throw Error('Timeout: '+label)}
+async function port(){const s=http.createServer();await new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));const p=s.address().port;await new Promise(resolve=>s.close(resolve));return p}
+function get(url){return new Promise((resolve,reject)=>http.get(url,r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>{try{resolve(JSON.parse(b))}catch(e){reject(e)}})}).on('error',reject))}
+let passed=0
+function ok(name,value){assert(value,name);console.log('PASS '+name);passed++}
+async function main(){
+ const temp=fs.mkdtempSync(path.join(os.tmpdir(),'agent-ux-browser-')),home=path.join(temp,'home'),workspace=path.join(temp,'workspace'),driver=new BrowserDriver()
+ fs.mkdirSync(workspace,{recursive:true});fs.writeFileSync(path.join(workspace,'example.txt'),'reference file')
+ const p=await port(),base='http://127.0.0.1:'+p
+ const child=spawn(process.execPath,[path.join(ROOT,'server/index.js')],{cwd:ROOT,env:{...process.env,HOST:'127.0.0.1',PORT:String(p),PORT_MAX_ATTEMPTS:'1',AGENT_HOME:home,WORKSPACE_PATH:workspace},stdio:['ignore','pipe','pipe']})
+ let logs='';child.stdout.on('data',c=>logs+=c);child.stderr.on('data',c=>logs+=c)
+ try{
+  await wait(()=>get(base+'/api/health'),'service')
+  const binary=path.join(ROOT,'node_modules/electron/dist',fs.readFileSync(path.join(ROOT,'node_modules/electron/path.txt'),'utf8').trim())
+  await driver.launch(base+'/',{electronPath:binary,width:1280,height:900,noSandbox:process.env.SMOKE_NO_SANDBOX==='1'})
+  await wait(()=>driver.evaluate('typeof state!=="undefined" && state.settings && window.agentUI && document.getElementById("serviceConnection").textContent==="服务已连接"'),'UI ready')
+  ok('空会话有示例任务入口',await driver.evaluate('document.querySelectorAll(".chat-empty button").length===3'))
+  const data=await driver.evaluate(`(async()=>{clearInterval(state.runPoll);state.runPoll=null;const s=createSession('', '界面验收', 'recent');await selectSession(s.id);await syncRunningState();addRun(s.id);applyRunState();await handleEvent({type:'assistant:thinking',sessionId:s.id,text:'检查仓库结构'});await handleEvent({type:'tool:start',sessionId:s.id,name:'edit_file',args:{path:'example.txt',oldText:'old line',newText:'new line'}});await handleEvent({type:'tool:result',sessionId:s.id,name:'edit_file',outcome:'success',result:'edited example.txt matches=1'});await handleEvent({type:'tool:start',sessionId:s.id,name:'run_command',args:{command:'npm test'}});await handleEvent({type:'tool:result',sessionId:s.id,name:'run_command',outcome:'error',result:'exitCode=2\\n'+('output line\\n'.repeat(500))+'END-OF-OUTPUT'});return {id:s.id,steps:document.querySelectorAll('.tl-step').length,failed:document.querySelectorAll('.tl-err').length,diff:document.querySelector('.artifact-diff').textContent,tail:document.querySelectorAll('.tl-output')[1].textContent.endsWith('END-OF-OUTPUT'),status:document.getElementById('runStatus').className}})()`,{awaitPromise:true})
+  ok('实际步骤分离，非零命令退出码显示失败',data.steps>=3&&data.failed===1)
+  ok('文件编辑显示真实 old/new 替换片段',data.diff.includes('-old line')&&data.diff.includes('+new line'))
+  ok('长输出可折叠且没有额外截断尾部',data.tail)
+  ok('运行中状态仍供辅助技术读取',!data.status.includes('hidden'))
+  ok('步骤卡片默认展开且总耗时独立右对齐',await driver.evaluate('document.querySelector(".process-timeline").open && getComputedStyle(document.querySelector(".timeline-summary-time")).marginLeft!=="0px"'))
+  ok('单步使用可展开详情，摘要没有重复思考旋转图标',await driver.evaluate('document.querySelector(".tl-step").tagName==="DETAILS" && getComputedStyle(document.querySelector(".process-timeline > summary"),"::before").animationName==="none"'))
+  const plan='[agent-plan:v1]'+JSON.stringify({steps:[{title:'分析仓库',status:'completed'},{title:'修复并验证',status:'blocked'}]})
+  const answer='变更检查完成。\n\n```mermaid\nflowchart TB\nA["模型"] --> B["工具"]\n```\n\n```svg\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><script>window.__svgUnsafe=1</script><rect width="80" height="80" fill="#aaa" onclick="window.__svgUnsafe=2"/></svg>\n```'
+  await driver.evaluate(`(async()=>{await handleEvent({type:'tool:start',sessionId:${JSON.stringify(data.id)},name:'update_plan',args:{steps:[]}});await handleEvent({type:'tool:result',sessionId:${JSON.stringify(data.id)},name:'update_plan',outcome:'success',result:${JSON.stringify(plan)}});await handleEvent({type:'assistant:message',sessionId:${JSON.stringify(data.id)},text:${JSON.stringify(answer)}});await handleEvent({type:'finished',sessionId:${JSON.stringify(data.id)},execution:{status:'failed'},messages:[{role:'tool',content:${JSON.stringify(plan)}},{role:'assistant',content:${JSON.stringify(answer)}}]});return true})()`,{awaitPromise:true})
+  ok('计划按实际报告展示完成和受阻状态',await driver.evaluate('document.querySelectorAll("#taskPlan .plan-item").length===2 && document.getElementById("taskPlan").textContent.includes("受阻")'))
+  ok('流程图与 SVG 原生预览并提供导出按钮',await driver.evaluate('document.querySelectorAll(".artifact-preview svg").length===2 && Array.from(document.querySelectorAll(".artifact-actions button")).some(x=>x.textContent==="导出 SVG")'))
+  ok('SVG 脚本和事件属性不进入页面',await driver.evaluate('!window.__svgUnsafe && document.querySelectorAll(".artifact-preview script,.artifact-preview [onclick]").length===0'))
+  ok('结束后动画、状态行与发送按钮一致',await driver.evaluate('!currentRunning() && document.querySelectorAll(".thinking-active").length===0 && document.getElementById("runStatus").classList.contains("hidden")'))
+  await driver.evaluate('requestApproval({kind:"command",program:"npm",title:"Run npm",detail:"npm test"},"验收会话","ux-approval").then(x=>window.__approvalResult=x);"started"')
+  ok('授权以对话内卡片呈现，未覆盖整个应用',await driver.evaluate('getComputedStyle(document.getElementById("approvalModal")).position==="static" && document.getElementById("approvalModal").parentElement.id==="contentFrame"'))
+  ok('授权操作按允许一次、会话允许、拒绝排列',await driver.evaluate('Array.from(document.querySelector(".approval-actions").children).slice(0,3).map(x=>x.id).join(",")==="approvalOnce,approvalSession,approvalDeny"'))
+  ok('计划卡片位于对话内且在步骤卡片之前',await driver.evaluate('document.getElementById("taskPlan").parentElement.id==="messagesInner" && Boolean(document.getElementById("taskPlan").compareDocumentPosition(document.querySelector(".process-timeline")) & Node.DOCUMENT_POSITION_FOLLOWING)'))
+  await driver.evaluate('document.getElementById("messages").scrollTop=0;true')
+  fs.writeFileSync(path.join(os.tmpdir(),'agent-cards-dark.png'),Buffer.from(await driver.screenshot(),'base64'))
+  await driver.evaluate('applyTheme("light");true')
+  fs.writeFileSync(path.join(os.tmpdir(),'agent-cards-light.png'),Buffer.from(await driver.screenshot(),'base64'))
+  await driver.evaluate('applyTheme("dark");true')
+  await driver.click('#approvalDeny');await wait(()=>driver.evaluate('Boolean(window.__approvalResult)'),'approval result')
+  ok('拒绝按钮给出真实拒绝决定并收起卡片',await driver.evaluate('window.__approvalResult.approved===false && document.getElementById("approvalModal").classList.contains("hidden")'))
+  await driver.click('#composerMore');ok('加号打开附件、目录与命令入口',await driver.evaluate('document.querySelector(".quick-menu").textContent.includes("添加图片附件") && document.querySelector(".quick-menu").textContent.includes("/analyze")'))
+  await driver.keypress('ESC');ok('辅助菜单 Escape 关闭',await driver.evaluate('document.querySelectorAll(".artifact-overlay").length===0'))
+  await driver.evaluate('setInputContent("@");document.getElementById("input").dispatchEvent(new InputEvent("input",{bubbles:true}));true')
+  await wait(()=>driver.evaluate('document.querySelectorAll(".reference-list button").length>0'),'file roots')
+  await driver.click('.reference-list button');await wait(()=>driver.evaluate('Array.from(document.querySelectorAll(".reference-list button")).some(x=>x.textContent.includes("example.txt"))'),'files')
+  await driver.click('.reference-list button');ok('@文件选择插入实际项目路径',await driver.evaluate('document.getElementById("input").textContent.includes("example.txt") && document.querySelectorAll(".artifact-overlay").length===0'))
+  ok('上下文用量明确为估算',await driver.evaluate('document.getElementById("contextUsage").textContent.startsWith("≈")'))
+  const count=await driver.evaluate('currentSession().messages.length')
+  await driver.evaluate('setInputContent("输入法选词");document.getElementById("input").dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,isComposing:true}));true')
+  ok('中文输入法选词 Enter 不发送消息',await driver.evaluate('currentSession().messages.length')===count)
+  await driver.evaluate('window.agentUI.connection(false,"验收：连接中断");true')
+  ok('连接异常有明确提示和重试入口',await driver.evaluate('!document.getElementById("connectionAlert").classList.contains("hidden") && !document.getElementById("statusRetry").classList.contains("hidden")'))
+  await driver.evaluate('window.agentUI.connection(true);true')
+  await wait(async()=>{const d=await get(base+'/api/ui-store');return Object.values(d.store.sessions).flat().some(s=>s.id===data.id&&s.processTimeline&&s.lastExecution)},'UI persistence')
+  await driver.open(base+'/');await wait(()=>driver.evaluate('typeof state!=="undefined" && currentSession() && currentSession().id==='+JSON.stringify(data.id)),'reload')
+  ok('重开后计划、文件差异和失败步骤仍可查看',await driver.evaluate('document.querySelectorAll("#taskPlan .plan-item").length===2 && document.querySelectorAll(".file-change").length>0 && document.querySelectorAll(".tl-err").length>0'))
+  await driver.evaluate('window.agentUI.planFromMessages([{role:"tool",content:'+JSON.stringify(plan)+'},{role:"user",content:"下一轮简单问题"}]);true')
+  ok('新一轮任务不会误显示上一轮计划',await driver.evaluate('document.getElementById("taskPlan").classList.contains("hidden")'))
+  await driver.evaluate('window.agentUI.planFromMessages(currentSession().messages);true')
+  const output=process.env.AGENT_UX_SCREENSHOT||path.join(os.tmpdir(),'agent-0.4-ux.png');fs.writeFileSync(output,Buffer.from(await driver.screenshot(),'base64'));console.log('Screenshot: '+output)
+ }catch(error){console.error(logs.slice(-2000));throw error}finally{await driver.close();child.kill('SIGTERM');await wait(()=>child.exitCode!==null||child.signalCode!==null,'shutdown').catch(()=>child.kill('SIGKILL'));fs.rmSync(temp,{recursive:true,force:true})}
+ console.log('Agent UX real Chromium: '+passed+' checks passed')
+}
+main().catch(error=>{console.error(error);process.exitCode=1})

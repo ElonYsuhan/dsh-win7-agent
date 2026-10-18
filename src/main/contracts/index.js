@@ -16,6 +16,9 @@ const SERVICES = Object.freeze({
   state: ['initial', 'reduce', 'restore', 'release'],
   sessions: ['save', 'load', 'append'], llm: ['request'], agentLoop: ['run'],
   tools: ['register', 'execute', 'definitions', 'get', 'list'], prompts: ['add', 'build'],
+  skillLibrary: ['list', 'read', 'search', 'prompt'],
+  tasks: ['attach', 'list', 'preview', 'save', 'remove', 'run', 'stop', 'conversation', 'close'],
+  mcp: ['ready', 'reload', 'status', 'test'],
   skills: ['transformContent'], memory: ['compact', 'ensureContextBudget', 'summarizeBatch', 'mergeMemory', 'runCompaction'],
   context: ['buildContextView', 'buildPayloadMessages', 'resolveBudget', 'isContextLengthError', 'serializeMessages', 'batchMessages', 'buildLocalMemory', 'findCompactionBoundary', 'estimateMessagesTokens']
 })

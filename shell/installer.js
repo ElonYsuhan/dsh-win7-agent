@@ -17,15 +17,38 @@
 const fs = require('fs')
 const path = require('path')
 const { execFileSync, spawn } = require('child_process')
+const crypto = require('crypto')
 
 const MANIFEST_NAME = 'install.json'
 const TRASH_PREFIX = '.old-'
 const DEFAULT_APP_NAME = 'Agent'
 
+// macOS Gatekeeper mounts quarantined apps read-only at a transient location.
+function isTransientPackage(packageDir, platform) {
+  return platform === 'darwin' && /(?:^|\/)AppTranslocation\//.test(String(packageDir || '').replace(/\\/g, '/'))
+}
+
 const not = (value) => value ? false : true
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Fingerprint shipped application code, independent of the public version. */
+function packageBuildId(packageDir, platform) {
+  const root = platform === 'darwin' ? path.join(packageDir, 'Contents', 'Resources', 'app') : path.join(packageDir, 'resources', 'app')
+  const hash = crypto.createHash('sha256')
+  function visit(dir, relative, depth) {
+    if (depth > 16) throw new Error('APP_BUILD_DEPTH')
+    for (const item of fs.readdirSync(dir, { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name, 'en'))) {
+      if (item.name === 'node_modules' || item.isSymbolicLink()) continue
+      const rel = relative ? relative + '/' + item.name : item.name
+      if (item.isDirectory()) visit(path.join(dir, item.name), rel, depth + 1)
+      else if (/\.(js|json|css|html)$/.test(item.name)) { hash.update(rel + '\0'); hash.update(fs.readFileSync(path.join(dir, item.name))); hash.update('\0') }
+    }
+  }
+  visit(root, '', 0)
+  return hash.digest('hex')
 }
 
 /* --------------------------------------------------------------- manifest */
@@ -44,6 +67,7 @@ function readManifest(userDataDir) {
       path: typeof parsed.path === 'string' ? parsed.path : '',
       version: typeof parsed.version === 'string' ? parsed.version : '',
       pid: Number(parsed.pid) || 0,
+      buildId: typeof parsed.buildId === 'string' ? parsed.buildId : '',
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : ''
     }
   } catch (error) {
@@ -59,7 +83,11 @@ function writeManifest(userDataDir, patch) {
   })
   try {
     fs.mkdirSync(String(userDataDir), { recursive: true })
-    fs.writeFileSync(manifestPath(userDataDir), JSON.stringify(next, null, 2), 'utf8')
+    const target = manifestPath(userDataDir), temporary = target + '.' + process.pid + '.tmp'
+    try {
+      fs.writeFileSync(temporary, JSON.stringify(next, null, 2), 'utf8')
+      fs.renameSync(temporary, target)
+    } finally { try { fs.unlinkSync(temporary) } catch (error) {} }
   } catch (error) {}
   return next
 }
@@ -213,6 +241,27 @@ function killTree(pid, platform) {
   } catch (error) {
     return false
   }
+}
+
+/** Only terminate the recorded PID when it still belongs to that package. */
+function processOwnsPackage(pid, packageDir, platform) {
+  const value = Number(pid)
+  if (!Number.isInteger(value) || value <= 0 || value === process.pid) return false
+  const os = platform || process.platform, binary = mainBinaryOf(packageDir, os)
+  try {
+    if (os === 'win32') {
+      let executable = ''
+      try {
+        const bytes = execFileSync('wmic', ['process', 'where', 'ProcessId=' + value, 'get', 'ExecutablePath', '/value'], { timeout: 3000, windowsHide: true })
+        const text = bytes.toString(bytes.includes(0) ? 'utf16le' : 'utf8')
+        const match = /ExecutablePath=([^\r\n]+)/i.exec(text); executable = match ? match[1].trim() : ''
+      } catch (error) {}
+      if (!executable) executable = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding; (Get-WmiObject Win32_Process -Filter 'ProcessId = " + value + "').ExecutablePath"], { encoding: 'utf8', timeout: 3000, windowsHide: true }).trim()
+      return samePath(executable, binary, os)
+    }
+    const command = execFileSync('ps', ['-p', String(value), '-o', 'command='], { encoding: 'utf8', timeout: 2000 }).trim()
+    return command === binary || command.startsWith(binary + ' ')
+  } catch (error) { return false }
 }
 
 /** 等进程真的消失；返回 true 表示已退出。 */
@@ -410,11 +459,14 @@ function relaunch(packageDir, options) {
     stdio: 'ignore',
     windowsHide: true
   })
+  child.on('error', () => {})
   child.unref()
-  return { ok: true, pid: child.pid, binary, args }
+  return child.pid ? { ok: true, pid: child.pid, binary, args } : { ok: false, error: 'RELAUNCH_FAILED', binary }
 }
 
 module.exports = {
+  isTransientPackage,
+  packageBuildId,
   MANIFEST_NAME,
   TRASH_PREFIX,
   DEFAULT_APP_NAME,
@@ -431,6 +483,7 @@ module.exports = {
   parseVersion,
   compareVersion,
   isAlive,
+  processOwnsPackage,
   killTree,
   waitGone,
   copyTree,

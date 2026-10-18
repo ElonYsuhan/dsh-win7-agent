@@ -35,7 +35,7 @@ function reduce(state, event) {
     case EVENTS.MEMORY: next.memory = copy(data.memory); break
     case EVENTS.START:
       if (running) throw new Error('STATE_TURN_BUSY')
-      next.execution = { status: 'running', phase: 'preparing', id: data.id, maxSteps: data.maxSteps, step: 0, attempt: 0, activeTool: null, reason: '', deniedCount: 0, toolsEnabled: true, lastError: '' }
+      next.execution = { status: 'running', phase: 'preparing', id: data.id, startedAt: event.at, maxSteps: data.maxSteps, step: 0, attempt: 0, activeTool: null, reason: '', deniedCount: 0, toolsEnabled: true, lastError: '' }
       break
     case EVENTS.STEP:
       if (execution.activeTool || execution.step >= execution.maxSteps) throw new Error('STATE_STEP_LIMIT')

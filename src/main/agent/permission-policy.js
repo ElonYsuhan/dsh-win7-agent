@@ -35,6 +35,7 @@ function commandProgram(command) {
 
 /** 危险命令清单：命中就需要确认。按「真会造成不可逆破坏」收敛，宁缺毋滥。 */
 const DANGEROUS_PATTERNS = [
+  /\b(rm|del|erase|unlink|Remove-Item)\s+/i, // 删除操作，即使不是递归删除也需确认。
   /\brm\s+-[a-z]*[rR]/i,                          // rm -r / -rf / -fr
   /\b(rmdir|rd)\s+\/[a-z]*s/i,                    // Windows rmdir /s
   /\bdel\s+\/[a-z]*[sq]/i,                        // del /s /q
@@ -76,7 +77,7 @@ function normalizeLevel(permission) {
   return PERMISSION_LEVELS.indexOf(permission) !== -1 ? permission : 'write'
 }
 
-function decideToolPermission(permission, mode, args) {
+function decideToolPermission(permission, mode, args, settings) {
   const level = normalizeLevel(permission)
   const permissionMode = mode === 'readonly' || mode === 'workspace' || mode === 'full' ? mode : 'workspace'
   if (permissionMode === 'readonly') {
@@ -85,12 +86,13 @@ function decideToolPermission(permission, mode, args) {
     return 'deny'
   }
   if (level === 'command') {
+    if (permissionMode === 'workspace' && settings && settings.approveCommands === true) return 'ask'
     return isDangerousCommand(args && args.command) ? 'ask' : 'allow'
   }
   return 'allow'
 }
 
-function buildApprovalRequest(permission, args) {
+function buildApprovalRequest(permission, args, toolName) {
   const level = normalizeLevel(permission)
   if (level === 'command') {
     const command = String((args && args.command) || '')
@@ -99,8 +101,8 @@ function buildApprovalRequest(permission, args) {
       kind: 'command',
       signature: program ? 'command:' + program : 'command',
       program,
-      title: 'Run command',
-      detail: 'cwd=' + String((args && args.cwd) || '.') + '\n' + command
+      title: command ? 'Run command' : '工具操作：' + String(toolName || 'command'),
+      detail: command ? 'cwd=' + String((args && args.cwd) || '.') + '\n' + command : JSON.stringify(args || {}, null, 2)
     }
   }
   if (level === 'edit') {

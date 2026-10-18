@@ -123,6 +123,16 @@ function wireWindowTheme() {
 }
 
 contextBridge.exposeInMainWorld('desktopWindow', {
+  menuState: (value) => ipcRenderer.send('app:menu-state', value),
+  onCommand: (callback) => {
+    if (typeof callback !== 'function') return () => {}
+    const handler = (_event, id) => {
+      if (['new-session', 'add-project', 'settings', 'sidebar', 'panel', 'markdown', 'close-file'].includes(id)) callback(id)
+    }
+    ipcRenderer.on('app:command', handler)
+    ipcRenderer.send('app:menu-ready')
+    return () => ipcRenderer.removeListener('app:command', handler)
+  },
   platform: process.platform,
   getState: () => ipcRenderer.invoke('window:state'),
   action: (value) => ipcRenderer.invoke('window:action', value),
@@ -140,6 +150,19 @@ try {
     wireWindowTheme()
     setupWindowControls()
     wireTitlebarDoubleClick()
+    if (process.platform !== 'darwin') {
+      const bar = document.getElementById('titlebarDrag')
+      if (bar) {
+        const button = document.createElement('button')
+        button.className = 'app-menu-button'
+        button.textContent = '☰'
+        button.title = '应用菜单'
+        button.setAttribute('aria-label', '应用菜单')
+        button.setAttribute('aria-haspopup', 'menu')
+        button.addEventListener('click', () => ipcRenderer.send('app:menu-popup'))
+        bar.appendChild(button)
+      }
+    }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start)
   else start()
@@ -148,6 +171,8 @@ try {
 }
 
 contextBridge.exposeInMainWorld('shell', {
+  taskPreferences: (value) => ipcRenderer.invoke('shell:task-preferences', value === undefined ? null : value),
+  taskNotify: (value) => ipcRenderer.invoke('shell:task-notify', value),
   getConfig: () => ipcRenderer.invoke('shell:get-config'),
   saveConfig: (value) => ipcRenderer.invoke('shell:save-config', value),
   retry: () => ipcRenderer.invoke('shell:retry'),

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 'use strict'
 
-/* 无原生菜单 + 编辑/窗口快捷键回归。普通 Node 可模拟三个平台，
-   Windows/Linux 的 Ctrl+C 必须继续送给终端，不能被编辑快捷键吞掉。 */
+/* Native menu roles and renderer command lifecycle, simulated on all three platforms. */
 const assert = require('assert')
 const fs = require('fs')
 const path = require('path')
@@ -18,100 +17,33 @@ function check(name, fn) {
 }
 
 function fixture(platform) {
-  const calls = []
-  const webContents = new EventEmitter()
-  for (const command of ['undo', 'redo', 'cut', 'copy', 'paste', 'pasteAndMatchStyle', 'selectAll']) {
-    webContents[command] = () => calls.push(command)
-  }
-  const win = {
-    webContents,
-    setMenu: (value) => calls.push(['menu', value]),
-    setMenuBarVisibility: (value) => calls.push(['visible', value]),
-    close: () => calls.push('close'),
-    minimize: () => calls.push('minimize')
-  }
-  configureWindowMenu(win, {
-    onSettings: () => calls.push('settings'),
-    onQuit: () => calls.push('quit'),
-    onHide: () => calls.push('hide')
-  }, platform)
-  function press(key, patch) {
-    let prevented = 0
-    const input = Object.assign({ type: 'keyDown', key, meta: platform === 'darwin', control: platform !== 'darwin' }, patch)
-    webContents.emit('before-input-event', { preventDefault: () => { prevented++ } }, input)
-    return prevented
-  }
-  return { calls, press }
+  const calls=[],ipcMain=new EventEmitter(),win=new EventEmitter();win.webContents=new EventEmitter()
+  win.webContents.send=(...args)=>calls.push(args);win.isFocused=()=>true;win.setMenuBarVisibility=v=>calls.push(['visible',v]);win.setAutoHideMenuBar=v=>calls.push(['autohide',v])
+  let menu
+  const Menu={buildFromTemplate:template=>{const items=new Map();for(const group of template)for(const item of group.submenu||[])if(item.id)items.set(item.id,item);return {template,getMenuItemById:id=>items.get(id),popup:()=>calls.push('popup')}},setApplicationMenu:value=>{menu=value},getApplicationMenu:()=>menu}
+  const electron={Menu,ipcMain,BrowserWindow:{getFocusedWindow:()=>win},app:{getVersion:()=> 'test',getPath:()=>'/tmp'},dialog:{showMessageBox:()=>{}},shell:{openPath:async()=>''},clipboard:{writeText:()=>{}}}
+  const module={exports:{}}
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../shell/menu.js'),'utf8'),{module,exports:module.exports,require:()=>electron,process:{platform,arch:'x64',versions:{node:'16.17.1'}}})
+  module.exports.hideApplicationMenu(Menu);module.exports.configureWindowMenu(win)
+  return {calls,ipcMain,win,menu,api:module.exports}
 }
-
-for (const platform of ['darwin', 'win32', 'linux']) {
-  check(platform + ': application menu is removed', () => {
-    const calls = []
-    const empty = { items: [] }
-    hideApplicationMenu({
-      buildFromTemplate: (template) => { assert.deepStrictEqual(template, []); return empty },
-      setApplicationMenu: (value) => calls.push(value)
-    }, platform)
-    assert.deepStrictEqual(calls, [platform === 'darwin' ? empty : null])
-  })
-  const f = fixture(platform)
-  check(platform + ': window menu is removed where supported', () => {
-    assert.deepStrictEqual(f.calls, platform === 'darwin' ? [] : [['menu', null], ['visible', false]])
-    f.calls.length = 0
-  })
-  check(platform + ': service settings stay reachable with primary+comma', () => {
-    assert.strictEqual(f.press(','), 1)
-    assert.deepStrictEqual(f.calls.splice(0), ['settings'])
-  })
-  check(platform + ': keyup, IME and unrelated keys pass through', () => {
-    assert.strictEqual(f.press(',', { type: 'keyUp' }), 0)
-    assert.strictEqual(f.press(',', { isComposing: true }), 0)
-    assert.strictEqual(f.press(',', { meta: false, control: false }), 0)
-    assert.strictEqual(f.press('Enter'), 0)
-    assert.strictEqual(f.press('Alt', { alt: true }), 0)
-    assert.deepStrictEqual(f.calls, [])
-  })
-  if (platform !== 'darwin') {
-    check(platform + ': Ctrl editing, terminal interrupt and word-delete stay native', () => {
-      for (const key of ['c', 'v', 'x', 'a', 'z', 'y', 'w']) assert.strictEqual(f.press(key), 0)
-      assert.strictEqual(f.press('v', { shift: true }), 0)
-      assert.deepStrictEqual(f.calls, [])
-    })
-  }
+for(const platform of ['darwin','win32','linux']) {
+  const f=fixture(platform)
+  check(platform+': native menu includes editing and exit roles',()=>{const items=f.menu.template.flatMap(g=>g.submenu||[]);assert(items.some(i=>i.role==='copy'));assert(items.some(i=>i.role==='paste'));assert(items.some(i=>i.role==='quit'))})
+  check(platform+': page commands disabled until matching renderer is ready',()=>{assert.strictEqual(f.menu.getMenuItemById('new-session').enabled,false);f.ipcMain.emit('app:menu-ready',{sender:{}});assert.strictEqual(f.menu.getMenuItemById('new-session').enabled,false);f.ipcMain.emit('app:menu-ready',{sender:f.win.webContents});assert.strictEqual(f.menu.getMenuItemById('new-session').enabled,true)})
+  check(platform+': page command forwards exactly once to selected renderer',()=>{f.calls.length=0;f.menu.getMenuItemById('new-session').click();assert.deepStrictEqual(Array.from(f.calls[0]),['app:command','new-session']);assert.strictEqual(f.calls.length,1)})
+  check(platform+': file and preview commands follow actual page state',()=>{assert.strictEqual(f.menu.getMenuItemById('close-file').enabled,false);f.ipcMain.emit('app:menu-state',{sender:f.win.webContents},{file:true,markdown:true,sidebar:true,panel:false,preview:true});assert.strictEqual(f.menu.getMenuItemById('close-file').enabled,true);assert.strictEqual(f.menu.getMenuItemById('sidebar').checked,true);assert.strictEqual(f.menu.getMenuItemById('markdown').checked,true)})
+  check(platform+': navigation disables stale page commands and closed window releases IPC handlers',()=>{f.win.webContents.emit('did-start-loading');assert.strictEqual(f.menu.getMenuItemById('new-session').enabled,false);f.win.emit('closed');assert.strictEqual(f.ipcMain.listenerCount('app:menu-ready'),0);assert.strictEqual(f.ipcMain.listenerCount('app:menu-state'),0)})
+  check(platform+': native editing roles do not register a second key interceptor',()=>assert.strictEqual(f.win.webContents.listenerCount('before-input-event'),0))
 }
-
-const f = fixture('darwin')
-for (const [key, patch, command] of [
-  ['c', {}, 'copy'], ['C', {}, 'copy'], ['x', {}, 'cut'], ['v', {}, 'paste'],
-  ['a', {}, 'selectAll'], ['z', {}, 'undo'], ['z', { shift: true }, 'redo'],
-  ['v', { shift: true }, 'pasteAndMatchStyle'], ['v', { shift: true, alt: true }, 'pasteAndMatchStyle'],
-  ['q', {}, 'quit'], ['w', {}, 'close'], ['m', {}, 'minimize'], ['h', {}, 'hide']
-]) {
-  check('darwin: ' + command + ' works without a menu', () => {
-    assert.strictEqual(f.press(key, patch), 1)
-    assert.deepStrictEqual(f.calls.splice(0), [command])
-  })
-}
-check('darwin: Ctrl+C, Option combinations and IME do not trigger editing', () => {
-  assert.strictEqual(f.press('c', { meta: false, control: true }), 0)
-  assert.strictEqual(f.press('c', { alt: true }), 0)
-  assert.strictEqual(f.press('c', { shift: true }), 0)
-  assert.strictEqual(f.press('v', { isComposing: true }), 0)
-  assert.deepStrictEqual(f.calls, [])
-})
-check('darwin: key repeat cannot repeatedly quit or open settings', () => {
-  assert.strictEqual(f.press('q', { isAutoRepeat: true }), 1)
-  assert.strictEqual(f.press(',', { isAutoRepeat: true }), 1)
-  assert.deepStrictEqual(f.calls, [])
-})
 
 for (const entry of ['shell/main.js', 'src/main/main.js']) {
   const source = fs.readFileSync(path.join(__dirname, '..', entry), 'utf8')
-  check(entry + ': startup removes default application menu before creating windows', () => {
+  check(entry + ': startup installs the shared application menu before creating windows', () => {
     const startup = source.slice(source.indexOf('app.whenReady().then'))
     assert(startup.indexOf('hideApplicationMenu(Menu)') >= 0)
     assert(startup.indexOf('hideApplicationMenu(Menu)') < startup.search(/create(?:Main)?Window\(\)/))
-    assert(!/buildFromTemplate|menuTemplate\(/.test(source))
+    assert(!/menuTemplate\(/.test(source))
   })
   check(entry + ': every application window has shortcut/menu setup', () => {
     assert.strictEqual((source.match(/new BrowserWindow\(/g) || []).length,

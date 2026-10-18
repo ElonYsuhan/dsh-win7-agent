@@ -2,10 +2,11 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'self' blob:; frame-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
   <title>Agent</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="vendor/litegraph/litegraph.css">
 </head>
 <body>
   <!-- 标题栏独立占一行，窗口按钮和页面操作不进入下方内容区域。 -->
@@ -21,17 +22,28 @@
   </header>
   <div id="app">
     <aside id="sidebar" class="sidebar">
-    <div class="titlebar-brand">
-      <img id="brandIcon" src="logo.png" alt="" width="20" height="20">
-      <span id="brandName" class="titlebar-app-name">Agent</span>
-      <span id="brandBadge" class="brand-badge"></span>
-    </div>
 
+      <!-- 窄窗口（<900px）侧边栏压成 48px 图标栏时才显示这条 rail，见 style.css 的 @media -->
       <div class="sidebar-rail">
         <button id="railNewSession" class="rail-button" title="&#26032;&#24314;&#20250;&#35805;"><span class="icon" data-icon="plus"></span></button>
         <button id="railCreateWorkspace" class="rail-button" title="&#26032;&#24314;&#24037;&#20316;&#21306;"><span class="icon" data-icon="folder"></span></button>
       </div>
-      <button id="newSession" class="primary new-session"><span class="icon" data-icon="plus"></span><span>新建会话</span></button>
+      <!-- 新建会话是满宽胶囊（原来挂的 .primary 在 CSS 里根本没有规则，等于没样式）；
+           下面两个入口按参考样式改成**纵向**行、右侧带真实计数，不再用竖分隔线拼成分段控件。 -->
+      <div class="sidebar-shortcuts" role="group" aria-label="聊天与能力入口">
+        <div class="new-session-entry"><button id="newSession" class="new-session pill"><span class="icon" data-icon="plus"></span><span>新建会话</span></button><button id="newSessionAssociation" type="button" aria-label="选择会话类型：普通、项目或知识库" title="选择会话类型">⌄</button></div>
+        <button id="openLibrary" type="button" class="sidebar-shortcut" title="管理知识库、资料与来源">
+          <span class="icon" data-icon="library" aria-hidden="true"></span>
+          <span class="sidebar-shortcut-name">知识库</span>
+          <span id="libraryCount" class="sidebar-shortcut-meta"></span>
+        </button>
+        <button id="openCustomize" type="button" class="sidebar-shortcut" title="管理系统技能与插件">
+          <span class="icon" data-icon="customize" aria-hidden="true"></span>
+          <span class="sidebar-shortcut-name">能力中心</span>
+          <span id="customizeCount" class="sidebar-shortcut-meta"></span>
+        </button>
+        <button id="openWorkflows" type="button" class="sidebar-shortcut" title="管理流程与执行实例"><span class="icon" data-icon="workflow" aria-hidden="true"></span><span class="sidebar-shortcut-name">工作流</span><span id="workflowCount" class="sidebar-shortcut-meta"></span></button>
+      </div>
       <div id="sidebarScroll" class="sidebar-scroll">
         <section class="sidebar-section" id="sectionProjects">
           <div class="section-head" id="headProjects">
@@ -43,15 +55,26 @@
         </section>
         <section class="sidebar-section" id="sectionRecent">
           <div class="section-head" id="headRecent">
-            <span class="section-title">最近</span>
+            <span class="section-title">聊天</span>
             <button id="toggleRecent" class="section-toggle" title="折叠/展开"><span class="icon" data-icon="chevron"></span></button>
           </div>
           <div id="chatList" class="flat-list"></div>
         </section>
       </div>
       <div class="sidebar-footer">
-        <div id="statusLine" class="muted">就绪</div>
-        <button id="openSettings" class="footer-button"><span class="icon" data-icon="settings"></span><span>设置</span></button>
+        <div id="serviceConnection" class="service-status" role="status" aria-live="polite">正在连接服务</div><div id="statusLine" class="muted">就绪</div><div class="service-actions"><button id="statusRetry" class="hidden" type="button">重试连接</button><button id="statusLogs" type="button">查看诊断</button></div>
+        <div class="sidebar-footer-actions">
+          <button id="taskNoticeBell" class="footer-button notice-bell" aria-label="通知" aria-haspopup="true" aria-expanded="false" title="通知">
+            <span class="icon" data-icon="bell"></span>
+            <span id="taskNoticeDot" class="notice-dot" hidden></span>
+          </button>
+          <button id="openSettings" class="footer-button"><span class="icon" data-icon="settings"></span><span>设置</span></button>
+          <div id="taskNoticeList" class="notice-popover hidden" role="menu" aria-label="任务通知">
+            <div class="notice-popover-head"><span>通知</span><button id="taskNoticeClear" type="button">全部已读</button></div>
+            <div id="taskNoticeItems" class="notice-items"></div>
+            <p id="taskNoticeEmpty" class="notice-empty">暂无通知</p>
+          </div>
+        </div>
       </div>
     </aside>
     <main class="main">
@@ -60,17 +83,26 @@
         <div id="contentResizeRight" class="content-resize-handle right"></div>
         <div id="messages" class="messages">
           <div id="messagesInner" class="messages-inner"></div>
+          <!-- 运行状态行：消息发出去之后一直显示「正在 读取 package.json…（12s）」，
+               跑到结束才收。放在 messagesInner 外面，clearMessages 不会把它一起清掉。 -->
+          <div id="taskPlan" class="task-plan hidden" aria-label="任务计划"></div>
+          <div id="connectionAlert" class="connection-alert hidden" role="alert"></div>
+          <div id="runStatus" class="run-status hidden" role="group" aria-label="当前执行状态">
+            <span class="run-status-spinner" aria-hidden="true"></span>
+            <span id="runStatusText" class="run-status-text" role="status" aria-live="polite">正在思考…</span>
+            <span id="runStatusTime" class="run-status-time" aria-hidden="true">0ms</span>
+          </div>
         </div>
       <div class="composer">
-        <div class="composer-card">
+        <div id="workflowChatContext" class="workflow-chat-context hidden" role="group" aria-label="工作流引用"></div><div class="composer-card">
           <div id="composerAttachments" class="composer-attachments"></div>
-          <div id="input" class="composer-input" contenteditable="true" data-placeholder="随心输入，Enter 发送，Shift+Enter 换行..."></div>
+          <div id="input" class="composer-input" contenteditable="true" data-placeholder="描述任务，@ 引用文件，/ 选择命令；Enter 发送"></div>
           <!-- 只在**并发池满**（再发会被 503 拒）时才露出来。别的会话在跑但池还有空位
                属于正常并发，不提示 —— 提示了反而像报错（用户 2026-09-19 问过这条是不是多余）。 -->
           <div id="composerRunHint" class="composer-run-hint hidden"></div>
           <div class="composer-toolbar">
             <div class="toolbar-left">
-              <button id="composerMore" class="icon-button" title="更多"><span class="icon" data-icon="plus"></span></button>
+              <span id="sessionAssociationLabel" class="session-association-label">普通会话</span><button id="composerMore" class="icon-button" title="更多"><span class="icon" data-icon="plus"></span></button>
               <div class="dropdown permission-dropdown" data-permission-dropdown>
                 <button type="button" class="pill-button dropdown-trigger" title="&#26435;&#38480;&#27169;&#24335;">
                   <span class="icon" data-permission-icon data-icon="shield-edit"></span>
@@ -85,6 +117,7 @@
               </div>
             </div>
             <div class="toolbar-right">
+              <span id="contextUsage" class="context-usage" title="会话用量估算"></span>
               <div class="dropdown model-dropdown" id="composerModelDropdown">
                 <button id="composerModelTrigger" class="dropdown-trigger composer-model" title="&#20999;&#25442;&#27169;&#22411;"><span id="composerModelLabel">&#40664;&#35748;&#27169;&#22411;</span><span class="icon dropdown-chevron" data-icon="chevron"></span></button>
                 <div id="composerModelMenu" class="dropdown-menu hidden"></div>
@@ -96,6 +129,165 @@
         </div>
       </div>
       </div>
+      <section id="workflowPage" class="workflow-page hidden" aria-labelledby="workflowHeading">
+        <header class="workflow-header"><div><h1 id="workflowHeading">工作流</h1><p id="workflowSubheading" class="muted">编排处理步骤，查看每一次执行的进度和结果。</p></div><button id="workflowClose" type="button">返回聊天</button></header>
+        <p id="workflowNotice" class="workflow-notice" role="status" aria-live="polite"></p><div id="workflowMainToolbar" class="workflow-toolbar"><button id="workflowBack" class="hidden" type="button">返回</button><input id="workflowSearch" type="search" aria-label="检索流程或执行实例" placeholder="搜索名称、实例编号或状态"><button id="workflowAllRuns" type="button">执行实例</button><button id="workflowAI" type="button">AI 创建流程</button><button id="workflowNew" type="button" class="primary">＋ 新建流程</button><button id="workflowSave" type="button" class="primary hidden">保存流程</button></div>
+        <div class="workflow-scroll"><div id="workflowCards" class="workflow-grid"></div><div id="workflowInstances" class="hidden"></div><div id="workflowRunDetail" class="hidden"></div><section id="workflowEditor" class="hidden"><label class="workflow-name-label">流程名称<input id="workflowName" maxlength="120"></label><div class="workflow-editor-topbar"><div id="workflowNodeTypes" class="workflow-node-types" role="group" aria-label="添加流程节点"></div><span class="workflow-toolbar-divider" aria-hidden="true">｜</span><div id="workflowEditorActions" class="workflow-editor-actions"></div></div><div class="workflow-editor-body"><div id="workflowCanvasHost"><div id="workflowCanvasTools" class="workflow-canvas-tools" role="group" aria-label="画布操作"></div><div id="workflowCanvasHint" class="workflow-canvas-hint" role="status"></div><canvas id="workflowCanvas" tabindex="0" aria-label="流程节点画布"></canvas></div><aside class="workflow-parameters"><div class="workflow-property-header"><h2 class="workflow-property-heading">节点属性</h2><p id="workflowNodeMode" class="muted">选择节点查看配置</p><label>节点标题<input id="workflowNodeTitle" maxlength="120" disabled></label></div><div class="workflow-property-content"><label>步骤说明<textarea id="workflowNodeDescription" rows="2" maxlength="2000" disabled></textarea></label><fieldset id="workflowHumanOptions" class="hidden"><legend>人工处理方式（可多选）</legend><label class="workflow-radio"><input type="checkbox" name="workflowHumanKind" value="review">判断与结论</label><label class="workflow-radio"><input type="checkbox" name="workflowHumanKind" value="upload">上传资料</label><label class="workflow-radio"><input type="checkbox" name="workflowHumanKind" value="approval">审批</label><label class="workflow-radio"><input type="checkbox" name="workflowHumanKind" value="read">审阅确认</label></fieldset><fieldset id="workflowRestOptions" class="hidden"><legend>REST 接口</legend><label>接口地址<input id="workflowRestUrl" type="url" placeholder="内网接口地址（HTTP/HTTPS）" maxlength="2000"></label><div class="workflow-rest-methods"><label class="workflow-radio"><input type="radio" name="workflowRestMethod" value="GET">GET</label><label class="workflow-radio"><input type="radio" name="workflowRestMethod" value="POST">POST</label><label class="workflow-radio"><input type="radio" name="workflowRestMethod" value="PUT">PUT</label><label class="workflow-radio"><input type="radio" name="workflowRestMethod" value="PATCH">PATCH</label><label class="workflow-radio"><input type="radio" name="workflowRestMethod" value="DELETE">DELETE</label></div></fieldset><div id="workflowPorts" class="workflow-ports"></div><label>执行指令／人工处理要求<textarea id="workflowNodeText" rows="12" maxlength="16000" disabled></textarea></label><p id="workflowParamHint" class="muted">文本整理或 AI 节点可用 {{input}}、{{input1}}、{{input2}} 引用上游内容。拖动端口连线，选中节点后修改参数。</p></div><footer class="workflow-property-footer"><button id="workflowRemoveNode" type="button" disabled>删除节点</button></footer></aside></div></section></div>
+      </section>
+      <section id="knowledgePage" class="knowledge-page hidden" aria-labelledby="knowledgeTitle">
+        <header class="knowledge-heading"><div><h1 id="knowledgeTitle">知识库</h1><p class="muted">管理资料、检索内容，并让 Agent 引用可追溯的来源。</p></div><button id="knowledgeClose" type="button">返回聊天</button></header>
+        <p id="knowledgeNotice" role="status" aria-live="polite"></p>
+        <form id="knowledgeSearchForm" class="knowledge-actions" role="search"><label for="knowledgeQuery" class="knowledge-sr-only">搜索当前知识库资料</label><input id="knowledgeQuery" type="search" placeholder="搜索当前知识库资料" maxlength="200"><button id="knowledgeSearch" type="submit">搜索</button><button id="knowledgeNew" type="button">＋ 新建知识库</button></form>
+        <div id="knowledgeDialog" class="task-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="knowledgeDialogTitle">
+          <form id="knowledgeCreate" class="knowledge-create-modal">
+            <div class="knowledge-dialog-heading"><h2 id="knowledgeDialogTitle">新建知识库</h2><button id="knowledgeCloseCreate" type="button" aria-label="关闭知识库弹窗">×</button></div>
+            <label for="knowledgeName">知识库名称</label><input id="knowledgeName" maxlength="160" required aria-describedby="knowledgeFormError" placeholder="例如：项目文档、产品资料">
+            <div id="knowledgeProjectChoices" class="hidden"></div><p id="knowledgeFormError" role="alert"></p>
+            <div class="modal-actions"><button id="knowledgeCancelCreate" type="button">取消</button><button id="knowledgeSave" type="submit" class="primary">创建</button></div>
+          </form>
+        </div>
+        <button id="knowledgeOverview" class="hidden" type="button">← 全部知识库</button>
+        <div class="knowledge-scroll"><div id="knowledgeBases" class="knowledge-grid"></div>
+          <div id="knowledgeDetail" class="hidden">
+            <aside class="knowledge-file-pane" aria-label="资料文件列表">
+              <button id="knowledgeImport" type="button" disabled><span class="knowledge-add-icon" aria-hidden="true">＋</span><span>添加资料</span></button>
+              <label for="knowledgeFileQuery" class="knowledge-sr-only">搜索当前知识库的文件名和内容</label><input id="knowledgeFileQuery" type="search" placeholder="搜索文件名、内容" maxlength="200">
+              <p id="knowledgeFileStatus" class="muted" role="status"></p><div id="knowledgeDocuments"></div>
+              <input id="knowledgeFile" type="file" accept=".txt,.md,.docx,.xlsx" hidden>
+            </aside>
+            <main class="knowledge-preview-pane" aria-label="资料预览"><div id="knowledgeSharedPreview"></div><h2 id="knowledgeDocumentsTitle" class="knowledge-sr-only">资料</h2><p id="knowledgeProjectSummary" class="hidden"></p><section id="knowledgeResults" class="hidden" aria-label="搜索结果"></section><section id="knowledgeSource" class="knowledge-source" aria-label="来源原文">选择左侧文件以预览资料</section></main>
+          </div>
+        </div>
+      </section>
+      <section id="capabilityCenter" class="capability-center hidden" aria-labelledby="capabilityTitle">
+        <div class="capability-heading"><div><h1 id="capabilityTitle">能力中心</h1><p class="muted">管理系统技能库、连接器、插件和定时任务。</p></div><button id="closeCapabilities" type="button">返回聊天</button></div>
+        <p id="capabilityNotice" role="status" aria-live="polite"></p>
+        <div class="capability-tabs" role="tablist" aria-label="能力分类">
+          <button id="capTabSkills" role="tab" aria-selected="true" aria-controls="capSkills" data-cap-tab="skills">技能</button>
+          <button id="capTabConnectors" role="tab" aria-selected="false" aria-controls="capConnectors" data-cap-tab="connectors" tabindex="-1">连接器</button>
+          <button id="capTabPlugins" role="tab" aria-selected="false" aria-controls="capPlugins" data-cap-tab="plugins" tabindex="-1">插件</button>
+          <button id="capTabTasks" role="tab" aria-selected="false" aria-controls="capTasks" data-cap-tab="tasks" tabindex="-1">定时任务</button>
+        </div>
+        <section id="capSkills" role="tabpanel" aria-labelledby="capTabSkills"><label class="capability-search">搜索技能<input id="skillSearch" type="search" placeholder="搜索名称或描述"></label><div id="skillLibraryList"></div></section>
+        <section id="capConnectors" class="hidden" role="tabpanel" aria-labelledby="capTabConnectors">
+          <div class="mcp-toolbar">
+            <div><h2>MCP 连接器</h2><p class="muted">管理内置工具，或连接自己的 MCP 服务。</p></div>
+            <div class="mcp-toolbar-actions"><button id="mcpAdd" type="button" class="primary">添加 MCP 服务</button></div>
+          </div>
+          <p id="mcpNotice" role="status" aria-live="polite"></p>
+          <div id="mcpList" class="mcp-list"></div>
+          <div id="mcpDialog" class="task-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="mcpEditorTitle">
+            <form id="mcpForm" class="task-editor" aria-labelledby="mcpEditorTitle">
+              <div class="task-dialog-heading"><h2 id="mcpEditorTitle">添加 MCP 服务</h2><button id="mcpCloseEditor" type="button" aria-label="关闭 MCP 编辑">×</button></div>
+              <input id="mcpId" type="hidden">
+              <div class="mcp-form-body">
+              <div class="mcp-config-group">
+                <label class="mcp-config-field"><span>名称</span><input id="mcpName" required maxlength="80" placeholder="MCP 服务名称"></label>
+                <div class="mcp-type-row"><span>类型</span><div class="task-segment" role="radiogroup" aria-label="MCP 传输方式">
+                  <button type="button" class="task-segment-item" data-mcp-transport="stdio" role="radio" aria-checked="true">STDIO</button>
+                  <button type="button" class="task-segment-item" data-mcp-transport="http" role="radio" aria-checked="false" tabindex="-1">流式 HTTP</button>
+                </div></div>
+              </div>
+              <div id="mcpStdioFields">
+                <div class="mcp-config-group">
+                  <label class="mcp-config-field"><span>启动命令</span><input id="mcpCommand" placeholder="可执行文件路径或命令"></label>
+                  <div class="mcp-config-field"><span>参数</span><div id="mcpArgs" class="mcp-rows" aria-label="启动参数"></div><button class="mcp-add-row" type="button" data-mcp-add="mcpArgs">＋ 添加参数</button></div>
+                </div>
+                <details class="mcp-config-group mcp-optional"><summary>环境与工作目录<span>可选</span></summary>
+                  <div class="mcp-config-field"><span>环境变量</span><div id="mcpEnv" class="mcp-rows" aria-label="环境变量"></div><button class="mcp-add-row" type="button" data-mcp-add="mcpEnv">＋ 添加环境变量</button></div>
+                  <div class="mcp-config-field"><span>环境变量传递</span><div id="mcpEnvPass" class="mcp-rows" aria-label="传递的宿主环境变量名称"></div><button class="mcp-add-row" type="button" data-mcp-add="mcpEnvPass">＋ 添加变量名</button></div>
+                  <label class="mcp-config-field"><span>工作目录</span><input id="mcpCwd" placeholder="留空使用宿主启动目录"></label>
+                </details>
+              </div>
+              <div id="mcpHttpFields" class="hidden" hidden>
+                <div class="mcp-config-group"><label class="mcp-config-field"><span>URL</span><input id="mcpUrl" placeholder="MCP HTTP 服务地址"></label></div>
+                <details class="mcp-config-group mcp-optional"><summary>认证与请求头<span>可选</span></summary>
+                  <label class="mcp-config-field"><span>Bearer 令牌环境变量</span><input id="mcpBearerEnv" placeholder="例如 MCP_BEARER_TOKEN"><small>填写宿主环境变量名，不是令牌内容。</small></label>
+                  <div class="mcp-config-field"><span>请求头</span><div id="mcpHeaders" class="mcp-rows" aria-label="固定请求头"></div><button class="mcp-add-row" type="button" data-mcp-add="mcpHeaders">＋ 添加请求头</button></div>
+                  <div class="mcp-config-field"><span>来自环境变量的请求头</span><div id="mcpHeaderEnv" class="mcp-rows" aria-label="请求头与环境变量映射"></div><button class="mcp-add-row" type="button" data-mcp-add="mcpHeaderEnv">＋ 添加变量</button></div>
+                </details>
+              </div>
+              <div class="mcp-config-group mcp-access-row">
+                <label class="mcp-config-field"><span class="task-field-label">工具权限</span><select id="mcpPermission"><option value="read">只读</option><option value="write" selected>修改（默认）</option><option value="edit">编辑</option><option value="command">命令级</option></select></label>
+                <label class="mcp-enabled-row"><input id="mcpEnabled" type="checkbox" checked> 启用服务</label>
+              </div>
+              </div>
+              <p id="mcpTestResult" class="muted" role="status" aria-live="polite"></p>
+              <div class="modal-actions">
+                <button id="mcpTest" type="button">测试连接</button>
+                <div class="spacer"></div>
+                <button id="mcpCancel" type="button">取消</button>
+                <button id="mcpSave" type="submit" class="primary">保存</button>
+              </div>
+            </form>
+          </div>
+        </section>
+        <section id="capPlugins" class="hidden" role="tabpanel" aria-labelledby="capTabPlugins"><p class="muted">管理现有 Cordis 插件及其工具能力。</p><div id="pluginList"></div></section>
+        <section id="capTasks" class="hidden" role="tabpanel" aria-labelledby="capTabTasks">
+          <div class="tasks-toolbar"><div class="tasks-view-tabs" role="tablist" aria-label="任务与运行记录"><button id="taskViewTasks" type="button" role="tab" aria-selected="true" aria-controls="taskOverview">定时任务</button><button id="taskViewRuns" type="button" role="tab" aria-selected="false" aria-controls="taskHistory" tabindex="-1">运行记录</button></div><div class="task-toolbar-actions"><button id="taskBatch" type="button">批量管理</button><button id="taskNew" type="button" class="primary">＋ 新建</button></div></div>
+          <p id="taskNotice" role="status" aria-live="polite"></p>
+          <section id="taskOverview" role="tabpanel" aria-labelledby="taskViewTasks"><div class="task-filters"><div id="taskFilters" role="group" aria-label="任务状态筛选"><button type="button" data-task-filter="all" aria-pressed="true">全部</button><button type="button" data-task-filter="enabled" aria-pressed="false">已启用</button><button type="button" data-task-filter="paused" aria-pressed="false">已暂停</button></div><input id="taskSearch" type="search" aria-label="搜索定时任务" placeholder="搜索任务"></div>
+          <div id="taskBatchBar" class="task-batch-bar hidden"><label><input id="taskSelectAll" type="checkbox">全选</label><span id="taskSelectionCount">已选 0 项</span><button id="taskBatchEnable" type="button">启用</button><button id="taskBatchPause" type="button">暂停</button><button id="taskBatchDelete" type="button">删除</button><button id="taskBatchCancel" type="button">完成</button></div><div id="taskList"></div></section>
+          <section id="taskHistory" role="tabpanel" aria-labelledby="taskViewRuns" class="hidden"><div id="taskRuns"></div></section>
+
+          <div id="taskDialog" class="task-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="taskEditorTitle">
+            <form id="taskEditor" class="task-editor hidden" aria-labelledby="taskEditorTitle">
+              <div class="task-dialog-heading"><h2 id="taskEditorTitle">新建定时任务</h2><button id="taskCloseEditor" type="button" aria-label="关闭任务编辑">×</button></div>
+              <p class="task-editor-lede">说清楚「做什么」和「什么时候」，其余都有默认值。</p>
+
+              <label class="task-field"><span class="task-field-label">名称</span>
+                <input id="taskName" required maxlength="100" placeholder="例如：每日巡检"></label>
+
+              <label class="task-field"><span class="task-field-label">做什么</span>
+                <textarea id="taskPrompt" required maxlength="20000" rows="4" placeholder="用一句话说清要 Agent 定时做什么。例如：检查仓库里有没有未提交的改动，有就列出来。"></textarea></label>
+
+              <div class="task-field"><span class="task-field-label">什么时候</span>
+                <div class="task-schedule">
+                  <input type="hidden" id="taskRule" value="daily">
+                  <input type="hidden" id="taskWeekday" value="1">
+                  <input type="hidden" id="taskIntervalUnit" value="60">
+                  <div class="task-segment" role="radiogroup" aria-label="重复方式">
+                    <button type="button" class="task-segment-item" data-task-kind="daily" role="radio" aria-checked="true">每天</button>
+                    <button type="button" class="task-segment-item" data-task-kind="weekly" role="radio" aria-checked="false">每周</button>
+                    <button type="button" class="task-segment-item" data-task-kind="interval" role="radio" aria-checked="false">每隔</button>
+                  </div>
+                  <span id="taskClockFields" class="task-schedule-parts">
+                    <input id="taskTime" type="time" required value="09:00" aria-label="执行时间">
+                    <span id="taskWeekdayLabel" class="dropdown weekday-dropdown" data-weekday-dropdown hidden>
+                      <button type="button" class="pill-button dropdown-trigger" aria-label="星期" aria-expanded="false">
+                        <span data-weekday-label>周一</span><span class="icon dropdown-chevron" data-icon="chevron"></span>
+                      </button>
+                      <div class="dropdown-menu hidden">
+                        <button type="button" class="dropdown-item" data-weekday-option="1"><span>周一</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                        <button type="button" class="dropdown-item" data-weekday-option="2"><span>周二</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                        <button type="button" class="dropdown-item" data-weekday-option="3"><span>周三</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                        <button type="button" class="dropdown-item" data-weekday-option="4"><span>周四</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                        <button type="button" class="dropdown-item" data-weekday-option="5"><span>周五</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                        <button type="button" class="dropdown-item" data-weekday-option="6"><span>周六</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                        <button type="button" class="dropdown-item" data-weekday-option="0"><span>周日</span><span class="dropdown-check icon" data-icon="check"></span></button>
+                      </div>
+                    </span>
+                  </span>
+                  <span id="taskIntervalLabel" class="task-schedule-parts" hidden>
+                    <input id="taskMinutes" type="number" min="1" max="525600" value="1" aria-label="间隔数值">
+                    <span class="task-segment task-unit" role="radiogroup" aria-label="间隔单位">
+                      <button type="button" class="task-segment-item is-on" data-task-unit="1" role="radio" aria-checked="false">分钟</button>
+                      <button type="button" class="task-segment-item is-on" data-task-unit="60" role="radio" aria-checked="true">小时</button>
+                      <button type="button" class="task-segment-item" data-task-unit="1440" role="radio" aria-checked="false">天</button>
+                    </span>
+                  </span>
+                </div>
+                <p id="taskNext" role="status" class="task-next"></p>
+              </div>
+
+              <label class="task-enable-row"><input id="taskEnabled" type="checkbox" checked><span>保存后立即启用</span></label>
+
+              <p id="taskEditorError" role="alert"></p>
+              <div class="task-dialog-actions"><button id="taskCancel" type="button">取消</button><button id="taskSave" type="submit" class="primary">保存</button></div>
+            </form>
+          </div>
+        </section>
+      </section>
     </main>
     <!-- 右侧文件面板。收起时 .file-panel 直接 display:none，第三列宽度归零（见 style.css）。
          面板自带两栏：左边资源管理器（目录树），右边标签页 + 预览。 -->
@@ -147,6 +339,8 @@
   </div>
   <div id="sessionMenu" class="context-menu hidden">
     <button id="sessionMenuRename">重命名</button>
+    <button id="sessionMenuPin">置顶会话</button>
+    <button id="sessionMenuDelete">删除会话</button>
     <button id="sessionMenuArchive">归档会话</button>
   </div>
   <div id="projectMenu" class="context-menu hidden">
@@ -154,7 +348,7 @@
     <button id="projectMenuEdit">编辑</button>
     <button id="projectMenuDelete" class="menu-danger">删除</button>
   </div>
-  <div id="confirmModal" class="modal hidden">
+  <div id="confirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
     <div class="modal-card small">
       <h2 id="confirmTitle">确认</h2>
       <div id="confirmMessage" class="muted"></div>
@@ -174,7 +368,7 @@
       </div>
     </div>
   </div>
-  <div id="approvalModal" class="modal hidden">
+  <div id="approvalModal" class="modal hidden" role="region" aria-label="操作授权确认">
     <div class="modal-card approval-card">
       <h2 id="approvalTitle">需要你的授权</h2>
       <div class="approval-meta">
@@ -182,13 +376,11 @@
         <span id="approvalSignature" class="approval-signature"></span>
       </div>
       <pre id="approvalDetail" class="approval-detail"></pre>
-      <div id="approvalNote" class="approval-note"></div>
       <div class="modal-actions approval-actions">
-        <button id="approvalDeny" class="danger">拒绝</button>
-        <div class="spacer"></div>
-        <button id="approvalOnce">仅这一次</button>
-        <button id="approvalSession">本会话都允许</button>
-        <button id="approvalAlways" class="primary">始终允许</button>
+        <button id="approvalOnce" class="primary">允许一次</button>
+        <button id="approvalSession">本会话始终允许</button>
+        <button id="approvalDeny">拒绝</button>
+        <details class="approval-more"><summary>更多</summary><div id="approvalNote" class="approval-note"></div><button id="approvalAlways">始终允许此命令</button></details>
       </div>
     </div>
   </div>
@@ -235,8 +427,10 @@
     <div class="modal-card settings-card settings-layout">
       <aside class="settings-nav">
         <button class="settings-nav-item active" data-settings-tab="general"><span class="icon" data-icon="general"></span><span>&#36890;&#29992;</span></button>
-        <button class="settings-nav-item" data-settings-tab="model"><span class="icon" data-icon="model"></span><span>&#27169;&#22411;</span></button>
-        <button class="settings-nav-item" data-settings-tab="plugins"><span class="icon" data-icon="plugin"></span><span>&#25554;&#20214;</span></button>
+
+                <button class="settings-nav-item" data-settings-tab="model"><span class="icon" data-icon="model"></span><span>&#27169;&#22411;</span></button>
+                <button class="settings-nav-item" data-settings-tab="environment"><span class="icon" data-icon="plugin"></span><span>能力中心</span></button>
+
       </aside>
       <section class="settings-content">
         <div class="settings-content-head">
@@ -248,41 +442,6 @@
             <div class="settings-row-label"><div class="settings-row-title">&#22806;&#35266;</div><div class="settings-row-desc">&#20027;&#39064;&#19982;&#30028;&#38754;</div></div>
             <button id="themeToggle" class="settings-value-button"><span class="icon" data-icon="theme"></span><span id="themeLabel">&#20999;&#25442;&#20027;&#39064;</span></button>
           </div>
-          <fieldset class="brand-settings">
-            <legend>品牌显示</legend>
-            <p class="brand-description">自定义侧栏顶部的品牌信息，修改后自动保存。</p>
-            <div class="brand-setting-section brand-name-row">
-              <div class="brand-setting-heading">
-                <label class="brand-field-title" for="brandNameInput">名称</label>
-                <label class="brand-switch"><span>显示名称</span><input id="showBrandName" type="checkbox" checked></label>
-              </div>
-              <input id="brandNameInput" type="text" maxlength="40" placeholder="Agent" autocomplete="off">
-            </div>
-            <div class="brand-setting-section brand-image-row">
-              <div class="brand-preview-frame"><img id="brandIconPreview" src="logo.png" width="36" height="36" alt="当前品牌图标"></div>
-              <div class="brand-image-content">
-                <div class="brand-setting-heading">
-                  <span class="brand-field-title">图标</span>
-                  <label class="brand-switch"><span>显示图标</span><input id="showBrandIcon" type="checkbox" checked></label>
-                </div>
-                <p id="brandIconHelp" class="brand-description">PNG、JPG 或 WebP，最大 5 MB</p>
-                <div class="brand-image-actions">
-                  <label class="brand-file-label" for="brandIconFile">替换图标
-                    <input id="brandIconFile" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="brandIconHelp brandSettingsStatus">
-                  </label>
-                  <button id="resetBrandIcon" class="brand-text-button" type="button">恢复默认</button>
-                </div>
-              </div>
-            </div>
-            <div class="brand-setting-section brand-setting-heading">
-              <div><span class="brand-field-title">系统标签</span><p class="brand-description">在品牌名称旁显示 MAC、WIN 或 Linux</p></div>
-              <label class="brand-switch"><span class="brand-visually-hidden">显示系统标签</span><input id="showPlatformBadge" type="checkbox" checked></label>
-            </div>
-            <div class="brand-settings-footer">
-              <p id="brandSettingsStatus" class="brand-description" role="status" aria-live="polite"></p>
-              <button id="resetBrand" class="brand-text-button" type="button">恢复全部默认设置</button>
-            </div>
-          </fieldset>
           <div class="settings-row">
             <div class="settings-row-label"><div class="settings-row-title">&#22238;&#22797;&#35821;&#35328;</div><div class="settings-row-desc">AI &#22238;&#22797;&#20351;&#29992;&#30340;&#40664;&#35748;&#35821;&#35328;</div></div>
             <div class="dropdown reply-language-dropdown" data-reply-dropdown>
@@ -355,10 +514,11 @@
             <button id="addModel" class="provider-add">+ &#28155;&#21152;&#27169;&#22411;</button>
           </div>
         </div>
-        <div class="settings-panel hidden" data-settings-panel="plugins">
-          <div class="settings-row-label"><div class="settings-row-title">&#24050;&#21152;&#36733;&#30340;&#25554;&#20214;&#19982;&#24037;&#20855;</div></div>
-          <div id="pluginList" class="muted">&#21152;&#36733;&#20013;...</div>
-        </div>
+            <div class="settings-panel" data-settings-panel="environment">
+              <div id="taskServiceSettings" class="settings-block"><summary>能力中心</summary><p id="taskHost" class="muted"></p><div id="taskDesktopOptions" hidden><p class="muted">以下设置仅作用于当前桌面应用。</p><label><input id="taskKeepRunning" type="checkbox">关闭窗口后保持托盘运行</label><label><input id="taskLaunchAtLogin" type="checkbox">开机自启</label></div></div>
+            </div>
+
+
       </section>
     </div>
   </div>
@@ -370,7 +530,17 @@
   <!-- xterm.js 5.5.0（VS Code 终端内核，纯 JS 零依赖，vendor 内置离线）：必须在 panel.js 之前 -->
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
+  <script src="ui-enhancements.js"></script>
+  <script src="select-control.js"></script>
+  <script src="tasks.js"></script>
   <script src="app.js"></script>
+  <script src="dialogs.js"></script>
+  <script src="file-preview.js"></script>
+  <script src="vendor/litegraph/litegraph.js"></script>
+  <script src="workflow-canvas.js"></script>
+  <script src="workflows.js"></script>
+  <script src="workflow-chat.js"></script>
+  <script src="knowledge.js"></script>
   <!-- 面板要读 app.js 里没暴露的东西（当前会话、工作区根）都自己重新问一遍，
        所以放在 app.js 之后加载、彼此不依赖加载顺序。 -->
   <script src="panel.js"></script>

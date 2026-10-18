@@ -317,7 +317,7 @@ const mutationObservers = []
 
 const sandbox = {
   console,
-  setTimeout, clearTimeout, setInterval, clearInterval,
+  setTimeout, clearTimeout, setInterval: (...args) => { const timer = setInterval(...args); timer.unref(); return timer }, clearInterval,
   Promise, Date, Math, JSON, Object, Array, String, Number, Boolean, Error, RegExp, Map, Set,
   /* vm 里的新 context 不带 Web 全局，但面板的 decodeBytes 要用它解 UTF-8/GBK。
      宿主 Node（16/22）都带完整 ICU，两种编码都能解。 */
@@ -454,6 +454,8 @@ const cssSrc = readRenderer('style.css')
 const htmlSrc = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'index.html'), 'utf8')
 const toolsSrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'agent', 'tools.js'), 'utf8')
 const appSrc = readRenderer('app.js')
+const tasksSrc = readRenderer('tasks.js')
+const enhancementsSrc = readRenderer('ui-enhancements.js')
 const policySrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'agent', 'permission-policy.js'), 'utf8')
 const agentSrc = ['src/main/agent/agent.js', 'src/main/runtime/run-turn.js', 'src/main/flow/prompt-policy.js'].map((file) => fs.readFileSync(path.join(ROOT, file), 'utf8')).join('\n')
 const serverSrc = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8')
@@ -470,6 +472,8 @@ sandbox.cssSrc = cssSrc
 sandbox.htmlSrc = htmlSrc
 sandbox.toolsSrc = toolsSrc
 sandbox.appSrc = appSrc
+sandbox.tasksSrc = tasksSrc
+sandbox.enhancementsSrc = enhancementsSrc
 sandbox.policySrc = policySrc
 sandbox.agentSrc = agentSrc
 sandbox.serverSrc = serverSrc
@@ -689,7 +693,7 @@ const panelStatic = {
   /* 冲突：mtime 不一样就不覆盖，要人点「强制保存」（force → expectedMtime 传 0 = 不检查） */
   editorConflictGuard: panelSrc.indexOf('MTIME_CONFLICT') !== -1
     && panelSrc.indexOf('force ? 0 : ed.mtime') !== -1
-    && panelSrc.indexOf("window.confirm('文件已被外部修改。确定用当前编辑内容覆盖磁盘文件吗？')") !== -1,
+    && panelSrc.indexOf("window.appDialogs.confirm('文件已被外部修改。确定用当前编辑内容覆盖磁盘文件吗？')") !== -1,
   editorCss: cssSrc.indexOf('.preview-editor') >= 0
     && cssSrc.indexOf('.preview-bar') >= 0
     && cssSrc.indexOf('.editor-status') >= 0
@@ -744,7 +748,7 @@ const sendStatic = {
     && appSrc.indexOf('setInterval(() => { syncRunningState() }') === -1,
   runPollFlushesQueue: /setInterval\(async \(\) => \{[\s\S]{0,120}?await syncRunningState\(\)[\s\S]{0,60}?flushPendingMessage\(\)/.test(appSrc),
   runPollUnref: appSrc.indexOf('state.runPoll.unref') !== -1,
-  syncReturnsLive: /const next = await window\.dsh\.getState\(\)[\s\S]{0,320}?applyRuns\(next\.runningSessions, next\.running\)[\s\S]{0,80}?return currentRunning\(\)/.test(appSrc),
+  syncReturnsLive: /const next = await window\.dsh\.getState\(\)[\s\S]{0,1200}?applyRuns\(next\.runningSessions, next\.running\)[\s\S]{0,240}?return currentRunning\(\)/.test(appSrc),
   switchResyncsRun: appSrc.indexOf('syncRunningState().then(() => flushPendingMessage())') !== -1,
   switchDropsStaleThinking: appSrc.indexOf('state.currentThinkingDetails = null') !== -1,
   sendResyncsBeforeQueue: appSrc.indexOf('if (currentRunning())') !== -1
@@ -831,7 +835,7 @@ const concurrencyStatic = {
     && appSrc.indexOf('state.approvalCurrentId') !== -1
     && appSrc.indexOf('expireApproval(event.id)') !== -1
     && appSrc.indexOf('state.approvalBusy = false') !== -1,
-  rendererSendCarriesSessionId: appSrc.indexOf('window.dsh.send(text, history, images, memory, sessionId)') !== -1,
+  rendererSendCarriesSessionId: appSrc.indexOf('window.dsh.send(workflowText, history, images, memory, sessionId)') !== -1 && appSrc.indexOf('workflowChat.textFor(session,text)') !== -1,
   rendererStopIsPerSession: appSrc.indexOf('window.dsh.stop(sessionId)') !== -1
     && appSrc.indexOf('resetChat(sessionId)') !== -1,
   rendererQueueIsPerSession: appSrc.indexOf('sessionId: state.currentSessionId,') !== -1
@@ -958,7 +962,9 @@ const checks = `
   ok('扁平化规则覆盖 .project-more', flatBlock.indexOf('.project-more') !== -1)
   ok('扁平化默认背景透明', flatBlock.indexOf('background: transparent') !== -1)
   ok('扁平化默认边框透明', flatBlock.indexOf('border-color: transparent') !== -1)
-  ok('悬浮才出现背景', cssSrc.indexOf('.project-more:hover:not(:disabled)') !== -1)
+  /* 2026-10-17 需求反转：行内操作图标（新建/更多）悬浮时**不要**背景，
+     只有「更多」按钮本身在悬浮时才显形。守卫跟着改成「不许有背景」。 */
+  ok('行内操作图标悬浮时不出现背景', cssSrc.indexOf('行内操作图标悬浮不给背景') !== -1)
   ok('悬浮才显出更多按钮', cssSrc.indexOf('.project-item:hover .project-more') !== -1)
   ok('删除菜单项红色样式', cssSrc.indexOf('.context-menu button.menu-danger') !== -1)
 
@@ -1483,9 +1489,59 @@ const checks = `
     panelStatic.tabCloseBigger, '18px/13px')
   ok('标签区滚轮横向滚动（标签页太多要能滚）',
     panelStatic.tabsWheelScroll, 'wheel → scrollLeft')
-  ok('品牌行有系统徽章元素（.brand-badge，Win7/Mac/Linux 标签）',
-    htmlSrc.indexOf('id="brandBadge"') !== -1 && htmlSrc.indexOf('class="brand-badge"') !== -1,
-    '#brandBadge')
+  /* 定时任务编辑器（2026-10-17 重做，用户嫌原版太复杂）：
+     常态只暴露「名称 / 做什么 / 什么时候 / 启用」，其余全部收进高级设置。 */
+  ok('定时任务编辑器：重复方式改成分段按钮，不再是下拉',
+    htmlSrc.indexOf('task-segment') !== -1 && htmlSrc.indexOf('data-task-kind="daily"') !== -1
+      && htmlSrc.indexOf('data-task-kind="weekly"') !== -1 && htmlSrc.indexOf('data-task-kind="interval"') !== -1
+      && htmlSrc.indexOf('type="hidden" id="taskRule"') !== -1)
+  ok('定时任务编辑器：间隔带单位（分钟/小时/天），提交时换算成分钟',
+    htmlSrc.indexOf('id="taskIntervalUnit"') !== -1
+      && tasksSrc.indexOf('taskIntervalUnit') !== -1)
+  ok('定时任务编辑器：下次执行用「今天/明天/周几」的人话，不是整串时间戳',
+    tasksSrc.indexOf('function whenText(') !== -1 && tasksSrc.indexOf('今天') !== -1)
+  ok('定时任务编辑器：高级配置已内收，不再显示（项目/权限/时区/工具白名单/限额）',
+    htmlSrc.indexOf('id="taskProject"') === -1 && htmlSrc.indexOf('id="taskPermission"') === -1
+      && htmlSrc.indexOf('id="taskTools"') === -1 && htmlSrc.indexOf('task-advanced') === -1
+      && htmlSrc.indexOf('id="taskTimezone"') === -1)
+  ok('定时任务编辑器：没有原生 select 了（星期用统一下拉、间隔单位用分段按钮）',
+    htmlSrc.indexOf('<select id="taskWeekday"') === -1
+      && htmlSrc.indexOf('<select id="taskIntervalUnit"') === -1
+      && htmlSrc.indexOf('data-weekday-dropdown') !== -1
+      && htmlSrc.indexOf('data-task-unit="1"') !== -1)
+  ok('定时任务编辑器：权限与工具用内置默认值，不再由用户勾',
+    tasksSrc.indexOf('BUILTIN') !== -1 && tasksSrc.indexOf("permission:'readonly'") !== -1
+      && tasksSrc.indexOf('BUILTIN.tools.slice()') !== -1)
+  ok('侧栏有通知铃铛与气泡列表容器',
+    htmlSrc.indexOf('id="taskNoticeBell"') !== -1 && htmlSrc.indexOf('id="taskNoticeList"') !== -1)
+  ok('运行记录是紧凑列表行，整行可点（不再是大卡片）',
+    tasksSrc.indexOf('task-run-row') !== -1 && tasksSrc.indexOf("setAttribute('role','button')") !== -1
+      && tasksSrc.indexOf('openRunConversation') !== -1)
+  ok('执行环境与后台运行挪进系统设置，且排在模型模块下面',
+    htmlSrc.indexOf('data-settings-panel="environment"') !== -1
+      && htmlSrc.indexOf('data-settings-tab="environment"') !== -1
+      && /data-settings-panel="model"[^]{0,6000}data-settings-panel="environment"/.test(htmlSrc)
+      && htmlSrc.indexOf('id="taskServiceSettings"') !== -1)
+  /* 五点反馈（2026-10-17 19:45）：能力中心改名与排版 / 两处滚动 / 气泡不溢出 / 空状态按项目给建议 */
+  ok('设置里的模块改叫「能力中心」', htmlSrc.indexOf('data-settings-tab="environment"') !== -1
+    && htmlSrc.indexOf('\u6267\u884c\u73af\u5883') === -1)
+  ok('能力中心的每个标签页自己滚动（内容长时不撑破窗口）',
+    cssSrc.indexOf('.capability-center { display:flex') !== -1
+      && cssSrc.indexOf('#capabilityCenter > #capTasks') !== -1
+      && cssSrc.indexOf('overflow-y: auto') !== -1)
+  ok('通知气泡不会溢出屏幕（宽度受视口约束）',
+    cssSrc.indexOf('.notice-popover') !== -1 && cssSrc.indexOf('max-width: min(') !== -1)
+  ok('空状态的建议按当前工作区内容生成，不再写死三条',
+    enhancementsSrc.indexOf('function suggestions(') !== -1
+      && enhancementsSrc.indexOf('FALLBACK_SUGGESTIONS') !== -1
+      && enhancementsSrc.indexOf('fsTree') !== -1)
+  const taskDialogRules = cssSrc.split('}').filter(rule => ['.task-dialog', '.task-editor', '.task-segment', '#taskDialog'].some(selector => rule.split('{')[0].includes(selector))).join('}')
+  ok('定时任务对话框不再用蓝色高亮（项目主题要求中性灰）',
+    taskDialogRules.indexOf('#4e78bc') === -1 && taskDialogRules.indexOf('rgba(91,139,255') === -1)
+  ok('侧栏不再有品牌行（logo / 名称 / 系统徽章，用户 2026-10-17 要求）',
+    htmlSrc.indexOf('titlebar-brand') === -1 && htmlSrc.indexOf('brandBadge') === -1
+      && htmlSrc.indexOf('brandIcon') === -1,
+    'brand row removed')
   ok('终端已接通：panel.js 挂了 setupTerminal + term API（订阅/启动/解码）',
     panelStatic.terminalApiWired, 'setupTerminal + termSubscribe')
   ok('终端停靠预览区下方：--terminal-height 变量 + 独立分隔条，旧「藏预览」CSS 已删',
@@ -1982,9 +2038,11 @@ const checks = `
   await handleEvent({ type: 'tool:start', sessionId: 's2', name: 'read_file', args: { path: 'a.js' } })
   await handleEvent({ type: 'tool:result', sessionId: 's2', name: 'read_file', result: 'export const a = 1' })
   const s2Html = findSessionById('s2').processHtml
-  ok('后台会话的过程被逐条记进它自己的 processHtml（工具调用/结果都在）',
-    s2Html.indexOf('先读一下代码') !== -1 && s2Html.indexOf('read_file') !== -1
-      && s2Html.indexOf('export const a = 1') !== -1,
+  ok('后台会话的过程被逐条记进它自己的 processHtml（思考/工具/结果都在）',
+    s2Html.indexOf('先读一下代码') !== -1 && s2Html.indexOf('读取 a.js') !== -1
+      && s2Html.indexOf('export const a = 1') !== -1
+      /* 过程改成步骤结构后，后台这一条也必须是一步一个节点，不能退回整段纯文本 */
+      && s2Html.indexOf('tl-step') !== -1 && s2Html.indexOf('tl-ok') !== -1,
     s2Html.slice(0, 80))
   ok('后台会话的过程不画进当前会话的画布',
     document.getElementById('messagesInner').querySelectorAll('.thinking-block').length === blocksBefore,
@@ -1995,8 +2053,12 @@ const checks = `
   const s2Blocks = document.getElementById('messagesInner').querySelectorAll('.thinking-block')
   ok('切回后台跑过的会话，思考过程还在（用户报的 bug）',
     s2Blocks.length >= 1 && domText(s2Blocks[0]).indexOf('先读一下代码') !== -1
-      && domText(s2Blocks[0]).indexOf('read_file') !== -1,
+      && domText(s2Blocks[0]).indexOf('读取 a.js') !== -1,
     'blocks=' + s2Blocks.length + ' text=' + domText(s2Blocks[0]).slice(0, 60))
+  /* 后台这一轮只有真实思考和工具两步，不把界面提示伪装成第三步。 */
+  ok('切回来时折叠条摘要按步数显示（重载后也数得出几步）',
+    s2Blocks.length >= 1 && domText(s2Blocks[0].querySelector('summary')).indexOf('2 步') !== -1,
+    s2Blocks.length >= 1 ? domText(s2Blocks[0].querySelector('summary')) : 'no block')
 
   /* ③ 正在跑的会话切回来：过程接着画，别另起一块空的 */
   const s2Live = findSessionById('s2')
@@ -2388,6 +2450,9 @@ const checks = `
   applyRunState()
   window.__stopCalls = []
   window.__resetCalls = []
+  updateThinking('取消前的思考记录')
+  scheduleWaitingHint()
+  const stoppedThinking = state.currentThinkingDetails
   stopEl.click()
   await new Promise((resolve) => setTimeout(resolve, 0))
   ok('点停止把「当前会话」的 id 发下去（真实回调，不是源码断言）',
@@ -2398,6 +2463,22 @@ const checks = `
   ok('停止后按钮回到「发送」态（只针对本会话）',
     sendEl.className.indexOf('hidden') === -1 && stopEl.className.indexOf('hidden') !== -1,
     'send=[' + sendEl.className + '] stop=[' + stopEl.className + ']')
+
+  ok('点停止立即清理思考动画和等待定时器，保留过程内容',
+    !stoppedThinking.classList.contains('thinking-active') && state.waitingTimer === null
+      && state.currentThinking === null && domText(stoppedThinking).indexOf('取消前的思考记录') !== -1)
+  await handleEvent({ type: 'assistant:thinking', sessionId: 's1', text: '停止后延迟送达的记录' })
+  scheduleWaitingHint()
+  ok('停止后迟到的过程增量保留为静态记录，不会重新转圈或启动等待提示',
+    document.getElementById('messagesInner').querySelectorAll('.thinking-active').length === 0
+      && state.waitingTimer === null)
+  state.runs = { s1: true, s2: true }
+  updateThinking('轮询收尾测试')
+  applyRuns(['s2'], true)
+  applyRunState()
+  ok('即使漏掉 finished，宿主轮询发现本会话结束也会清理全部思考动画',
+    !currentRunning() && state.runs.s2 === true && state.currentThinking === null
+      && document.getElementById('messagesInner').querySelectorAll('.thinking-active').length === 0)
 
   /* ---- 首次启动：没有项目、没有新建会话，直接点发送 ---- */
   settingsState.projects = []
@@ -2542,6 +2623,147 @@ const checks = `
   await addProjectFolder()
   ok('用户取消原生选目录时不再弹出回退目录浏览器',
     byId('dirBrowserModal').classList.contains('hidden') && state.projectFolders.length === 0)
+
+  /* ---- P0 步骤时间线：一轮里思考与工具各成一步，带标题、状态、耗时，折叠成一条摘要 ----
+     改之前这里全是「一排同名的思考过程折叠条」，看不出每步在做什么、也没法判断卡没卡住。 */
+  const tlBox = byId('messagesInner')
+  /* 这段断言的是尚未实现的能力：拿兜底实现顶一下，缺功能只让本段判 FAIL，
+     不会把整个套件带崩 —— 崩了就看不到其余 300 多条回归的真实结果。 */
+  const tlTitleOf = typeof toolStepTitle === 'function' ? toolStepTitle : function () { return '' }
+  const tlRefresh = typeof updateRunStatus === 'function' ? updateRunStatus : function () {}
+  tlBox.children = []
+  tlBox.childNodes = []
+  state.currentSessionId = 's1'
+  state.runs = { s1: true }
+  state.currentThinking = null
+  state.currentThinkingDetails = null
+  state.thinkingBase = ''
+  applyRunState()
+  /* 运行状态行：发出去之后要能看出「正在干什么、跑了多久」。
+     断言按真实时序插在每一步之间 —— 工具跑完之后本来就该回到「正在 思考…」。 */
+  const tlStatus = byId('runStatus')
+  const tlStatusText = byId('runStatusText')
+  const tlStatusTime = byId('runStatusTime')
+  updateThinking('先看看仓库结构')
+  ok('本会话在跑时状态行露出来',
+    not(tlStatus.classList.contains('hidden')) && tlStatusText.textContent.indexOf('正在') === 0,
+    tlStatusText.textContent)
+  ok('状态行带耗时', /[0-9]/.test(tlStatusTime.textContent), tlStatusTime.textContent)
+  appendThinkingToolStart('read_file', { path: '/ws/app/package.json' })
+  ok('工具步骤开始时状态行报的是工具标题',
+    tlStatusText.textContent.indexOf('读取 package.json') !== -1, tlStatusText.textContent)
+  appendThinkingToolResult('read_file', '{"name":"app"}')
+  ok('工具跑完、等模型回复时状态行回到「正在 分析任务…」',
+    tlStatusText.textContent.indexOf('正在 分析任务…') === 0, tlStatusText.textContent)
+  const tlBlocks = tlBox.querySelectorAll('.thinking-block')
+  const tlContent = tlBlocks.length > 0 ? tlBlocks[0].querySelector('.thinking-content') : null
+  const tlSteps = tlContent ? tlContent.querySelectorAll('.tl-step') : []
+  ok('一轮里「思考」和「工具调用」各自成步', tlSteps.length === 2, 'steps=' + tlSteps.length)
+  const tlToolTitle = tlSteps.length === 2 ? domText(tlSteps[1].querySelector('.tl-title')) : ''
+  ok('工具步骤标题说人话（读取 package.json，不是原始工具名）',
+    tlToolTitle.indexOf('读取 package.json') !== -1, tlToolTitle)
+  ok('工具跑完标成功、进行中标记撤掉',
+    tlSteps.length === 2 && tlSteps[1].classList.contains('tl-ok')
+      && not(tlSteps[1].classList.contains('tl-running')),
+    tlSteps.length === 2 ? tlSteps[1].className : 'no step')
+  ok('连续步骤折叠成一条「已执行 N 步」摘要，而不是一排同名折叠条',
+    tlBlocks.length === 1 && domText(tlBlocks[0].querySelector('summary')).indexOf('2 步') !== -1,
+    tlBlocks.length === 1 ? domText(tlBlocks[0].querySelector('summary')) : 'blocks=' + tlBlocks.length)
+  ok('命令类工具标题带命令本身',
+    tlTitleOf('run_command', { command: 'npm run dev' }) === '执行 npm run dev',
+    tlTitleOf('run_command', { command: 'npm run dev' }))
+  ok('未识别的工具退回工具名，不编造动作',
+    tlTitleOf('weird_tool', {}) === 'weird_tool', tlTitleOf('weird_tool', {}))
+
+  appendThinkingToolStart('run_command', { command: 'npm run dev' })
+  tlRefresh()
+  ok('切到下一步后状态行改成当前步骤',
+    tlStatusText.textContent.indexOf('执行 npm run dev') !== -1, tlStatusText.textContent)
+  await handleEvent({ type: 'finished', sessionId: 's1', messages: [] })
+  ok('跑完状态行收起、计时器清掉',
+    tlStatus.classList.contains('hidden') && state.runStatusTimer === null, tlStatus.className)
+
+  /* 老数据不能被新结构弄坏：历史里只有纯文本过程时，仍按原来的「思考过程」显示 */
+  const tlLegacySession = { id: 's_legacy', projectId: '', scope: 'recent', title: '老会话',
+    messages: [{ role: 'user', content: '之前的提问' }, { role: 'assistant', content: '之前的回复' }],
+    processHtml: '以前的一段思考' }
+  sessionStore.__recent__ = [tlLegacySession]
+  state.currentSessionId = 's_legacy'
+  state.runs = {}
+  state.currentThinking = null
+  renderMessages(tlLegacySession)
+  const legacyBlocks = tlBox.querySelectorAll('.thinking-block')
+  const legacySummary = legacyBlocks.length > 0 ? domText(legacyBlocks[0].querySelector('summary')) : ''
+  ok('老会话的过程照旧能渲染（没有步骤时退回「思考过程」）',
+    legacyBlocks.length === 1 && legacySummary === '思考过程'
+      && legacyBlocks[0].querySelectorAll('.tl-step').length === 0,
+    'blocks=' + legacyBlocks.length + ' summary=' + legacySummary)
+  ok('运行状态行已入 HTML', htmlSrc.indexOf('id="runStatus"') !== -1)
+  ok('时间线步骤与状态行样式已落 CSS',
+    cssSrc.indexOf('.tl-step') !== -1 && cssSrc.indexOf('.run-status') !== -1)
+  state.currentSessionId = 's1'
+  state.runs = { s1: true }
+  applyRunState()
+
+  /* ---- 侧边栏（2026-10-17 按参考样式重排）：新建会话做满宽胶囊，
+     资料库/技能与规则改纵向行并带右侧计数 ---- */
+  /* 注意：.sidebar-rail 不是死代码 —— 它是窄窗口（<900px）压成 48px 图标栏时才显示的那条，
+     对应 app.js 里 railNewSession / railCreateWorkspace 两个绑定，不能删。 */
+  ok('窄窗口图标栏保留，且它在 <900px 时才显示（普通宽度不占位）',
+    htmlSrc.indexOf('railNewSession') !== -1
+      && cssSrc.indexOf('.sidebar-rail {') !== -1
+      /* 反斜杠会被外层模板字符串吃掉（\s 变 s、[\s\S] 变 [sS]），正则里一律用字符类 / [^] */
+      && /@media [(]max-width: 900px[)][^]{0,400}[.]sidebar-rail [{][^]{0,60}display: flex/.test(cssSrc),
+    'rail kept for <900px')
+  ok('窄窗口下胶囊与两个入口都要隐藏（只剩图标栏 + 会话列表）',
+    /@media [(]max-width: 900px[)][^]{0,400}[.]new-session,[^]{0,160}[.]sidebar-shortcuts/.test(cssSrc),
+    'media query covers pill + shortcuts')
+  /* DOM shim 是懒建空元素的，拿不到 index.html 里的 class，所以这几条只能静态断言 */
+  ok('新建会话是独立的胶囊按钮（原来只有 .primary，CSS 里根本没有这条规则）',
+    htmlSrc.indexOf('id="newSession" class="new-session pill"') !== -1
+      && cssSrc.indexOf('.new-session.pill') !== -1
+      && cssSrc.indexOf('.new-session.pill:hover') !== -1,
+    'pill in html/css')
+  ok('资料库 / 技能与规则改成纵向入口行（各有名称与右侧计数槽位）',
+    htmlSrc.indexOf('class="sidebar-shortcut-name"') !== -1
+      && htmlSrc.indexOf('class="sidebar-shortcut-meta"') !== -1
+      && htmlSrc.indexOf('id="libraryCount"') !== -1
+      && htmlSrc.indexOf('id="customizeCount"') !== -1)
+  ok('入口不再用竖分隔线拼成分段控件（评审点名要改的那条）',
+    cssSrc.indexOf('.sidebar-shortcuts::after') === -1
+      && cssSrc.indexOf('.sidebar-shortcuts {') !== -1
+      && cssSrc.indexOf('.sidebar-shortcut-meta') !== -1)
+  ok('技能与规则显示真实的启用项数，不是写死的假数字',
+    appSrc.indexOf('function updateShortcutMeta') !== -1
+      && appSrc.indexOf('项启用') !== -1)
+  /* 纵向节奏统一在 CSS 末尾那个块里收口：前面几处 gap 互相覆盖过，
+     结果分组标题贴死第一行、品牌行下面空一大片。这里钉住关键值。 */
+  const sbSpace = cssSrc.slice(cssSrc.indexOf('侧边栏纵向节奏'))
+  ok('侧边栏纵向节奏收口在末尾（分组之间有间距、入口行距统一）',
+    /[.]sidebar [{][^}]*gap: 10px/.test(sbSpace)
+      && /[.]sidebar-scroll [{][^}]*gap: 10px/.test(sbSpace)
+      && /[.]sidebar-shortcuts [{][^}]*gap: 2px/.test(sbSpace),
+    'spacing block present')
+  /* 品牌显示卡片已移除（用户 2026-10-17）：设置里不该再有品牌表单，
+     品牌行也不该再读 settings 里的自定义值 —— 否则删掉入口后旧值永远卡在侧栏上。 */
+  ok('设置里不再有「品牌显示」卡片', htmlSrc.indexOf('brand-settings') === -1
+    && htmlSrc.indexOf('brandNameInput') === -1 && htmlSrc.indexOf('resetBrand') === -1)
+  /* 品牌行整个去掉后，applyBrand / brandIconDraft 这些逻辑也一并删干净，
+     别留读已删 DOM 的死代码。 */
+  ok('品牌相关逻辑已删干净（applyBrand / brandIconDraft / settings.brandName 都不再有）',
+    appSrc.indexOf('applyBrand') === -1 && appSrc.indexOf('brandIconDraft') === -1
+      && appSrc.indexOf('settings.brandName') === -1)
+  ok('新建会话按钮左对齐，和下面两个入口的图标列对齐成一列',
+    /[.]sidebar .new-session.pill [{][^}]*justify-content: flex-start/.test(cssSrc))
+  ok('页脚常驻状态块已移除（服务已连接 / 就绪 / 查看诊断），只留设置 + 断线时的重试',
+    /[.]sidebar-footer .service-status,[^}]*display: none/.test(cssSrc)
+      && /[.]sidebar-footer #statusLine,[^}]*display: none/.test(cssSrc)
+      && /[.]sidebar-footer #statusLogs *[{][^}]*display: none/.test(cssSrc)
+      && /[.]sidebar-footer .service-actions [{][^}]*display: flex/.test(cssSrc)
+      && htmlSrc.indexOf('id="openSettings"') !== -1)
+  ok('分组标题离自己那组内容 4px、列表行距 4px（原来全是 0，标题贴死第一行）',
+    /[.]sidebar .sidebar-section [{][^}]*gap: 4px/.test(sbSpace)
+      && /[.]flat-list,[^}]*gap: 4px/.test(sbSpace))
 })().then(() => { harnessDone() }).catch((e) => { harnessError(e) })
 `
 

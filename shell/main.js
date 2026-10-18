@@ -2,7 +2,7 @@
 
 const path = require('path')
 const fs = require('fs')
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences, nativeTheme } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences, nativeTheme, Tray, Notification, nativeImage } = require('electron')
 const serviceManager = require('./service-manager')
 const installer = require('./installer')
 const { hideApplicationMenu, configureWindowMenu } = require('./menu')
@@ -54,6 +54,9 @@ migrateLegacyUserData()
 
 let mainWindow = null
 let settingsWindow = null
+const taskNotificationTrays = new Set()
+let taskTray = null
+let quittingRequested = false
 let config = { mode: 'local', serviceUrl: '', lastPort: 0, theme: 'dark' }
 // 本次由 Shell 拉起的服务进程；复用别人已启动的服务时为 null
 let serviceState = null
@@ -61,8 +64,11 @@ let serviceState = null
 let resolvedServiceUrl = ''
 let startupState = { phase: 'idle', port: 0, detail: '', probes: [] }
 let shuttingDown = false
-// 双击新版时发现旧版本 -> 待用户确认的接管信息；null 表示没有待处理更新
+// 自动接管旧程序的信息；正常流程不展示更新页面。
 let updateDecision = null
+let updatePromise = null
+let backgroundUpdating = false
+let runningBuildId = null
 let updateState = { phase: 'idle', detail: '' }
 
 /* ---------------------------------------------------------------- config */
@@ -89,6 +95,8 @@ function readConfig() {
     mode,
     serviceUrl: legacyUrl,
     lastPort: Number(parsed.lastPort) || 0,
+    keepRunning: parsed.keepRunning === true,
+    launchAtLogin: parsed.launchAtLogin === true,
     theme: normalizeTheme(parsed.theme)
   }
   return config
@@ -178,10 +186,12 @@ function setUpdateState(patch) {
 /** 把自己登记成「当前生效的那一份」。 */
 function registerSelf() {
   if (not(isDesktopPackage())) return
+  runningBuildId = installer.packageBuildId(programDir(), process.platform)
   installer.writeManifest(app.getPath('userData'), {
     path: programDir(),
     version: appVersion(),
-    pid: process.pid
+    pid: process.pid,
+    buildId: runningBuildId
   })
 }
 
@@ -201,37 +211,54 @@ function resolveUpdate() {
   try { installer.cleanupTrash(myDir) } catch (error) {}
 
   const current = installer.readManifest(userDataDir)
-  if (not(current) || not(current.path) || installer.samePath(current.path, myDir, process.platform)) {
-    registerSelf()
-    return { action: 'boot' }
-  }
-  if (not(fs.existsSync(current.path))) {
-    // 旧目录已被用户删掉，直接以当前这份为准
-    registerSelf()
-    return { action: 'boot' }
-  }
+  if (not(current) || not(current.path)) return { action: 'boot' }
+  const newBuildId = installer.packageBuildId(myDir, process.platform)
+  const sameLocation = installer.samePath(current.path, myDir, process.platform)
+  const oldRunning = installer.isAlive(current.pid) && installer.processOwnsPackage(current.pid, current.path, process.platform)
+  // Daily builds retain the same version and path. A live old process still
+  // holds its previous code even after those files have been overwritten.
+  if (sameLocation && (!oldRunning || current.buildId === newBuildId)) return { action: 'boot' }
+  if (!fs.existsSync(current.path) && !oldRunning) return { action: 'boot' }
 
   updateDecision = {
     oldPath: current.path,
     oldVersion: current.version || '',
     oldPid: current.pid || 0,
-    oldRunning: installer.isAlive(current.pid),
+    oldRunning,
+    newBuildId,
     newPath: myDir,
     newVersion: appVersion(),
     userData: userDataDir
   }
-  return { action: 'ask' }
+  return { action: 'update' }
 }
 
 /** 接管：关掉旧实例 -> 清空旧目录 -> 把当前这份搬过去 -> 从旧位置重启。 */
-async function runUpdate() {
+function runUpdate() {
+  if (updatePromise) return updatePromise
+  updatePromise = performUpdate().catch(error => {
+    setUpdateState({ phase: 'failed', detail: error.message || String(error) })
+    return { ok: false, error: error.message || String(error) }
+  }).finally(() => { updatePromise = null })
+  return updatePromise
+}
+
+async function performUpdate() {
   const info = updateDecision
   if (not(info)) return { ok: false, error: 'NO_DECISION' }
 
   setUpdateState({ phase: 'closing', detail: '' })
-  if (installer.isAlive(info.oldPid)) {
+  if (installer.isAlive(info.oldPid) && installer.processOwnsPackage(info.oldPid, info.oldPath, process.platform)) {
     installer.killTree(info.oldPid, process.platform)
-    await installer.waitGone(info.oldPid, 10000)
+    if (!await installer.waitGone(info.oldPid, 10000)) throw new Error('OLD_RUNNING')
+  }
+
+  // A Gatekeeper mount is not an installation destination. Keep this package
+  // in its real location, close the old instance, then take over its data/lock.
+  if (installer.isTransientPackage(info.oldPath, process.platform) || installer.samePath(info.oldPath, info.newPath, process.platform)) {
+    updateDecision = null
+    setUpdateState({ phase: 'done', detail: '已自动切换到当前程序。' })
+    return startAfterUpdateDecision()
   }
 
   setUpdateState({ phase: 'copying', detail: '' })
@@ -243,7 +270,7 @@ async function runUpdate() {
     retryDelay: 500,
     onLockedAttempt: async (attempt) => {
       // 进程退出后文件句柄释放有延迟，中途补刀，别白等满 16 轮
-      if (attempt === 2 || attempt === 6) installer.killTree(info.oldPid, process.platform)
+      if ((attempt === 2 || attempt === 6) && installer.processOwnsPackage(info.oldPid, info.oldPath, process.platform)) installer.killTree(info.oldPid, process.platform)
       setUpdateState({ phase: 'copying', detail: '目标目录被占用，正在等待释放（第 ' + attempt + ' 次）…' })
     }
   })
@@ -258,10 +285,9 @@ async function runUpdate() {
     detail: replaced.leftover ? '旧目录暂时删不掉，已改名放在旁边，下次启动会自动清理。' : ''
   })
   installer.cleanupTrash(info.oldPath)
-  installer.writeManifest(info.userData, { path: info.oldPath, version: info.newVersion, pid: 0 })
+  installer.writeManifest(info.userData, { path: info.oldPath, version: info.newVersion, pid: 0, buildId: info.newBuildId })
 
   setUpdateState({ phase: 'relaunching', detail: '' })
-  await installer.sleep(400)
   const started = installer.relaunch(info.oldPath, {
     platform: process.platform,
     args: relaunchArgs()
@@ -270,6 +296,14 @@ async function runUpdate() {
     setUpdateState({ phase: 'failed', detail: started.error, message: started.binary || '' })
     return { ok: false, error: started.error }
   }
+  let confirmed = false
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const installed = installer.readManifest(info.userData)
+    if (installed && installed.pid === started.pid && installed.buildId === info.newBuildId) { confirmed = true; break }
+    if (!installer.isAlive(started.pid)) break
+    await installer.sleep(100)
+  }
+  if (!confirmed) throw new Error('RELAUNCH_NOT_CONFIRMED')
   setUpdateState({ phase: 'done', detail: '新版本已启动。' })
   setTimeout(() => app.exit(0), 700)
   return { ok: true, pid: started.pid }
@@ -277,7 +311,6 @@ async function runUpdate() {
 
 /** 「用当前这份」：登记改到当前目录后正常启动。 */
 async function useCurrent() {
-  registerSelf()
   updateDecision = null
   return startAfterUpdateDecision()
 }
@@ -298,8 +331,10 @@ function relaunchArgs() {
 }
 
 async function startAfterUpdateDecision() {
-  loadLocal(mainWindow, 'loading.html')
   if (not(singleInstance())) return { ok: false, error: 'ANOTHER_INSTANCE' }
+  registerSelf()
+  backgroundUpdating = false
+  if (!mainWindow || mainWindow.isDestroyed()) createMainWindow()
   await boot()
   return { ok: true }
 }
@@ -459,7 +494,7 @@ function loadLocal(window, file, query) {
  * 打包后资源在 resources/app/assets/icons/，开发态在仓库根 assets/icons/。
  */
 function windowIconPath() {
-  const file = process.platform === 'win32' ? 'aw.ico' : (process.platform === 'linux' ? 'al.png' : '')
+  const file = process.platform === 'win32' ? 'icon.ico' : (process.platform === 'linux' ? 'icon.png' : '')
   if (not(file)) return undefined
   const candidates = [
     path.join(app.getAppPath(), 'assets', 'icons', file),
@@ -549,6 +584,9 @@ function createMainWindow() {
     if (not(resolvedServiceUrl)) return
     loadLocal(mainWindow, 'offline.html')
   })
+  mainWindow.on('close', (event) => {
+    if (config.keepRunning && taskTray && !quittingRequested) { event.preventDefault(); mainWindow.hide() }
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -596,6 +634,24 @@ async function restart() {
 
 /* ---------------------------------------------------------------- startup */
 
+// LaunchServices may activate the existing process without starting the new binary.
+// Compare against the fingerprint captured at boot, never against the mutable manifest.
+function restartUpdatedPackage() {
+  if (backgroundUpdating) return true
+  if (!isDesktopPackage() || !runningBuildId) return false
+  let diskBuild
+  try { diskBuild = installer.packageBuildId(programDir(), process.platform) } catch (error) {
+    console.error('[agent-update] fingerprint:', error.message)
+    return false
+  }
+  if (!diskBuild || diskBuild === runningBuildId) return false
+  backgroundUpdating = true
+  app.relaunch({ execPath: process.execPath, args: process.argv.slice(1) })
+  // before-quit awaits the owned service teardown before releasing the instance.
+  app.quit()
+  return true
+}
+
 function singleInstance() {
   const gotLock = app.requestSingleInstanceLock()
   if (not(gotLock)) {
@@ -603,7 +659,9 @@ function singleInstance() {
     return false
   }
   app.on('second-instance', () => {
+    if (restartUpdatedPackage()) return
     if (not(mainWindow) || mainWindow.isDestroyed()) return
+    mainWindow.show()
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
   })
@@ -618,6 +676,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
+  quittingRequested = true
   if (shuttingDown || not(serviceState)) return
   shuttingDown = true
   event.preventDefault()
@@ -626,10 +685,13 @@ app.on('before-quit', (event) => {
 
 app.whenReady().then(async () => {
   readConfig()
+  configureTaskTray()
   applyWindowTheme([], config.theme, nativeTheme)
   hideApplicationMenu(Menu)
-  createMainWindow()
   app.on('activate', () => {
+    if (restartUpdatedPackage()) return
+    if (backgroundUpdating) return
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow()
       /* macOS 红叉关窗后点图标再开：服务多半早就就绪了。createMainWindow 只会挂
@@ -643,20 +705,27 @@ app.whenReady().then(async () => {
   })
 
   // 更新判定必须排在单实例锁前面：旧版本正在跑的时候，锁在它手上，
-  // 先抢锁会让新版直接退出，用户就永远看不到替换提示。
+  // 先抢锁会让新版只唤起旧窗口，无法接管更新。
   const decision = resolveUpdate()
-  if (decision.action === 'ask') {
-    setUpdateState({ phase: 'idle', detail: '' })
-    loadLocal(mainWindow, 'update.html')
-    // 静默更新：带 --dsh-auto-update 启动时不等确认，直接替换。
-    // 给「做快捷方式、以后双击就是更新」的用法留的口子，也让端到端测试能无人值守。
-    if (process.argv.indexOf('--dsh-auto-update') >= 0) {
-      setTimeout(() => { runUpdate() }, 400)
+  if (decision.action === 'update') {
+    // No window or update page: complete the replacement before presenting UI.
+    backgroundUpdating = true
+    const result = await runUpdate()
+    if (!result.ok) {
+      console.error('[agent-update]', result.error)
+      const info = updateDecision
+      // A failed copy can still boot the freshly opened source package, after
+      // the old process is gone. Never silently reactivate old code.
+      if (info && !installer.isAlive(info.oldPid)) {
+        await useCurrent()
+      } else {
+        dialog.showErrorBox('Agent 启动失败', '无法关闭旧程序并启动最新版：' + result.error)
+        app.quit()
+      }
     }
     return
   }
-  if (not(singleInstance())) return
-  await boot()
+  await startAfterUpdateDecision()
 })
 
 /* ------------------------------------------------------------------ ipc */
@@ -752,3 +821,38 @@ ipcMain.handle('shell:close', (event) => {
   if (window) window.close()
   return { ok: true }
 })
+
+function configureTaskTray() {
+  if (!config.keepRunning) { if(taskTray){taskTray.destroy();taskTray=null}; return }
+  if (taskTray) return
+  const image=nativeImage.createFromPath(windowIconPath() || path.join(app.getAppPath(), 'src', 'renderer', 'logo.png')).resize({width:18,height:18})
+  if(image.isEmpty())throw new Error('无法创建托盘图标，未启用后台运行')
+  taskTray=new Tray(image);taskTray.setToolTip('Agent · 定时任务需要保持运行')
+  const show=()=>{if(mainWindow&&!mainWindow.isDestroyed()){mainWindow.show();mainWindow.focus()}}
+  taskTray.setContextMenu(Menu.buildFromTemplate([{label:'打开 Agent',click:show},{type:'separator'},{label:'退出 Agent（停止定时任务）',click:()=>app.quit()}]));taskTray.on('double-click',show);taskTray.on('balloon-click',show)
+}
+ipcMain.handle('shell:task-preferences', (_event, value) => {
+  if(value){
+    const previous={keepRunning:config.keepRunning,launchAtLogin:config.launchAtLogin}
+    config.keepRunning=value.keepRunning===true
+    try {
+      configureTaskTray()
+      if(process.platform!=='win32'&&process.platform!=='darwin'&&value.launchAtLogin)throw new Error('此平台暂不支持开机自启')
+      if(process.platform==='win32'||process.platform==='darwin')app.setLoginItemSettings({openAtLogin:value.launchAtLogin===true,path:process.execPath})
+      writeConfig({keepRunning:config.keepRunning,launchAtLogin:value.launchAtLogin===true})
+    }catch(error){Object.assign(config,previous);configureTaskTray();throw error}
+  }
+  return {keepRunning:config.keepRunning===true,launchAtLogin:config.launchAtLogin===true}
+})
+ipcMain.handle('shell:task-notify', (_event, value) => {
+  if(!value||typeof value.title!=='string')throw new Error('TASK_NOTIFICATION_INVALID')
+  if(process.platform==='win32') {
+    const tray=taskTray||new Tray(nativeImage.createFromPath(windowIconPath() || path.join(app.getAppPath(), 'src', 'renderer', 'logo.png')))
+    if(!taskTray)tray.on('balloon-click',()=>{if(mainWindow){mainWindow.show();mainWindow.focus()}})
+    tray.displayBalloon({title:'Agent 定时任务',content:value.title.slice(0,100)+'：需要关注，请查看运行记录。',iconType:'warning',respectQuietTime:true})
+    if(!taskTray){taskNotificationTrays.add(tray);const timer=setTimeout(()=>{if(taskNotificationTrays.delete(tray))tray.destroy()},15000);if(timer.unref)timer.unref()}
+  } else if(Notification.isSupported()) { const notification=new Notification({title:'Agent 定时任务',body:value.title.slice(0,100)+'：需要关注，请查看运行记录。'});notification.on('click',()=>{if(mainWindow){mainWindow.show();mainWindow.focus()}});notification.show() }
+  return {ok:true}
+})
+
+app.on('will-quit',()=>{for(const tray of taskNotificationTrays)tray.destroy();taskNotificationTrays.clear()})

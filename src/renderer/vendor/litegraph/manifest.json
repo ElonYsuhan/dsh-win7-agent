@@ -1,0 +1,11 @@
+{
+  "package": "litegraph.js",
+  "version": "0.7.18",
+  "source": "https://registry.npmjs.org/litegraph.js/-/litegraph.js-0.7.18.tgz",
+  "archiveSHA256": "a951ff79919b4e5f622c838f4df2a7d12b8f00da45d0146d3a2d566b36340931",
+  "files": {
+    "LICENSE": "1b38cc30fe774bcc77538ab99eb460f4e1c8a47c4fddc6e991ee3b5cc2a96bb9",
+    "litegraph.js": "a53f4a5bfb85520ce11a652c4e883757f477cc62873c1438e0ade330106a24e4",
+    "litegraph.css": "565cee8d54e7dfd16295f0ec7b19f910a739c0f42d5263198e3416a38a6006b3"
+  }
+}

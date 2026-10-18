@@ -46,6 +46,10 @@ const state = {
   pendingMessages: [],
   queueTimer: null,
   runPoll: null,
+  /* 运行状态行（消息区底部「正在 读取 xxx…（12s）」）的刷新定时器与起始时刻。
+     用户评审里最重的一条：消息发出去之后以前只有一条折叠条，看不出是在跑还是卡住了。 */
+  runStatusTimer: null,
+  runStartedAt: 0,
   /* 宿主报的并发上限（提示文案里用），0 = 没拿到 */
   runLimit: 0,
   expandedProviderId: '',
@@ -146,97 +150,7 @@ function applyRuns(sessions, anyRunning) {
   state.runs = next
 }
 
-let brandIconDraft = ''
-
-function applyBrand(settings) {
-  const value = settings || {}
-  const icon = byId('brandIcon')
-  const name = byId('brandName')
-  const badge = byId('brandBadge')
-  if (icon) { icon.src = value.brandIcon || 'logo.png'; icon.hidden = value.showBrandIcon === false }
-  if (name) {
-    name.textContent = value.brandName === undefined ? 'Agent' : value.brandName
-    name.title = name.textContent
-    name.hidden = value.showBrandName === false || !name.textContent
-  }
-  if (badge) badge.hidden = value.showPlatformBadge === false
-  const group = document.querySelector('.titlebar-brand')
-  const divider = document.querySelector('.titlebar-divider')
-  if (group) {
-    group.hidden = Boolean(icon && icon.hidden && name && name.hidden && badge && badge.hidden)
-    if (divider) divider.hidden = group.hidden
-  }
-}
-
-function readBrandForm() {
-  return {
-    brandName: byId('brandNameInput').value.trim().slice(0, 40),
-    brandIcon: brandIconDraft,
-    showBrandName: byId('showBrandName').checked,
-    showBrandIcon: byId('showBrandIcon').checked,
-    showPlatformBadge: byId('showPlatformBadge').checked
-  }
-}
-
-function previewBrand() {
-  applyBrand(readBrandForm())
-  byId('brandIconPreview').src = brandIconDraft || 'logo.png'
-}
-
-function setupBrandSettings() {
-  for (const id of ['brandNameInput', 'showBrandName', 'showBrandIcon', 'showPlatformBadge']) {
-    const input = byId(id)
-    if (!input) continue
-    input.addEventListener(id === 'brandNameInput' ? 'input' : 'change', () => {
-      previewBrand()
-      scheduleSettingsSave()
-    })
-  }
-  const fileInput = byId('brandIconFile')
-  if (!fileInput) return
-  const status = byId('brandSettingsStatus')
-  fileInput.addEventListener('change', async () => {
-    const file = fileInput.files && fileInput.files[0]
-    if (!file) return
-    fileInput.setAttribute('aria-invalid', 'false')
-    try {
-      if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('请选择 PNG、JPG 或 WebP 图片。')
-      if (file.size > 5 * 1024 * 1024) throw new Error('图片不能超过 5 MB。')
-      const bitmap = await createImageBitmap(file)
-      try {
-        const canvas = document.createElement('canvas')
-        canvas.width = canvas.height = 128
-        const scale = Math.min(128 / bitmap.width, 128 / bitmap.height)
-        const width = bitmap.width * scale, height = bitmap.height * scale
-        canvas.getContext('2d').drawImage(bitmap, (128 - width) / 2, (128 - height) / 2, width, height)
-        brandIconDraft = canvas.toDataURL('image/png')
-      } finally { bitmap.close() }
-      previewBrand()
-      await saveSettingsNow()
-      status.textContent = '图标已保存。'
-    } catch (error) {
-      fileInput.setAttribute('aria-invalid', 'true')
-      status.textContent = error.message || '图标保存失败，请重新选择。'
-    } finally { fileInput.value = '' }
-  })
-  byId('resetBrandIcon').addEventListener('click', () => {
-    brandIconDraft = ''
-    previewBrand()
-    scheduleSettingsSave()
-    status.textContent = '已恢复默认图标。'
-  })
-  byId('resetBrand').addEventListener('click', () => {
-    brandIconDraft = ''
-    byId('brandNameInput').value = 'Agent'
-    for (const id of ['showBrandName', 'showBrandIcon', 'showPlatformBadge']) byId(id).checked = true
-    previewBrand()
-    scheduleSettingsSave()
-    status.textContent = '已恢复默认品牌显示。'
-  })
-}
-
 function applyTheme(theme) {
-  applyBrand(state.settings)
   const value = theme === 'light' ? 'light' : 'dark'
   document.documentElement.setAttribute('data-theme', value)
   const button = byId('themeToggle')
@@ -675,12 +589,30 @@ function navigateSentHistory(direction) {
 function getProjectSessions(projectId) {
   if (not(projectId)) return []
   const sessions = Array.isArray(sessionStore[projectId]) ? sessionStore[projectId] : []
-  return sessions.filter((session) => session.archived !== true)
+  return sessions.filter((session) => session.archived !== true).sort((a,b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
 }
 
 function getRecentSessions() {
   const sessions = Array.isArray(sessionStore.__recent__) ? sessionStore.__recent__ : []
-  return sessions.filter((session) => session.archived !== true).sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))
+  return sessions.filter((session) => session.archived !== true).sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned)) || String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))
+}
+
+async function openSessionAssociation(initialMode) {
+  const overlay=document.createElement('div'),card=document.createElement('section');overlay.className='artifact-overlay';card.className='quick-menu';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','新建会话');const prior=document.activeElement;let pending=false
+  const close=()=>{if(pending)return;overlay.remove();if(prior&&prior.isConnected)prior.focus()}
+  function button(text,fn){const b=document.createElement('button');b.type='button';b.textContent=text;b.addEventListener('click',async()=>{if(pending)return;pending=true;try{await fn()}catch(e){setStatus(e.message)}finally{pending=false}});card.append(b);return b}
+  async function create(mode,item){let session
+    if(mode==='project'){session=createSession(item.id,'新会话','project');state.expandedProjects[item.id]=true}
+    else {session=createSession('','新会话','recent');if(mode==='knowledge'){try{const linked=await window.dsh.knowledgeRequest('bind-session',{sessionId:session.id,baseId:item.id,title:'知识库 · '+item.name});session.knowledgeBaseId=item.id;session.knowledgeBaseName=item.name;session.projectId='';session.workspacePath=linked.workspaceRoot;session.title='知识库 · '+item.name;saveSessionStore()}catch(e){sessionStore.__recent__=(sessionStore.__recent__||[]).filter(s=>s.id!==session.id);saveSessionStore();throw e}}}
+    pending=false;close();await selectSession(session.id);setStatus(mode==='knowledge'?'已关联知识库：'+item.name:'新会话')
+  }
+  async function show(mode){card.textContent='';const title=document.createElement('h3');title.textContent=mode==='knowledge'?'选择知识库':mode==='project'?'选择项目':'新建会话';card.append(title)
+    if(mode==='knowledge'){const data=await window.dsh.knowledgeRequest('list');for(const base of data.bases)button(base.name,()=>create('knowledge',base));if(!data.bases.length){const p=document.createElement('p');p.textContent='请先创建知识库';card.append(p)}}
+    else if(mode==='project'){const projects=(state.settings&&state.settings.projects)||[];for(const project of projects)button(project.name,()=>create('project',project));if(!projects.length){const p=document.createElement('p');p.textContent='请先添加项目';card.append(p)}}
+    else {button('普通会话（默认）',()=>create('normal'));button('关联项目',()=>show('project'));button('关联知识库',()=>show('knowledge'))}
+    button('取消',async()=>{pending=false;close()});const first=card.querySelector('button');if(first)first.focus()
+  }
+  overlay.append(card);document.body.append(overlay);overlay.addEventListener('click',e=>{if(e.target===overlay)close()});overlay.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();close()}if(e.key==='Tab'){const items=Array.from(card.querySelectorAll('button')),first=items[0],last=items[items.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});await show(initialMode)
 }
 
 function createSession(projectId, title, scope) {
@@ -688,7 +620,7 @@ function createSession(projectId, title, scope) {
   if (not(projectId) && not(isRecent)) return null
   const session = {
     id: 'session_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    projectId: projectId || '',
+    projectId: isRecent ? '' : projectId || '',
     scope: isRecent ? 'recent' : 'project',
     workspacePath: state.workspacePath || '',
     title: title || '\u65b0\u4f1a\u8bdd',
@@ -803,7 +735,7 @@ function getAllSessions() {
     const sessions = Array.isArray(sessionStore[projectId]) ? sessionStore[projectId] : []
     for (const session of sessions) result.push(session)
   }
-  return result.sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))
+  return result.sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned)) || String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))
 }
 
 function updateSessionMessages(sessionId, messages, memory) {
@@ -817,16 +749,31 @@ function updateSessionMessages(sessionId, messages, memory) {
 }
 
 function addThinkingBlock(html) {
+  const container = messagesContent()
+  const previous = container.children[container.children.length - 1]
+  if (previous && previous.classList && previous.classList.contains('process-timeline')) {
+    const prior = previous.querySelector('.thinking-content')
+    if (prior) {
+      prior.innerHTML += THINKING_TURN_SEP + (html || '')
+      if (not(currentRunning())) for (const step of prior.querySelectorAll('.tl-running')) closeTimelineStep(step, 'interrupted')
+      refreshTimelineSummary(previous, prior, false); return
+    }
+  }
   const details = document.createElement('details')
-  details.className = 'thinking-block'
+  details.open = true
+  details.className = 'thinking-block process-timeline'
   const summary = document.createElement('summary')
-  summary.textContent = '\u601d\u8003\u8fc7\u7a0b'
+  summary.textContent = '思考过程'
   const content = document.createElement('div')
   content.className = 'thinking-content'
   content.innerHTML = html || ''
+  if (not(currentRunning())) for (const step of content.querySelectorAll('.tl-running')) closeTimelineStep(step, 'interrupted')
   details.appendChild(summary)
   details.appendChild(content)
   messagesContent().appendChild(details)
+  /* 老会话存的是纯文本 / .thinking-tool，没有 .tl-step：这时 summary 保持「思考过程」，
+     有步骤的新记录才升级成「已执行 N 步」。 */
+  refreshTimelineSummary(details, content, false)
 }
 
 /* UI 过程按模型回复定位；不进入发给模型的 messages，也不参与执行状态迁移。 */
@@ -847,6 +794,15 @@ function recordProcessTimeline(sessionId, event) {
   const entries = session.processTimeline
   let entry = entries[entries.length - 1]
   if (event.type === 'assistant:message' || event.type === 'finished') {
+    const traceContent = sessionId === state.currentSessionId ? state.currentThinking : state.processBuffers[sessionId]
+    if (traceContent) {
+      const step = activeTimelineStep(traceContent)
+      if (step) {
+        const status = event.execution && event.execution.status
+        closeTimelineStep(step, status === 'cancelled' ? 'cancelled' : status === 'failed' || status === 'timed_out' ? false : true)
+        if (sessionId === state.currentSessionId) saveThinkingProcess(traceContent)
+      }
+    }
     if (state.processBuffers[sessionId]) {
       commitProcessRecord(sessionId)
       dropProcessRecord(sessionId)
@@ -917,6 +873,8 @@ function renderMessages(session) {
   clearWaitingTimer()
   const list = session && Array.isArray(session.messages) ? session.messages : []
   const processHtml = session && session.processHtml ? session.processHtml : ''
+  if (window.agentUI) window.agentUI.planFromMessages(list)
+  if (list.length === 0 && not(currentRunning()) && window.agentUI) window.agentUI.empty(messagesContent())
   if (session && session.memory && session.memory.text) {
     const memoryDetails = document.createElement('details')
     memoryDetails.className = 'thinking-block memory-block'
@@ -988,12 +946,21 @@ function renderMessages(session) {
 }
 
 async function selectSession(sessionId) {
+  if(window.workflowUI)window.workflowUI.hide()
+  if (window.knowledgeUI) { window.knowledgeUI.hide(); byId('contentFrame').classList.remove('hidden') }
+  const center = byId('capabilityCenter')
+  if (center && !center.classList.contains('hidden')) {
+    center.classList.add('hidden')
+    byId('contentFrame').classList.remove('hidden')
+    byId('app').classList.remove('capabilities-open')
+    byId('openCustomize').removeAttribute('aria-current')
+  }
   const session = findSessionById(sessionId)
   if (not(session)) return
   const settings = state.settings || {}
   if (session.scope === 'recent') {
     state.activeProjectId = ''
-    const workspacePath = session.workspacePath || state.workspacePath
+    const workspacePath = session.knowledgeBaseId ? state.workspacePath : session.workspacePath || state.workspacePath
     if (workspacePath && workspacePath !== state.workspacePath) {
       /* 不再静默切换工作区：必须用户确认，否则只看历史不动目录 */
       const ok = await confirmDialog('该会话原工作区是「' + workspaceLabel(workspacePath) + '」：\n' + workspacePath + '\n\n与当前工作区不同，切换过去吗？（取消则只查看历史，工作区保持不变）')
@@ -1057,14 +1024,18 @@ function getProjectName(projectId) {
 
 async function deleteSession(session) {
   if (not(session)) return
+  if (isSessionRunning(session.id)) { setStatus('请先停止该会话再删除'); return }
   const confirmed = await confirmDialog('\u786e\u5b9a\u5220\u9664\u8fd9\u4e2a\u4f1a\u8bdd\uff1f')
   if (not(confirmed)) return
+  try { await window.dsh.knowledgeRequest('delete-session',{sessionId:session.id}) } catch(error) { setStatus('删除失败：'+error.message); return }
+  try { const files=JSON.parse(localStorage.getItem('dsh-panel-session-files')||'{}');delete files[session.id];localStorage.setItem('dsh-panel-session-files',JSON.stringify(files)) } catch(_) {}
   for (const key of Object.keys(sessionStore)) {
     if (Array.isArray(sessionStore[key])) {
       sessionStore[key] = sessionStore[key].filter((item) => item.id !== session.id)
     }
   }
   saveSessionStore()
+  if(window.knowledgeUI)window.knowledgeUI.refresh()
   if (state.currentSessionId === session.id) {
     state.currentSessionId = ''
     saveCurrentSessionId('')
@@ -1074,7 +1045,11 @@ async function deleteSession(session) {
   setStatus('\u4f1a\u8bdd\u5df2\u5220\u9664')
 }
 
+let confirmPriorFocus = null
+const confirmBacklog = []
 function confirmDialog(message, options) {
+  if(state.confirmResolver)return new Promise(resolve=>confirmBacklog.push({message,options,resolve}))
+  confirmPriorFocus=document.activeElement
   return new Promise((resolve) => {
     const opts = options || {}
     state.confirmResolver = resolve
@@ -1084,6 +1059,7 @@ function confirmDialog(message, options) {
     if (opts.cancel === false) cancel.classList.add('hidden')
     else cancel.classList.remove('hidden')
     byId('confirmModal').classList.remove('hidden')
+    if(typeof cancel.focus==='function')(opts.cancel===false?byId('confirmOk'):cancel).focus()
   })
 }
 
@@ -1096,8 +1072,12 @@ function resolveConfirm(value) {
   const resolver = state.confirmResolver
   state.confirmResolver = null
   byId('confirmModal').classList.add('hidden')
+  if(confirmPriorFocus&&confirmPriorFocus.isConnected&&typeof confirmPriorFocus.focus==='function')confirmPriorFocus.focus()
   resolver(value)
+  const next=confirmBacklog.shift();if(next)confirmDialog(next.message,next.options).then(next.resolve)
+  else {const prior=confirmPriorFocus;setTimeout(()=>{if(!state.confirmResolver&&prior&&prior.isConnected&&typeof prior.focus==='function')prior.focus()},0)}
 }
+window.appDialogs={confirm:confirmDialog,prompt:promptText,alert:alertDialog}
 
 /* ---------- 授权（approval）策略 ----------
    两档记忆，命中即自动批准，不再弹窗：
@@ -1140,6 +1120,7 @@ function approvalDialog(request, sessionLabel) {
     const signature = String(request.signature || '')
     const canAlways = kind === 'command' && program !== ''
     state.approvalResolver = resolve
+    byId('approvalTitle').textContent = '需要确认：' + (APPROVAL_KIND_LABELS[kind] || '执行操作')
     byId('approvalKind').textContent = (APPROVAL_KIND_LABELS[kind] || '\u64cd\u4f5c') +
       (sessionLabel ? '\uff08\u6765\u81ea\u4f1a\u8bdd\uff1a' + sessionLabel + '\uff09' : '')
     const sigNode = byId('approvalSignature')
@@ -1154,7 +1135,9 @@ function approvalDialog(request, sessionLabel) {
     byId('approvalNote').textContent = canAlways
       ? '\u300c\u672c\u4f1a\u8bdd\u90fd\u5141\u8bb8\u300d= \u5f53\u524d\u4f1a\u8bdd\u5185\u540e\u7eed\u6240\u6709\u547d\u4ee4\u90fd\u4e0d\u518d\u8be2\u95ee\uff1b\u300c\u59cb\u7ec8\u5141\u8bb8\u300d\u53ea\u653e\u884c ' + program + '\uff0c\u5e76\u4f1a\u5199\u8fdb\u8bbe\u7f6e\u91cc\u7684\u653e\u884c\u6e05\u5355\u3002'
       : '\u300c\u672c\u4f1a\u8bdd\u90fd\u5141\u8bb8\u300d= \u5f53\u524d\u4f1a\u8bdd\u5185\u540c\u7c7b\u64cd\u4f5c\u4e0d\u518d\u8be2\u95ee\u3002'
+    state.approvalFocus = document.activeElement
     byId('approvalModal').classList.remove('hidden')
+    byId('approvalOnce').focus()
   })
 }
 
@@ -1163,6 +1146,8 @@ function resolveApproval(approved, scope) {
   const resolver = state.approvalResolver
   state.approvalResolver = null
   byId('approvalModal').classList.add('hidden')
+  if (state.approvalFocus && typeof state.approvalFocus.focus === 'function') state.approvalFocus.focus()
+  state.approvalFocus = null
   resolver({ approved: approved === true, scope: scope || 'once' })
 }
 
@@ -1354,6 +1339,7 @@ function placeContextMenu(menu, event) {
 
 function openSessionMenu(session, event) {
   state.menuSession = session
+  if (byId('sessionMenuPin')) byId('sessionMenuPin').textContent = session.pinned ? '取消置顶' : '置顶会话'
   placeContextMenu(byId('sessionMenu'), event)
   event.stopPropagation()
 }
@@ -1464,8 +1450,10 @@ function renderProjectList() {
     row.className = 'flat-item project-item'
     const folder = document.createElement('button')
     folder.className = 'project-folder-toggle'
-    folder.innerHTML = window.renderIcon('folder')
+    folder.innerHTML = window.renderIcon(expanded ? 'folder-open' : 'folder')
     folder.title = expanded ? '\u6536\u8d77\u4f1a\u8bdd' : '\u5c55\u5f00\u4f1a\u8bdd'
+    folder.setAttribute('aria-label', folder.title)
+    folder.setAttribute('aria-expanded', String(expanded))
     folder.addEventListener('click', (event) => {
       event.stopPropagation()
       state.expandedProjects[project.id] = not(expanded)
@@ -1474,7 +1462,7 @@ function renderProjectList() {
     const name = document.createElement('span')
     name.className = 'flat-name'
     name.textContent = project.name || workspaceLabel((project.folders || [])[0])
-    name.title = name.textContent
+    name.title = name.textContent + '\n' + (project.folders || []).join('\n')
     const add = document.createElement('button')
     add.className = 'project-add'
     add.innerHTML = window.renderIcon('plus')
@@ -1497,7 +1485,14 @@ function renderProjectList() {
     row.appendChild(name)
     row.appendChild(add)
     row.appendChild(more)
-    row.addEventListener('click', () => selectProject(project))
+    row.addEventListener('click', () => {
+      if (state.expandedProjects[project.id] !== false) {
+        state.expandedProjects[project.id] = false
+        renderWorkspaceList()
+      } else {
+        selectProject(project)
+      }
+    })
     node.appendChild(row)
     if (expanded) {
       const sessions = getProjectSessions(project.id)
@@ -1524,8 +1519,11 @@ function renderProjectList() {
           event.stopPropagation()
           openSessionMenu(session, event)
         })
+        if (window.agentUI) item.appendChild(window.agentUI.sessionBadge(session, isSessionRunning(session.id)))
         item.appendChild(title)
         item.appendChild(more)
+        item.setAttribute('role', 'button'); item.tabIndex = 0; item.classList.toggle('pinned', Boolean(session.pinned))
+        item.addEventListener('keydown', (event) => { if (event.target === item && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(session.id) } })
         item.addEventListener('click', () => selectSession(session.id))
         sessionList.appendChild(item)
       }
@@ -1562,8 +1560,11 @@ function renderChatList() {
       event.stopPropagation()
       openSessionMenu(session, event)
     })
+    if (window.agentUI) row.appendChild(window.agentUI.sessionBadge(session, isSessionRunning(session.id)))
     row.appendChild(title)
     row.appendChild(more)
+    row.setAttribute('role', 'button'); row.tabIndex = 0; row.classList.toggle('pinned', Boolean(session.pinned))
+    row.addEventListener('keydown', (event) => { if (event.target === row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(session.id) } })
     row.addEventListener('click', () => selectSession(session.id))
     list.appendChild(row)
   }
@@ -1585,6 +1586,9 @@ function syncFilePanelContext() {
 }
 
 function renderWorkspaceList() {
+  const associationLabel=byId('sessionAssociationLabel'),associationSession=currentSession();if(associationLabel)associationLabel.textContent=associationSession&&associationSession.knowledgeBaseId?'知识库 · '+associationSession.knowledgeBaseName:associationSession&&associationSession.scope==='project'?'项目会话':'普通会话'
+
+  if(window.workflowChat)window.workflowChat.render(currentSession())
   syncFilePanelContext()
   renderProjectList()
   renderChatList()
@@ -1596,6 +1600,7 @@ async function refreshState() {
   const next = await window.dsh.getState()
   state.settings = next.settings
   state.workspacePath = next.workspacePath
+  renderSkills(next.skills)
   renderPlugins(next.plugins, next.tools)
   renderModelSelect()
   renderModelInfo()
@@ -1941,10 +1946,15 @@ function byId(id) {
   return document.getElementById(id)
 }
 
-function renderModelInfo() {}
+function renderModelInfo() { if (window.agentUI) window.agentUI.context(currentSession(), state.settings) }
 function setStatus(text) {
   const statusLine = byId('statusLine')
-  if (statusLine) statusLine.textContent = translateStatus(text)
+  if (statusLine) {
+    statusLine.textContent = text === 'ready' || text === 'idle' ? '' : translateStatus(text)
+    const failed = /disconnected|连接失败|启动失败|ECONNREFUSED|error|failed/i.test(String(text))
+    statusLine.setAttribute('data-connection', failed ? 'error' : 'ok')
+    const retry = byId('statusRetry'); if (retry) retry.classList.toggle('hidden', not(failed))
+  }
 }
 
 function messagesContent() {
@@ -1953,6 +1963,8 @@ function messagesContent() {
 
 function clearMessages() {
   const container = messagesContent()
+  const plan = byId('taskPlan')
+  if (plan && plan.parentNode === container) byId('messages').insertBefore(plan, byId('runStatus'))
   Array.from(container.children).forEach((child) => {
     if (child.id !== 'messageResizeHandle') child.remove()
   })
@@ -1969,6 +1981,7 @@ function setBubbleText(body, text, markdown) {
     body.dataset.raw = value
     body.innerHTML = window.renderMarkdown(value)
     syncAssistantImages(body)
+    if (window.agentUI) window.agentUI.artifacts(body)
     return
   }
   body.textContent = value
@@ -2040,6 +2053,7 @@ function syncAssistantImages(body) {
 
 function addBubble(role, text, options) {
   const messages = messagesContent()
+  const empty = messages.querySelector('.chat-empty'); if (empty) empty.remove()
   const wrapper = document.createElement('div')
   wrapper.className = 'bubble ' + role
   const label = document.createElement('div')
@@ -2063,6 +2077,7 @@ function addBubble(role, text, options) {
   } else {
     messages.appendChild(wrapper)
   }
+  if (window.agentUI && window.agentUI.positionPlan) window.agentUI.positionPlan()
   scrollToBottom()
   return body
 }
@@ -2118,6 +2133,21 @@ function attachBubbleActions(wrapper, role, body) {
       setStatus('\u5df2\u586b\u5165\u8f93\u5165\u6846\uff0c\u53ef\u7f16\u8f91\u540e\u91cd\u65b0\u53d1\u9001')
     })
   } else {
+    make('refresh', '重新生成回答', () => {
+      if (currentRunning()) { setStatus('请先停止当前任务'); return }
+      const latest = (currentSession() && currentSession().messages || []).slice().reverse().find((item) => item.role === 'assistant' && item.content)
+      if (latest && latest.content !== bubblePlainText(wrapper, role, body)) { setStatus('请对最新一条回答执行重新生成'); return }
+      setInputContent('请基于已有上下文与工具结果重新组织上一条回答，不执行新的工具操作。'); sendMessage()
+    })
+    make('check', '有帮助（仅保存在本地）', () => {
+      const session = currentSession(); if (!session) return
+      session.feedback = (session.feedback || []).concat([{ text: bubblePlainText(wrapper, role, body), value: 'helpful', at: new Date().toISOString() }]).slice(-100)
+      saveSessionStore(); setStatus('反馈已保存在本地')
+    })
+    make('close', '无帮助（仅保存在本地）', () => {
+      const session = currentSession(); if (!session) return
+      session.feedback = (session.feedback || []).concat([{ text: bubblePlainText(wrapper, role, body), value: 'unhelpful', at: new Date().toISOString() }]).slice(-100); saveSessionStore(); setStatus('反馈已保存在本地')
+    })
     make('trash', '\u5220\u9664', () => {
       const session = findSessionById(state.currentSessionId)
       const text = bubblePlainText(wrapper, role, body)
@@ -2253,17 +2283,21 @@ function beginThinking(initialText) {
   const previous = findSessionById(state.currentSessionId)
   state.thinkingBase = previous && previous.processHtml ? previous.processHtml : ''
   const details = document.createElement('details')
-  details.className = 'thinking-block thinking-active'
+  details.open = true
+  details.className = 'thinking-block process-timeline' + (currentRunning() ? ' thinking-active' : '')
   const summary = document.createElement('summary')
-  summary.textContent = '\u601d\u8003\u4e2d...'
+  summary.textContent = currentRunning() ? '思考中…' : '思考过程'
   const content = document.createElement('div')
   content.className = 'thinking-content'
-  content.textContent = initialText || '\u6b63\u5728\u601d\u8003...'
+  /* 不再塞「正在思考...」占位文本：第一段真实增量进来时自己开第一步，
+     占位文本只会让「折叠条里有几步」算错。 */
+  if (initialText) appendProcessText(content, initialText)
   details.appendChild(summary)
   details.appendChild(content)
   messagesContent().appendChild(details)
   state.currentThinking = content
   state.currentThinkingDetails = details
+  refreshTimelineSummary(details, content, currentRunning())
   scrollToBottom()
   return content
 }
@@ -2307,29 +2341,249 @@ function saveThinkingProcess(content) {
   saveSessionStore()
 }
 
+/* ---- 步骤时间线 ----
+   以前一轮里的「思考」和「工具调用」全糊在同一个折叠条里，还每轮并排一个，
+   用户看到的是几个一模一样的「思考过程」，既不知道每步在做什么，也判断不了卡没卡住。
+   现在一轮只有一个折叠条，里面每一步一行：图标 + 标题 + 耗时，正文折在标题下面。
+
+   状态记在 class 上（tl-running / tl-ok / tl-err）而不是 data-*：过程要存进
+   session.processHtml（走 innerHTML），class 能原样回来，渲染层单测的 DOM shim 也只序列化 class。 */
+const TOOL_STEP_TITLES = {
+  update_plan: '更新任务计划',
+  read_file: '读取文件',
+  write_file: '写入文件',
+  edit_file: '编辑文件',
+  list_dir: '浏览目录',
+  search_files: '搜索文件',
+  run_command: '执行命令',
+  browser_launch: '启动浏览器',
+  browser_act: '操作浏览器',
+  browser_close: '关闭浏览器',
+  load_skill: '加载技能',
+  search_skills: '查找技能',
+  start_process: '启动服务',
+  stop_process: '停止服务',
+  wait_ready: '等待服务就绪'
+}
+
+function toolStepTitle(name, args) {
+  const data = (args && typeof args === 'object') ? args : {}
+  const file = typeof data.path === 'string' ? data.path : (typeof data.file === 'string' ? data.file : '')
+  const base = file ? file.split(/[\\/]/).pop() : ''
+  const id = String(name || '')
+  if (id === 'read_file') return base ? '读取 ' + base : '读取文件'
+  if (id === 'write_file') return base ? '写入 ' + base : '写入文件'
+  if (id === 'edit_file') return base ? '编辑 ' + base : '编辑文件'
+  if (id === 'list_dir') return typeof data.path === 'string' && data.path !== '' ? '浏览 ' + data.path : '浏览目录'
+  if (id === 'search_files') return data.pattern ? '搜索 ' + data.pattern : '搜索文件'
+  if (id === 'run_command') return typeof data.command === 'string' && data.command !== '' ? '执行 ' + data.command : '执行命令'
+  if (id === 'load_skill') return data.id ? '加载技能 ' + data.id : '加载技能'
+  /* 没登记的工具别编动作，如实显示工具名。 */
+  return TOOL_STEP_TITLES[id] || id || '工具'
+}
+
+function formatDuration(ms) {
+  const value = Math.max(0, Math.round(Number(ms) || 0))
+  if (value < 1000) return value + 'ms'
+  if (value < 60000) return (value / 1000).toFixed(1) + 's'
+  return Math.floor(value / 60000) + 'm' + Math.round((value % 60000) / 1000) + 's'
+}
+
+/* 反解已写进 HTML 的耗时文案：重载之后总结行还要能算总耗时，那会儿节点上没有内存态。 */
+function parseDurationText(text) {
+  const value = String(text || '')
+  if (value === '') return 0
+  if (value.indexOf('ms') !== -1) return parseFloat(value) || 0
+  if (value.indexOf('m') !== -1) {
+    const parts = value.split('m')
+    return (Number(parts[0]) || 0) * 60000 + (parseFloat(parts[1]) || 0) * 1000
+  }
+  return (parseFloat(value) || 0) * 1000
+}
+
+function timelineSteps(content) {
+  if (not(content) || typeof content.querySelectorAll !== 'function') return []
+  return content.querySelectorAll('.tl-step')
+}
+
+function activeTimelineStep(content) {
+  const steps = timelineSteps(content)
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    if (steps[index].classList.contains('tl-running')) return steps[index]
+  }
+  return null
+}
+
+function stepDuration(step) {
+  const dur = step.querySelector('.tl-dur')
+  if (not(dur)) return 0
+  return parseDurationText(dur.textContent || '')
+}
+
+function createTimelineStep(content, kind, title) {
+  const step = document.createElement('details')
+  step.className = 'tl-step tl-' + kind + ' tl-running'
+  const head = document.createElement('summary')
+  head.className = 'tl-head'
+  const icon = document.createElement('span')
+  icon.className = 'tl-icon'
+  const label = document.createElement('span')
+  label.className = 'tl-title'
+  label.textContent = title
+  const dur = document.createElement('span')
+  dur.className = 'tl-dur'
+  head.appendChild(icon)
+  head.appendChild(label)
+  head.appendChild(dur)
+  step.appendChild(head)
+  const body = document.createElement('div')
+  body.className = 'tl-body'
+  step.appendChild(body)
+  content.appendChild(step)
+  step._startAt = Date.now()
+  step.setAttribute('data-started-at', String(step._startAt))
+  return step
+}
+
+function closeTimelineStep(step, ok) {
+  if (not(step)) return
+  const started = Number(step._startAt || step.getAttribute('data-started-at')) || 0
+  step.classList.remove('tl-running')
+  step.classList.add(ok === 'interrupted' ? 'tl-interrupted' : ok === 'cancelled' ? 'tl-cancelled' : ok === false ? 'tl-err' : 'tl-ok')
+  step.setAttribute('aria-label', ok === 'interrupted' ? '状态未确认' : ok === 'cancelled' ? '已停止' : ok === false ? '失败' : '完成')
+  if (started > 0 || ok === 'interrupted') {
+    const dur = step.querySelector('.tl-dur')
+    if (dur) dur.textContent = ok === 'interrupted' ? '耗时未知' : formatDuration(Date.now() - started)
+  }
+  step._startAt = 0
+  step.removeAttribute('data-started-at')
+}
+
+/* 步数与总耗时。重载 / 切会话时整段 HTML 是刚赋给 innerHTML 的，
+   这会儿不能只靠查子节点 —— 查不到就退回数 HTML 串，保证摘要还是「已执行 N 步」，
+   不会退回「思考过程」让用户以为没记录。 */
+function timelineStepCount(content) {
+  if (not(content)) return 0
+  const nodes = timelineSteps(content)
+  if (nodes.length > 0) return nodes.length
+  const html = String(content.innerHTML || '')
+  const matches = html.match(/class="tl-step/g)
+  return matches ? matches.length : 0
+}
+
+function timelineTotalMs(content) {
+  if (not(content)) return 0
+  const nodes = timelineSteps(content)
+  if (nodes.length > 0) {
+    let sum = 0
+    for (const step of nodes) sum += stepDuration(step)
+    return sum
+  }
+  const html = String(content.innerHTML || '')
+  const matches = html.match(/class="tl-dur">([^<]*)</g)
+  if (not(matches)) return 0
+  let sum = 0
+  for (const item of matches) {
+    sum += parseDurationText(item.slice(item.indexOf('>') + 1, item.length - 1))
+  }
+  return sum
+}
+
+/* 折叠条标题：跑的时候报进度，跑完报总量。 */
+function timelineSummaryText(content, running) {
+  const count = timelineStepCount(content)
+  if (count === 0) return ''
+  const total = timelineTotalMs(content)
+  if (running) return '思考中…（' + count + ' 步）'
+  return '已执行 ' + count + ' 步' + (total > 0 ? ' · ' + formatDuration(total) : '')
+}
+
+function refreshTimelineSummary(details, content, running) {
+  if (not(details) || typeof details.querySelector !== 'function') return
+  const summary = details.querySelector('summary')
+  if (not(summary)) return
+  const text = timelineSummaryText(content, running)
+  if (text === '') return
+  summary.textContent = ''
+  const title = document.createElement('span')
+  title.className = 'timeline-summary-title'
+  title.textContent = '已执行 ' + timelineStepCount(content) + ' 步'
+  const time = document.createElement('span')
+  time.className = 'timeline-summary-time'
+  const total = timelineTotalMs(content)
+  time.textContent = total > 0 ? formatDuration(total) : ''
+  summary.appendChild(title)
+  summary.appendChild(time)
+  if (window.agentUI && window.agentUI.positionPlan) window.agentUI.positionPlan()
+}
+
+function refreshTimeline(content) {
+  if (not(content)) return
+  const details = typeof content.closest === 'function' ? content.closest('.thinking-block') : null
+  if (details) refreshTimelineSummary(details, content, currentRunning())
+}
+
 /* 往「思考过程」容器里追加内容的三个原子操作。容器既可能是当前会话挂在 DOM 上的
    活块，也可能是后台会话的游离节点（见 processRecord），所以都接元素参数。 */
 function appendProcessText(target, text) {
   if (not(target)) return
-  const currentText = String(target.textContent || '')
-  if (currentText === '正在思考...' || currentText.indexOf('模型还没有返回') === 0) target.textContent = ''
-  target.appendChild(document.createTextNode(text || ''))
+  const value = String(text || '')
+  if (value === '') return
+  let step = activeTimelineStep(target)
+  if (not(step) || not(step.classList.contains('tl-think'))) {
+    /* 上一段不是思考（比如刚跑完一个工具）就另起一步，别把两件事写进同一行。 */
+    if (step) closeTimelineStep(step, true)
+    step = createTimelineStep(target, 'think', '思考')
+  }
+  const body = step.querySelector('.tl-body')
+  if (body) {const last=body.lastChild;if(last&&last.nodeType===3)last.appendData(value);else body.appendChild(document.createTextNode(value))}
+  refreshTimeline(target)
 }
 
 function appendProcessTool(target, name, args) {
   if (not(target)) return
-  const block = document.createElement('div')
-  block.className = 'thinking-tool'
-  block.textContent = '\u5de5\u5177\u8c03\u7528\uff1a' + name + '\n' + JSON.stringify(args || {}, null, 2)
-  target.appendChild(block)
+  const running = activeTimelineStep(target)
+  if (running) closeTimelineStep(running, true)
+  const step = createTimelineStep(target, 'tool', toolStepTitle(name, args))
+  step._toolArgs = args || {}
+  const body = step.querySelector('.tl-body')
+  if (body) {
+    const detail = document.createElement('pre')
+    detail.className = 'tl-args'
+    detail.textContent = JSON.stringify(args || {}, null, 2)
+    body.appendChild(detail)
+  }
+  refreshTimeline(target)
 }
 
-function appendProcessToolResult(target, name, result) {
+function appendProcessToolResult(target, name, result, executionOutcome) {
   if (not(target)) return
-  const block = document.createElement('div')
-  block.className = 'thinking-tool-result'
-  block.textContent = '\u5de5\u5177\u7ed3\u679c\uff1a' + name + '\n' + String(result || '')
-  target.appendChild(block)
+  const steps = timelineSteps(target)
+  const step = steps.length > 0 ? steps[steps.length - 1] : null
+  const value = String(result === undefined || result === null ? '' : result)
+  const failed = window.agentUI ? window.agentUI.outcome(value) === 'failed' : /(^|\n)\s*(error|错误|failed|失败|DENIED:|DISABLED:)/i.test(value)
+  if (step && step.classList.contains('tl-tool')) {
+    closeTimelineStep(step, executionOutcome === 'cancelled' ? 'cancelled' : ['error','denied','disabled'].indexOf(executionOutcome) !== -1 ? false : not(failed))
+    const body = step.querySelector('.tl-body')
+    if (body && value !== '') {
+      const output = document.createElement('details')
+      output.className = 'tl-detail'
+      const summary = document.createElement('summary')
+      summary.textContent = '输出 · ' + value.split('\n').length + ' 行'
+      const pre = document.createElement('pre')
+      pre.className = 'tl-output'
+      pre.textContent = value
+      output.appendChild(summary)
+      output.appendChild(pre)
+      body.appendChild(output)
+    }
+    if(window.workflowChat&&body)window.workflowChat.decorateToolResult(body,name,value)
+    if (window.agentUI) window.agentUI.diffPreview(step, name, step._toolArgs || {}, value)
+  } else {
+    /* 没有配对的工具步骤（比如旧宿主没发 tool:start）也要留下痕迹，不能静默丢。 */
+    appendProcessText(target, '\n' + String(name || '工具') + '：' + value + '\n')
+  }
+  refreshTimeline(target)
 }
 
 /* ---- 后台会话的思考过程 ----
@@ -2389,8 +2643,7 @@ function recordBackgroundProcess(sessionId, event) {
   } else if (event.type === 'tool:start') {
     appendProcessTool(processRecord(key), event.name, event.args || {})
   } else if (event.type === 'tool:result') {
-    appendProcessToolResult(processRecord(key), event.name, event.result || '')
-    appendProcessText(processRecord(key), '\n\u5df2\u83b7\u53d6\u5de5\u5177\u7ed3\u679c\uff0c\u7ee7\u7eed\u601d\u8003...')
+    appendProcessToolResult(processRecord(key), event.name, event.result || '', event.outcome)
   } else if (event.type === 'notice' || event.type === 'capability:missing') {
     appendProcessText(processRecord(key), '\n' + (event.text || '') + '\n')
   } else if (event.type === 'approval') {
@@ -2442,6 +2695,7 @@ function updateThinking(text) {
   const body = beginThinking('')
   appendProcessText(body, text)
   saveThinkingProcess(body)
+  updateRunStatus()
   scrollToBottom()
 }
 
@@ -2449,13 +2703,15 @@ function appendThinkingToolStart(name, args) {
   const content = beginThinking('')
   appendProcessTool(content, name, args)
   saveThinkingProcess(content)
+  updateRunStatus()
   scrollToBottom()
 }
 
-function appendThinkingToolResult(name, result) {
+function appendThinkingToolResult(name, result, executionOutcome) {
   const content = beginThinking('')
-  appendProcessToolResult(content, name, result)
+  appendProcessToolResult(content, name, result, executionOutcome)
   saveThinkingProcess(content)
+  updateRunStatus()
   scrollToBottom()
 }
 
@@ -2469,23 +2725,91 @@ function resumeThinking(seed) {
   return body
 }
 
-function endThinking() {
+function endThinking(label) {
   clearWaitingTimer()
-  if (state.currentThinkingDetails) {
-    state.currentThinkingDetails.classList.remove('thinking-active')
-    const summary = state.currentThinkingDetails.querySelector('summary')
-    if (summary) summary.textContent = '\u601d\u8003\u8fc7\u7a0b'
+  /* 结束所有残留活动块，避免旧块失去引用后仍显示转圈。 */
+  const blocks = Array.from(messagesContent().querySelectorAll('.thinking-active'))
+  if (state.currentThinkingDetails && blocks.indexOf(state.currentThinkingDetails) === -1) blocks.push(state.currentThinkingDetails)
+  for (const details of blocks) {
+    details.classList.remove('thinking-active')
+    const content = details.querySelector('.thinking-content')
+    const step = content ? activeTimelineStep(content) : null
+    /* 收尾时还在转圈的那步（比如等模型回复时）按完成结掉，耗时一并落盘。 */
+    if (step) closeTimelineStep(step, label === '已停止' ? 'cancelled' : label === '执行失败' ? false : true)
+    refreshTimelineSummary(details, content, false)
+    const summary = details.querySelector('summary')
+    const text = content ? timelineSummaryText(content, false) : ''
+    /* 没有步骤的老块保持原标题，别把「思考过程」换成空的「已执行 0 步」。 */
+    if (summary && text === '') summary.textContent = label || '思考过程'
   }
   state.currentThinking = null
   state.currentThinkingDetails = null
+  if (not(currentRunning()) || label) stopRunStatus()
+}
+
+/* ---- 运行状态行 ----
+   消息区底部那一行「正在 读取 package.json…（12s）」。
+   以前发出去之后界面上只有一条折叠条，用户分不清是在跑、卡住了还是已经结束。 */
+const RUN_STATUS_TICK = 500
+
+function currentStepTitle() {
+  const step = state.currentThinking ? activeTimelineStep(state.currentThinking) : null
+  if (not(step)) {
+    const execution = currentSession() && currentSession().lastExecution
+    const name = execution && execution.status === 'running' && execution.activeTool && execution.activeTool.name
+    return name ? (TOOL_STEP_TITLES[name] || name) : ''
+  }
+  const title = step.querySelector('.tl-title')
+  return title ? String(title.textContent || '') : ''
+}
+
+function updateRunStatus() {
+  const box = byId('runStatus')
+  if (not(box)) return
+  if (not(currentRunning())) { stopRunStatus(); return }
+  box.classList.remove('hidden')
+  const label = byId('runStatusText')
+  const title = currentStepTitle()
+  const nextLabel = '正在 ' + (title || '分析任务') + '…'
+  if (label && label.textContent !== nextLabel) label.textContent = nextLabel
+  const active = state.currentThinking && activeTimelineStep(state.currentThinking)
+  if (active) { const dur = active.querySelector('.tl-dur'); const start = Number(active._startAt || active.getAttribute('data-started-at')); if (dur && start) dur.textContent = formatDuration(Date.now() - start) }
+  box.classList.toggle('timeline-status-covered', Boolean(state.currentThinking && timelineStepCount(state.currentThinking)))
+  if (state.currentThinking) refreshTimeline(state.currentThinking)
+  const time = byId('runStatusTime')
+  const execution = currentSession() && currentSession().lastExecution
+  const savedStart = execution && execution.status === 'running' && Date.parse(execution.startedAt)
+  if (time) time.textContent = formatDuration(savedStart ? Date.now() - savedStart : state.runStartedAt ? Date.now() - state.runStartedAt : 0)
+}
+
+function startRunStatus() {
+  if (not(currentRunning())) return
+  if (not(state.runStartedAt)) state.runStartedAt = Date.now()
+  updateRunStatus()
+  if (state.runStatusTimer) return
+  state.runStatusTimer = setInterval(updateRunStatus, RUN_STATUS_TICK)
+}
+
+function stopRunStatus() {
+  if (state.runStatusTimer) {
+    clearInterval(state.runStatusTimer)
+    state.runStatusTimer = null
+  }
+  state.runStartedAt = 0
+  const box = byId('runStatus')
+  if (box) box.classList.add('hidden')
 }
 
 function scheduleWaitingHint() {
   clearWaitingTimer()
+  if (not(currentRunning())) return
+  const sessionId = state.currentSessionId
   state.waitingTimer = setTimeout(() => {
+    if (state.currentSessionId !== sessionId || not(currentRunning())) return
+    /* 8 秒还没有任何增量才提示；这时时间线还是空的，补一步说明，别只留个空折叠条。 */
     const body = beginThinking('')
-    if (body.textContent === '' || body.textContent === '\u6b63\u5728\u601d\u8003...') {
-      body.textContent = '\u6a21\u578b\u8fd8\u6ca1\u6709\u8fd4\u56de\uff0c\u53ef\u80fd\u6b63\u5728\u52a0\u8f7d\uff0c\u8bf7\u7a0d\u5019...'
+    if (timelineSteps(body).length === 0) {
+      appendProcessText(body, '模型还没有返回，可能正在加载，请稍候…')
     }
     scrollToBottom()
   }, 8000)
@@ -2502,13 +2826,15 @@ function settleRun(sessionId, event) {
   /* finished 里带的是服务器手里的权威消息：断线期间丢掉的增量靠它一次补齐。
      注意别用空数组覆盖 —— 没有 messages 字段（比如 reset）就只摘运行标记。 */
   if (Array.isArray(event.messages)) updateSessionMessages(targetId, event.messages, event.memory)
+  const completedSession = findSessionById(targetId)
+  if (completedSession && event.execution) { completedSession.lastExecution = event.execution; saveSessionStore() }
   removeRun(targetId)
   /* 过程已经逐条同步进 session.processHtml 了，这里把游离累积区收掉 */
   commitProcessRecord(targetId)
   dropProcessRecord(targetId)
   const isCurrent = targetId === state.currentSessionId
   if (isCurrent) {
-    endThinking()
+    endThinking(event.execution && event.execution.status === 'cancelled' ? '已停止' : event.execution && event.execution.status === 'failed' ? '执行失败' : '')
     clearWaitingTimer()
     if (state.liveRun !== true) renderMessages(findSessionById(targetId))
     state.liveRun = false
@@ -2520,9 +2846,15 @@ function settleRun(sessionId, event) {
 
 async function handleEvent(event) {
   if (not(event) || not(event.type)) return
+  if (event.type.startsWith('workflows:')) {if(window.workflowUI)window.workflowUI.refresh();return}
+  if (event.type.startsWith('knowledge:')) { if (window.knowledgeUI) window.knowledgeUI.refresh(); return }
+  if (event.type.startsWith('tasks:')) { if (window.scheduledTasks) window.scheduledTasks.onEvent(event); return }
+  if (event.type === 'connection') { if (window.agentUI) window.agentUI.connection(event.connected, event.message); return }
   if (event.type === 'user') return
   const eventSessionId = event.sessionId ? String(event.sessionId) : ''
   const isCurrent = eventSessionId === '' || eventSessionId === state.currentSessionId
+  if (isCurrent && window.agentUI && event.type === 'tool:result') window.agentUI.planResult(event.result || '')
+  if(window.workflowChat&&event.type==='tool:result')window.workflowChat.recordDraft(eventSessionId||state.currentSessionId,event.name,event.result)
   recordProcessTimeline(eventSessionId || state.currentSessionId, event)
 
   if (event.type === 'finished') {
@@ -2602,8 +2934,7 @@ async function handleEvent(event) {
     return
   }
   if (event.type === 'tool:result') {
-    appendThinkingToolResult(event.name, event.result || '')
-    updateThinking('\n\u5df2\u83b7\u53d6\u5de5\u5177\u7ed3\u679c\uff0c\u7ee7\u7eed\u601d\u8003...')
+    appendThinkingToolResult(event.name, event.result || '', event.outcome)
     scheduleWaitingHint()
     return
   }
@@ -2627,7 +2958,7 @@ async function handleEvent(event) {
   }
   if (event.type === 'error') {
     clearWaitingTimer()
-    endThinking()
+    endThinking('执行失败')
     addBubble('error', formatError(event.message || '未知错误'))
     return
   }
@@ -2714,13 +3045,22 @@ function flushPendingMessage() {
 async function syncRunningState() {
   try {
     const next = await window.dsh.getState()
+    if (window.agentUI) window.agentUI.connection(true)
     state.settings = next.settings || state.settings
     state.workspacePath = next.workspacePath || state.workspacePath
     state.runLimit = Number(next.maxConcurrentRuns) > 0 ? Number(next.maxConcurrentRuns) : state.runLimit
+    if (next.executions) {
+      for (const id of Object.keys(next.executions)) { const session = findSessionById(id); if (session) session.lastExecution = next.executions[id] }
+    }
+    if (byId('statusLine') && byId('statusLine').getAttribute('data-connection') === 'error') setStatus('ready')
+    const previousRuns = JSON.stringify(state.runs)
     applyRuns(next.runningSessions, next.running)
+    if (JSON.stringify(state.runs) !== previousRuns) renderWorkspaceList()
     applyRunState()
     return currentRunning()
   } catch (error) {
+    if (window.agentUI) window.agentUI.connection(false, error.message)
+    setStatus('服务连接失败：' + error.message)
     return currentRunning()
   }
 }
@@ -2775,6 +3115,8 @@ function updateComposerRunHint() {
    本会话在跑 → 藏发送、露停止；本会话空闲 → 反过来（哪怕别的会话在跑也照样能发）。 */
 function applyRunState() {
   const running = currentRunning()
+  if (window.agentUI) { window.agentUI.context(currentSession(), state.settings); window.agentUI.runState(running) }
+  if (not(running)) endThinking()
   const send = byId('send')
   const stop = byId('stop')
   if (send) {
@@ -2791,6 +3133,9 @@ function applyRunState() {
     input.classList.remove('disabled')
   }
   updateComposerRunHint()
+  /* 本会话在跑就把底部状态行挂上（含 500ms 刷新耗时），不跑就收掉。 */
+  if (running) startRunStatus()
+  else stopRunStatus()
 }
 
 const PERMISSION_LABELS = {
@@ -2800,9 +3145,9 @@ const PERMISSION_LABELS = {
 }
 const PERMISSION_ICONS = { readonly: 'shield-check', workspace: 'shield-edit', full: 'shield-warn' }
 const PERMISSION_HINTS = {
-  readonly: '\u53ea\u8bfb\uff1a\u5199\u6587\u4ef6\u3001\u6539\u6587\u4ef6\u3001\u8dd1\u547d\u4ee4\u5168\u90e8\u88ab\u62e6\u622a',
-  workspace: '\u6587\u4ef6\u5199\u5165\u514d\u95ee\uff0c\u4f46\u6bcf\u6761\u547d\u4ee4\u90fd\u4f1a\u8be2\u95ee\u4e00\u6b21',
-  full: '\u547d\u4ee4\u4e0e\u5199\u5165\u90fd\u4e0d\u518d\u8be2\u95ee\uff0c\u76f4\u63a5\u6267\u884c'
+  readonly: '文件只读，不能写入或编辑；命令需单独授权。',
+  workspace: '可修改工作区文件；命令和浏览器操作会询问确认，可选择仅一次或本会话授权。',
+  full: '允许普通命令和文件写入；删除等危险操作仍需确认。'
 }
 
 function permissionInfo(mode) {
@@ -2825,6 +3170,8 @@ function renderPermission() {
   const info = permissionInfo(mode)
   const dropdowns = document.querySelectorAll('[data-permission-dropdown]')
   for (const root of dropdowns) {
+    root.setAttribute('data-permission-mode', info.mode)
+    const trigger = root.querySelector('.dropdown-trigger'); if (trigger) trigger.title = PERMISSION_HINTS[info.mode] || info.label
     const label = root.querySelector('[data-permission-label]')
     if (label) label.textContent = info.label
     const icon = root.querySelector('[data-permission-icon]')
@@ -2885,6 +3232,8 @@ function setupPermissionDropdowns() {
 const PLUGIN_META = {
   'builtin/browser-tools': { title: '浏览器工具', icon: 'plugin', description: '浏览器操作、页面检查与自动化测试' },
   'builtin/self-validate': { title: '运行验证', icon: 'plugin', description: '管理后台进程、等待服务就绪并记录验证结果' },
+  'core/plans': { title: '任务计划', icon: 'plugin', description: '通过工具结果记录计划与实际进度，不代替执行状态' },
+  'core/mcp': { title: 'MCP 连接器', icon: 'plugin', description: '连接外部 MCP 服务并注册其工具' },
   'core/contracts': { title: '协议契约', icon: 'plugin', description: '服务接口与事件校验' },
   'core/state': { title: '会话状态', icon: 'plugin', description: '会话状态与合法迁移' },
   'core/flow': { title: '流程策略', icon: 'plugin', description: 'Agent 执行策略' },
@@ -2914,6 +3263,25 @@ function isPluginEnabled(name) {
   return pluginDisabledList().indexOf(String(name || '')) === -1
 }
 
+/* 侧边栏入口右侧的计数（2026-10-17 按参考样式加的）。
+   只写真实可得的数字：技能与规则按「已启用插件数」算；
+   资料库目前还没有条目清单（服务端只有按 id 取单个资源，没有列表端点），
+   所以先留空 —— 写个假的「6」比空着更糟：用户会以为里面真有 6 条。 */
+function updateShortcutMeta() {
+  const enabled = cachedPluginList.filter((name) => isPluginEnabled(name)).length
+  const meta = byId('customizeCount')
+  if (meta) {
+    const skills = typeof systemSkillList === 'undefined' ? [] : systemSkillList
+    const total = enabled + skills.filter((item) => !(state.settings.disabledSkills || []).includes(item.id)).length
+    meta.textContent = total > 0 ? (total + ' 项启用') : ''
+    meta.title = '已启用的插件与工具能力'
+  }
+  const library = byId('libraryCount')
+  if (library) {
+    library.title = '知识库数量'
+  }
+}
+
 async function togglePlugin(name) {
   const target = String(name || '')
   if (target === '') return
@@ -2931,13 +3299,15 @@ let cachedToolList = []
 
 function renderPlugins(plugins, tools) {
   const element = byId('pluginList')
-  if (not(element)) return
   /* 缓存最近一次列表：togglePlugin 等只有 settings 变化的重渲染直接复用 */
   if (Array.isArray(plugins)) cachedPluginList = plugins
+  updateShortcutMeta()
+  if (not(element)) return
   if (Array.isArray(tools)) cachedToolList = tools
   element.textContent = ''
   const pluginNames = cachedPluginList
   const toolItems = cachedToolList
+  if (byId('capTabPlugins')) byId('capTabPlugins').textContent = '插件 ' + pluginNames.length
   if (pluginNames.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'muted'
@@ -2971,13 +3341,19 @@ function renderPlugins(plugins, tools) {
     const toggle = document.createElement('button')
     toggle.className = 'plugin-switch' + (enabled ? ' on' : '')
     toggle.setAttribute('role', 'switch')
+    toggle.setAttribute('aria-checked', String(enabled))
+    toggle.setAttribute('aria-label', meta.title)
     toggle.title = enabled ? '\u70b9\u51fb\u505c\u7528' : '\u70b9\u51fb\u542f\u7528'
     const knob = document.createElement('span')
     knob.className = 'plugin-switch-knob'
     toggle.appendChild(knob)
     toggle.addEventListener('click', (event) => {
       event.stopPropagation()
-      togglePlugin(name).catch((error) => addBubble('error', formatError(error && error.message ? error.message : String(error))))
+      toggle.disabled = true
+      togglePlugin(name).catch((error) => {
+        byId('capabilityNotice').textContent = formatError(error && error.message ? error.message : String(error))
+        toggle.disabled = false
+      })
     })
 
     head.appendChild(icon)
@@ -3002,7 +3378,7 @@ function renderPlugins(plugins, tools) {
       const chip = document.createElement('span')
       chip.className = 'plugin-tool-chip'
       chip.textContent = tool.name
-      if (tool.description) chip.title = tool.description
+      chip.title = (tool.exposedName || tool.name) + (tool.description ? '\n' + tool.description : '')
       chips.appendChild(chip)
     }
 
@@ -3082,7 +3458,6 @@ function setupReplyLanguageDropdown() {
 
 function readSettingsForm() {
   return {
-    ...(byId('brandNameInput') ? readBrandForm() : {}),
     maxIterations: Math.max(1, Math.min(500, Number(byId('maxIterations').value) || 100)),
     /* 并发会话上限：后端按会话起 worker，这里就是「同时能跑几条」 */
     maxConcurrentRuns: Math.max(1, Math.min(64, Number(byId('maxConcurrentRuns').value) || 8)),
@@ -3097,13 +3472,6 @@ function readSettingsForm() {
 
 function fillSettingsForm() {
   const settings = state.settings || {}
-  if (byId('brandNameInput')) {
-    byId('brandNameInput').value = settings.brandName === undefined ? 'Agent' : settings.brandName
-    brandIconDraft = settings.brandIcon || ''
-    for (const key of ['showBrandName', 'showBrandIcon', 'showPlatformBadge']) byId(key).checked = settings[key] !== false
-    byId('brandIconPreview').src = brandIconDraft || 'logo.png'
-  }
-  applyBrand(settings)
   byId('maxIterations').value = settings.maxIterations || 100
   byId('maxConcurrentRuns').value = settings.maxConcurrentRuns || 8
   byId('maxTokens').value = settings.maxTokens === undefined ? 32768 : settings.maxTokens
@@ -3138,7 +3506,6 @@ let settingsSaveTimer = null
 async function saveSettingsNow() {
   if (not(state.settings)) return
   state.settings = await window.dsh.saveSettings(readSettingsForm())
-  applyBrand(state.settings)
   renderModelSelect()
   renderModelInfo()
   renderPermission()
@@ -3221,7 +3588,7 @@ async function sendMessage() {
     autoResizeComposer()
     return
   }
-  if (not(state.workspacePath)) {
+  if (not(state.workspacePath) && !(currentSession() && currentSession().knowledgeBaseId)) {
     addBubble('error', '\u8bf7\u5148\u9009\u62e9\u6216\u65b0\u5efa\u672c\u5730\u5de5\u4f5c\u533a\u76ee\u5f55')
     return
   }
@@ -3247,6 +3614,13 @@ async function sendMessage() {
   const sessionId = session ? session.id : ''
   const history = session && Array.isArray(session.messages) ? session.messages.slice() : []
   const memory = session && session.memory ? session.memory : undefined
+  let workflowText=text
+  try{if(window.workflowChat)workflowText=await window.workflowChat.textFor(session,text)}catch(error){addBubble('error','流程引用读取失败：'+error.message);return}
+  const chatPayload = JSON.stringify({ text:workflowText, history, images, memory })
+  const chatBytes = typeof Blob === 'function' ? new Blob([chatPayload]).size : chatPayload.length
+  if (chatBytes > 32 * 1024 * 1024) {
+    addBubble('error', '本次消息与附件过大，请减少附件或新建会话；草稿已保留。'); return
+  }
   const userContent = buildUserContent(text, images)
   if (session) {
     /* 新一轮开始：把上一轮的思考块**收尾**（去掉「进行中」样式、标题改回「思考过程」），
@@ -3265,6 +3639,7 @@ async function sendMessage() {
   input.innerHTML = ''
   clearComposerAttachments()
   autoResizeComposer()
+  if (window.agentUI) window.agentUI.clearPlan()
   addRun(sessionId)
   state.liveRun = true
   applyRunState()
@@ -3275,7 +3650,7 @@ async function sendMessage() {
      直接告诉用户把上限调大或稍后再发。 */
   let isBusy = false
   try {
-    await window.dsh.send(text, history, images, memory, sessionId)
+    await window.dsh.send(workflowText, history, images, memory, sessionId)
   } catch (error) {
     const message = error && error.message ? String(error.message) : String(error)
     const isPoolBusy = message.indexOf('POOL_BUSY') !== -1
@@ -3310,6 +3685,7 @@ async function sendMessage() {
 }
 
 function promptText(title, defaultValue) {
+  const prior=document.activeElement
   return new Promise((resolve) => {
     const modal = byId('textPromptModal')
     const input = byId('textPromptInput')
@@ -3324,6 +3700,7 @@ function promptText(title, defaultValue) {
       ok.removeEventListener('click', onOk)
       cancel.removeEventListener('click', onCancel)
       input.removeEventListener('keydown', onKey)
+      setTimeout(()=>{if(prior&&prior.isConnected&&typeof prior.focus==='function')prior.focus()},0)
     }
     const onOk = () => {
       const value = input.value.trim()
@@ -3335,7 +3712,7 @@ function promptText(title, defaultValue) {
       resolve(null)
     }
     const onKey = (event) => {
-      if (event.key === 'Enter') {
+      if (event.key === 'Enter' && !event.isComposing) {
         event.preventDefault()
         onOk()
       }
@@ -3607,7 +3984,7 @@ function handleGlobalKeydown(event) {
     }
     return
   }
-  if (event.key !== 'Enter') return
+  if (event.key !== 'Enter' || event.isComposing) return
   if (event.target === byId('input')) return
   if (activeTag === 'BUTTON' && active) {
     return
@@ -3655,9 +4032,9 @@ function setupSidebarToggle() {
   /* 启动只应用布局。此时会话还没加载，写回会把服务端记录覆盖为空，
      并将本地时间戳顶成最新，使后续读取误认为空的本地数据更新。 */
   setCollapsed(localStorage.getItem('dsh-sidebar-collapsed') === '1')
-  button.addEventListener('click', () => {
-    setCollapsed(not(app.classList.contains('sidebar-collapsed')), true)
-  })
+  const toggle = () => setCollapsed(not(app.classList.contains('sidebar-collapsed')), true)
+  button.addEventListener('click', toggle)
+  document.addEventListener('app:toggle-sidebar', toggle)
 }
 
 function setupTitlebar() {
@@ -3832,7 +4209,13 @@ async function init() {
   autoResizeComposer()
   applyPlatformBadge()
   setupComposer()
+  if (window.agentUI) window.agentUI.init({
+    status: setStatus, setInput: setInputContent, input: () => byId('input').textContent || '',
+    attach: addComposerAttachment, association: openSessionAssociation, workspace: () => byId('createWorkspace').click(), retry: reloadPage,
+    logs: async () => { try { const info = await window.dsh.getState(); addBubble('notice', JSON.stringify({ runtime: info.runtime, executions: info.executions }, null, 2)) } catch (error) { addBubble('error', error.message) } }
+  })
   const initial = await window.dsh.getState()
+  if (window.agentUI) window.agentUI.connection(true)
   state.settings = initial.settings
   state.workspacePath = initial.workspacePath
   /* 会话存储：服务端优先（跟端口无关），拿完顺手把界面偏好校正一次。
@@ -3847,7 +4230,7 @@ async function init() {
   if (savedSession) {
     state.currentSessionId = savedSession.id
     state.activeProjectId = savedSession.scope === 'recent' ? '' : savedSession.projectId
-    if (savedSession.scope === 'recent' && savedSession.workspacePath) {
+    if (savedSession.scope === 'recent' && !savedSession.knowledgeBaseId && savedSession.workspacePath) {
       state.settings = await window.dsh.saveSettings({ workspacePath: savedSession.workspacePath })
       state.workspacePath = state.settings.workspacePath || savedSession.workspacePath
     }
@@ -3862,12 +4245,15 @@ async function init() {
     }
   }
   saveCurrentSessionId(state.currentSessionId)
+  renderSkills(initial.skills)
   renderPlugins(initial.plugins, initial.tools)
+  renderMcp(initial.mcp)
   renderModelSelect()
   renderWorkspace()
   /* 宿主可能已经在跑几条会话（页面刚刷新过）：**先把账本铺上再画消息区** ——
      renderMessages 要靠 currentRunning() 判断「这条会话是不是正在跑」，
      顺序反了会画出一个静态过程块、紧接着又起一个空块（重复）。 */
+  if (initial.executions) for (const id of Object.keys(initial.executions)) { const session = findSessionById(id); if (session) session.lastExecution = initial.executions[id] }
   applyRuns(initial.runningSessions, initial.running)
   state.runLimit = Number(initial.maxConcurrentRuns) > 0 ? Number(initial.maxConcurrentRuns) : state.runLimit
   renderMessages(currentSession())
@@ -3961,8 +4347,7 @@ async function init() {
   byId('capabilityOk').addEventListener('click', hideCapabilityModal)
   byId('capabilitySettings').addEventListener('click', () => {
     hideCapabilityModal()
-    openSettings()
-    showSettingsTab('plugins')
+    openCapabilities('plugins')
   })
   /* 消息里的链接：拦截默认跳转，交给默认浏览器（Electron 壳内跳转会弹安全策略） */
   document.addEventListener('click', (event) => {
@@ -3973,17 +4358,40 @@ async function init() {
     if (not(openExternalLink(href))) return
     event.preventDefault()
   })
-  byId('newSession').addEventListener('click', async () => {
-    const settings = state.settings || {}
-    const session = createSession(settings.currentProjectId, '\u65b0\u4f1a\u8bdd', 'recent')
-    selectSession(session.id)
-    setStatus('\u65b0\u4f1a\u8bdd')
-  })
+  const newSessionAction = () => { const session=createSession('','新会话','recent');selectSession(session.id);setStatus('新会话') }
+  byId('newSession').addEventListener('click', newSessionAction)
+  if(byId('newSessionAssociation'))byId('newSessionAssociation').addEventListener('click',()=>openSessionAssociation())
+  if (window.desktopWindow && window.desktopWindow.onCommand) {
+    const unsubscribe = window.desktopWindow.onCommand((id) => {
+      if (id === 'new-session') newSessionAction()
+      if (id === 'add-project') openProjectModal()
+      if (id === 'settings') openSettings()
+      if (id === 'sidebar') document.dispatchEvent(new Event('app:toggle-sidebar'))
+      const panel = window.filePanel
+      if (panel && id === 'panel') panel.toggle()
+      if (panel && id === 'markdown') panel.toggleMarkdownPreview()
+      if (panel && id === 'close-file') panel.closeActive().catch((error) => setStatus(error.message))
+    })
+    let previous = ''
+    const publish = () => {
+      const value = window.filePanel ? window.filePanel.menuState() : {}
+      value.sidebar = !byId('app').classList.contains('sidebar-collapsed')
+      const serialized = JSON.stringify(value)
+      if (serialized !== previous && window.desktopWindow.menuState) {
+        previous = serialized
+        window.desktopWindow.menuState(value)
+      }
+    }
+    const observer = new MutationObserver(publish)
+    observer.observe(document.getElementById('app'), { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    publish()
+    window.addEventListener('beforeunload', () => { unsubscribe(); observer.disconnect() }, { once: true })
+  }
 
   if (byId('railNewSession')) byId('railNewSession').addEventListener('click', () => byId('newSession').click())
   if (byId('railCreateWorkspace')) byId('railCreateWorkspace').addEventListener('click', () => byId('createWorkspace').click())
   setupComposerModelDropdown()
-  byId('composerMore').addEventListener('click', openSettings)
+  byId('composerMore').addEventListener('click', () => window.agentUI ? window.agentUI.menu() : openSettings())
   setupPermissionDropdowns()
   setupReplyLanguageDropdown()
   byId('addModel').addEventListener('click', addModel)
@@ -4004,7 +4412,9 @@ async function init() {
       await window.dsh.stop(sessionId)
     } catch (error) {
       addBubble('error', error && error.message ? error.message : String(error))
+      return
     }
+    if (state.currentSessionId === sessionId) endThinking('已停止')
     removeRun(sessionId)
     applyRunState()
     setStatus('stopped by user')
@@ -4022,8 +4432,15 @@ async function init() {
       flushPendingMessage()
     }, 1500)
   })
+  const approvalCard = byId('approvalModal')
+  const composer = document.querySelector('.composer')
+  if (approvalCard && composer && composer.parentNode) composer.parentNode.insertBefore(approvalCard, composer)
+  if (byId('sessionMenuDelete')) byId('sessionMenuDelete').addEventListener('click', () => { const session = state.menuSession; closeAllMenus(); deleteSession(session) })
+  if (byId('sessionMenuPin')) byId('sessionMenuPin').addEventListener('click', () => {
+    const session = state.menuSession; if (session) { session.pinned = !session.pinned; saveSessionStore(); renderWorkspaceList() }; closeAllMenus()
+  })
   setupTitleAlignment()
-  setupBrandSettings()
+  setupCapabilityCenter()
   byId('openSettings').addEventListener('click', openSettings)
   byId('closeSettings').addEventListener('click', closeSettings)
   const settingsAutoSaveIds = ['maxIterations', 'maxConcurrentRuns', 'maxTokens', 'contextWindowTokens', 'keepRecentMessages', 'requestTimeoutSeconds', 'contextAutoCompress']
@@ -4070,13 +4487,14 @@ async function init() {
 
 window.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('keydown', handleGlobalKeydown)
-  init().catch((error) => addBubble('error', formatError(error.message)))
+  init().catch((error) => { if (window.agentUI) window.agentUI.connection(false, error.message); addBubble('error', formatError(error.message)) })
 })
 
 window.addEventListener('beforeunload', () => {
   beaconUiStore()
   if (composerObserver) composerObserver.disconnect()
   composerObserver = null
+  stopRunStatus()
   if (state.runPoll) clearInterval(state.runPoll)
   if (state.queueTimer) clearTimeout(state.queueTimer)
   if (state.waitingTimer) clearTimeout(state.waitingTimer)
@@ -4088,3 +4506,467 @@ window.addEventListener('beforeunload', () => {
   settingsSaveTimer = null
   uiStorePush.retryTimer = null
 })
+
+
+let systemSkillList = []
+let skillSavePending = false
+function renderSkills(items) {
+  if (Array.isArray(items)) systemSkillList = items
+  const list = byId('skillLibraryList')
+  if (!list) return
+  const query = (byId('skillSearch').value || '').trim().toLowerCase()
+  list.textContent = ''
+  for (const item of systemSkillList.filter((item) => (item.name + ' ' + item.id + ' ' + item.description).toLowerCase().includes(query))) {
+    const row = document.createElement('div')
+    row.className = 'capability-row'
+    const icon = document.createElement('span')
+    icon.className = 'capability-skill-icon'
+    icon.setAttribute('aria-hidden', 'true')
+    icon.innerHTML = window.renderIcon('customize')
+    const info = document.createElement('div')
+    const title = document.createElement('strong'); title.textContent = item.name
+    const desc = document.createElement('p'); desc.textContent = item.description || item.id; desc.className = 'muted'; desc.title = desc.textContent
+    info.append(title, desc)
+    const scope = document.createElement('span'); scope.textContent = '全局'; scope.className = 'capability-scope'
+    const toggle = document.createElement('button')
+    const enabled = !(state.settings.disabledSkills || []).includes(item.id)
+    toggle.className = 'plugin-switch' + (enabled ? ' on' : '')
+    toggle.disabled = skillSavePending
+    toggle.dataset.skillId = item.id
+    toggle.setAttribute('role', 'switch'); toggle.setAttribute('aria-checked', String(enabled)); toggle.setAttribute('aria-label', item.name)
+    const knob = document.createElement('span'); knob.className = 'plugin-switch-knob'; toggle.appendChild(knob)
+    toggle.addEventListener('click', async () => {
+      if (skillSavePending) return
+      skillSavePending = true
+      list.querySelectorAll('button').forEach((button) => { button.disabled = true })
+      try {
+        const disabled = new Set(state.settings.disabledSkills || [])
+        if (enabled) disabled.add(item.id); else disabled.delete(item.id)
+        state.settings = await window.dsh.saveSettings({ disabledSkills: Array.from(disabled) })
+        byId('capabilityNotice').textContent = (enabled ? '已关闭：' : '已启用：') + item.name
+      } catch (error) { byId('capabilityNotice').textContent = formatError(error.message) }
+      finally {
+        skillSavePending = false
+        renderSkills()
+        const target = Array.from(list.querySelectorAll('[data-skill-id]')).find((button) => button.dataset.skillId === item.id)
+        if (target) target.focus()
+      }
+    })
+    row.append(icon, info, scope, toggle); list.appendChild(row)
+  }
+  if (!list.children.length) { const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = '没有匹配的技能'; list.appendChild(empty) }
+  byId('capTabSkills').textContent = '技能 ' + systemSkillList.length
+  updateShortcutMeta()
+}
+
+/* ---------------- MCP 连接器（能力中心） ----------------
+   MCP 服务配置是全局设置；保存后宿主会重连服务并重新注册工具。
+   UI 只负责编辑/测试，不直接 spawn 进程或发 JSON-RPC。 */
+let mcpServerState = { servers: [], connected: 0, tools: 0 }
+let mcpEditingConfig = null
+let mcpTransport = 'stdio'
+let mcpSavePending = false
+let mcpPriorFocus = null
+const mcpExpandedTools = new Set()
+
+function mcpConfigList() {
+  const list = state.settings && Array.isArray(state.settings.mcpServers) ? state.settings.mcpServers : []
+  return list.map((item) => Object.assign({}, item))
+}
+
+function renderMcp(data) {
+  if (data && typeof data === 'object') mcpServerState = data
+  const list = byId('mcpList')
+  if (not(list)) return
+  list.textContent = ''
+  const tab = byId('capTabConnectors')
+  if (tab) tab.textContent = '连接器 ' + (mcpServerState.available || mcpServerState.connected || 0)
+  if (mcpServerState.error) {
+    const error = document.createElement('p')
+    error.className = 'mcp-error'
+    error.textContent = formatError(mcpServerState.error)
+    list.appendChild(error)
+  }
+  if (not(mcpServerState.servers) || mcpServerState.servers.length === 0) {
+    const empty = document.createElement('p')
+    empty.className = 'capability-empty'
+    empty.textContent = '还没有 MCP 服务。添加本地 stdio 或内网 HTTP 服务后，工具会自动出现在模型工具列表里。'
+    list.appendChild(empty)
+    return
+  }
+  for (const server of mcpServerState.servers) {
+    const card = document.createElement('div')
+    card.className = 'mcp-server' + ((server.status === 'connected' || server.status === 'available') ? '' : ' mcp-server-off')
+    const head = document.createElement('div')
+    head.className = 'mcp-server-head'
+    const dot = document.createElement('span')
+    dot.className = 'mcp-dot ' + ((server.status === 'connected' || server.status === 'available') ? 'on' : server.status === 'error' ? 'error' : 'off')
+    dot.setAttribute('aria-hidden', 'true')
+    const info = document.createElement('div')
+    info.className = 'mcp-server-info'
+    const title = document.createElement('strong')
+    title.textContent = server.name || server.id
+    const meta = document.createElement('span')
+    meta.className = 'mcp-server-meta'
+    meta.textContent = (server.builtin ? '内置' : server.transport === 'http' ? 'HTTP' : 'stdio') + ' · ' + ((server.status === 'connected' || server.status === 'available') ? (server.builtin ? '离线可用' : '已连接') : server.status === 'error' ? '连接失败' : server.status === 'disabled' ? '已停用' : '未连接') + ' · ' + server.tools.length + ' 个工具'
+    info.append(title, meta)
+    const spacer = document.createElement('span')
+    spacer.className = 'mcp-spacer'
+    const edit = document.createElement('button')
+    edit.type = 'button'; edit.className = 'mcp-icon-button'; edit.textContent = '编辑'
+    edit.addEventListener('click', () => openMcpEditor(server))
+    const remove = document.createElement('button')
+    remove.type = 'button'; remove.className = 'mcp-icon-button danger'; remove.textContent = '删除'
+    remove.addEventListener('click', async () => {
+      if (not(await confirmDialog('确定删除 MCP 服务「' + (server.name || server.id) + '」吗？'))) return
+      const next = mcpConfigList().filter((item) => item.id !== server.id)
+      await saveMcpConfigs(next, '已删除 MCP 服务：' + (server.name || server.id))
+    })
+    const toggle = document.createElement('button')
+    const enabled = server.enabled !== false
+    toggle.className = 'plugin-switch' + (enabled ? ' on' : '')
+    toggle.setAttribute('role', 'switch')
+    toggle.setAttribute('aria-checked', String(enabled))
+    toggle.setAttribute('aria-label', '启用 MCP 服务 ' + (server.name || server.id))
+    const knob = document.createElement('span'); knob.className = 'plugin-switch-knob'; toggle.appendChild(knob)
+    toggle.addEventListener('click', async () => {
+      toggle.disabled = true
+      try {
+        if (server.builtin) {
+          const disabled = new Set(state.settings.disabledBuiltinMcp || [])
+          if (enabled) disabled.add(server.id); else disabled.delete(server.id)
+          state.settings = await window.dsh.saveSettings({ disabledBuiltinMcp: Array.from(disabled) })
+          await refreshMcp()
+          return
+        }
+        const next = mcpConfigList().map((item) => item.id === server.id ? Object.assign({}, item, { enabled: not(enabled) }) : item)
+        await saveMcpConfigs(next, (enabled ? '已停用：' : '已启用：') + (server.name || server.id))
+      } finally { toggle.disabled = false }
+    })
+    head.append(dot, info, spacer)
+    if (!server.builtin) head.append(edit, remove)
+    head.appendChild(toggle)
+    card.appendChild(head)
+    if (server.error) {
+      const error = document.createElement('p'); error.className = 'mcp-error'; error.textContent = formatError(server.error); card.appendChild(error)
+    }
+    if (server.tools.length > 0) {
+      const details = document.createElement('details'); details.className = 'mcp-tool-details'
+      details.open = mcpExpandedTools.has(server.id)
+      details.addEventListener('toggle', () => { if (details.open) mcpExpandedTools.add(server.id); else mcpExpandedTools.delete(server.id) })
+      const summary = document.createElement('summary'); summary.textContent = '查看 ' + server.tools.length + ' 个工具'
+      details.appendChild(summary)
+      const chips = document.createElement('div'); chips.className = 'mcp-tool-chips'
+      for (const tool of server.tools.slice(0, 40)) {
+        const chip = document.createElement('span'); chip.className = 'plugin-tool-chip'
+        const titles = { docx_read: '读取 Word', docx_create: '新建 Word', docx_edit: '编辑 Word', xlsx_read: '读取 Excel', xlsx_create: '新建 Excel', xlsx_edit: '编辑 Excel' }
+        chip.textContent = (server.builtin && titles[tool.name] ? titles[tool.name] + ' · ' : '') + tool.name
+        chip.title = (tool.exposedName || tool.name) + (tool.description ? '\n' + tool.description : '')
+        chips.appendChild(chip)
+      }
+      details.appendChild(chips); card.appendChild(details)
+    }
+    list.appendChild(card)
+  }
+}
+
+// Repeatable rows keep argv values literal; no whitespace splitting or shell parsing.
+const MCP_ROW_TYPES = { mcpArgs: false, mcpEnv: true, mcpEnvPass: false, mcpHeaders: true, mcpHeaderEnv: true }
+function addMcpRow(id, values, focus) {
+  const box = byId(id), row = document.createElement('div'); row.className = 'mcp-config-row'
+  const pair = MCP_ROW_TYPES[id], labels = pair ? ['键', id === 'mcpHeaderEnv' ? '环境变量名' : '值'] : [id === 'mcpEnvPass' ? '环境变量名' : '参数']
+  for (let index = 0; index < labels.length; index++) {
+    const input = document.createElement('input'); input.value = (values && values[index]) || ''; input.placeholder = labels[index]
+    input.setAttribute('aria-label', box.getAttribute('aria-label') + ' ' + labels[index]); input.maxLength = 8192
+    row.appendChild(input)
+  }
+  const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'mcp-remove-row'; remove.textContent = '×'; remove.setAttribute('aria-label', '删除此行')
+  remove.addEventListener('click', () => { const next = row.nextElementSibling || row.previousElementSibling; row.remove(); if (next) next.querySelector('input').focus(); else document.querySelector('[data-mcp-add="' + id + '"]').focus() })
+  row.appendChild(remove); box.appendChild(row); if (focus) row.querySelector('input').focus()
+}
+function fillMcpRows(id, value) {
+  byId(id).textContent = ''
+  const rows = MCP_ROW_TYPES[id] ? Object.entries(value || {}) : (value || []).map(v => [v])
+  for (const values of rows.length ? rows : [[]]) addMcpRow(id, values)
+}
+function readMcpRows(id) {
+  const rows = Array.from(byId(id).children).map(row => Array.from(row.querySelectorAll('input')).map(input => input.value))
+  if (!MCP_ROW_TYPES[id]) return rows.map(row => row[0]).filter(value => value !== '')
+  const out = {}, seen = new Set()
+  for (const [rawKey, value] of rows) {
+    const key = rawKey.trim(); if (!key && !value) continue
+    if (!key) throw new Error('请填写' + byId(id).getAttribute('aria-label') + '的键')
+    const comparable = id === 'mcpHeaders' || id === 'mcpHeaderEnv' ? key.toLowerCase() : key
+    if (seen.has(comparable) || ['__proto__', 'constructor', 'prototype'].includes(key)) throw new Error('配置键重复或无效：' + key)
+    seen.add(comparable); out[key] = value
+  }
+  return out
+}
+
+function setMcpTransport(value) {
+  mcpTransport = value === 'http' ? 'http' : 'stdio'
+  for (const button of document.querySelectorAll('[data-mcp-transport]')) {
+    const active = button.getAttribute('data-mcp-transport') === mcpTransport
+    button.setAttribute('aria-checked', String(active))
+    button.classList.toggle('is-on', active)
+    button.tabIndex = active ? 0 : -1
+  }
+  byId('mcpStdioFields').classList.toggle('hidden', mcpTransport !== 'stdio')
+  byId('mcpHttpFields').classList.toggle('hidden', mcpTransport !== 'http')
+  for (const [id, active] of [['mcpStdioFields', mcpTransport === 'stdio'], ['mcpHttpFields', mcpTransport === 'http']]) {
+    byId(id).hidden = !active
+    for (const input of byId(id).querySelectorAll('input,textarea')) input.disabled = !active
+  }
+}
+
+function openMcpEditor(server) {
+  mcpPriorFocus = document.activeElement
+  mcpEditingConfig = server && server.config ? Object.assign({}, server.config) : null
+  const config = mcpEditingConfig || { transport: 'stdio', permission: 'write', enabled: true }
+  byId('mcpId').value = config.id || ''
+  byId('mcpName').value = config.name || ''
+  byId('mcpCommand').value = config.command || ''
+  fillMcpRows('mcpArgs', config.args)
+  fillMcpRows('mcpEnv', config.env)
+  fillMcpRows('mcpEnvPass', config.envPass)
+  byId('mcpCwd').value = config.cwd || ''
+  byId('mcpUrl').value = config.url || ''
+  fillMcpRows('mcpHeaders', config.headers)
+  fillMcpRows('mcpHeaderEnv', config.headerEnv)
+  byId('mcpBearerEnv').value = config.bearerTokenEnv || ''
+  for (const details of byId('mcpForm').querySelectorAll('.mcp-optional')) details.open = false
+  byId('mcpPermission').value = config.permission || 'write'
+  if (window.agentSelect) window.agentSelect.refresh(byId('mcpPermission'))
+  byId('mcpEnabled').checked = config.enabled !== false
+  byId('mcpTestResult').textContent = ''
+  byId('mcpEditorTitle').textContent = server ? '编辑 MCP 服务' : '添加 MCP 服务'
+  setMcpTransport(config.transport || 'stdio')
+  byId('mcpDialog').classList.remove('hidden')
+  byId('app').inert = true
+  byId('mcpName').focus()
+}
+
+function closeMcpEditor() {
+  if (mcpSavePending) return
+  if (window.agentSelect) window.agentSelect.close(false)
+  byId('app').inert = false
+  byId('mcpDialog').classList.add('hidden')
+  mcpEditingConfig = null
+  if (mcpPriorFocus && mcpPriorFocus.isConnected) mcpPriorFocus.focus()
+}
+
+function readMcpForm() {
+  const base = mcpEditingConfig || {}
+  const config = Object.assign({}, base, {
+    id: byId('mcpId').value || base.id || '',
+    name: byId('mcpName').value.trim(),
+    transport: mcpTransport,
+    permission: byId('mcpPermission').value,
+    enabled: byId('mcpEnabled').checked
+  })
+  if (config.name === '') throw new Error('请填写 MCP 服务名称')
+  if (mcpTransport === 'stdio') {
+    config.command = byId('mcpCommand').value.trim()
+    config.args = readMcpRows('mcpArgs')
+    config.env = readMcpRows('mcpEnv')
+    config.envPass = readMcpRows('mcpEnvPass').map(name => name.trim())
+    config.cwd = byId('mcpCwd').value.trim()
+    if (config.command === '') throw new Error('请填写 MCP 启动命令')
+  } else {
+    config.url = byId('mcpUrl').value.trim()
+    if (config.url === '') throw new Error('请填写 MCP endpoint')
+    config.headers = readMcpRows('mcpHeaders')
+    config.headerEnv = readMcpRows('mcpHeaderEnv')
+    config.bearerTokenEnv = byId('mcpBearerEnv').value.trim()
+  }
+  return config
+}
+
+let mcpRefreshPending = false
+async function refreshMcp() {
+  if (mcpRefreshPending || not(window.dsh) || typeof window.dsh.mcpRequest !== 'function') return
+  mcpRefreshPending = true
+  try {
+    const data = await window.dsh.mcpRequest('list')
+    renderMcp(data)
+  } catch (error) {
+    byId('mcpNotice').textContent = formatError(error && error.message ? error.message : String(error))
+  } finally { mcpRefreshPending = false }
+}
+
+async function saveMcpConfigs(list, message) {
+  mcpSavePending = true
+  byId('mcpNotice').textContent = '正在保存并重新连接…'
+  try {
+    state.settings = await window.dsh.saveSettings({ mcpServers: list })
+    await refreshMcp()
+    byId('mcpNotice').textContent = message || 'MCP 配置已保存'
+  } finally { mcpSavePending = false }
+}
+
+async function testMcpForm() {
+  if (mcpSavePending) return
+  const output = byId('mcpTestResult')
+  let config
+  try { config = readMcpForm() } catch (error) { output.textContent = formatError(error.message); return }
+  output.textContent = '正在连接并读取工具列表…'
+  try {
+    const result = await window.dsh.mcpRequest('test', config)
+    const tools = Array.isArray(result.tools) ? result.tools : []
+    output.textContent = '连接成功，发现 ' + tools.length + ' 个工具' + (tools.length ? '：' + tools.slice(0, 6).map((tool) => tool.name).join(' / ') : '')
+  } catch (error) {
+    output.textContent = formatError(error && error.message ? error.message : String(error))
+  }
+}
+
+function setupMcp() {
+  if (not(byId('mcpAdd'))) return
+  const statusTimer = setInterval(() => {
+    if (!document.hidden && !byId('capabilityCenter').classList.contains('hidden') && !byId('capConnectors').classList.contains('hidden')) refreshMcp()
+  }, 5000)
+  window.addEventListener('beforeunload', () => clearInterval(statusTimer), { once: true })
+  document.body.appendChild(byId('mcpDialog'))
+  for (const button of document.querySelectorAll('[data-mcp-add]')) button.addEventListener('click', () => addMcpRow(button.dataset.mcpAdd, [], true))
+  byId('mcpAdd').addEventListener('click', () => openMcpEditor(null))
+  byId('mcpCloseEditor').addEventListener('click', closeMcpEditor)
+  byId('mcpCancel').addEventListener('click', closeMcpEditor)
+  byId('mcpTest').addEventListener('click', () => testMcpForm())
+  for (const button of document.querySelectorAll('[data-mcp-transport]')) {
+    button.addEventListener('click', () => setMcpTransport(button.getAttribute('data-mcp-transport')))
+    button.addEventListener('keydown', event => {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault()
+        setMcpTransport(event.key === 'Home' ? 'stdio' : event.key === 'End' ? 'http' : mcpTransport === 'stdio' ? 'http' : 'stdio')
+        document.querySelector('[data-mcp-transport="' + mcpTransport + '"]').focus()
+      }
+    })
+  }
+  byId('mcpForm').addEventListener('submit', async (event) => {
+    event.preventDefault()
+    if (mcpSavePending) return
+    let config
+    try { config = readMcpForm() } catch (error) { byId('mcpTestResult').textContent = formatError(error.message); return }
+    const list = mcpConfigList()
+    const existing = list.findIndex((item) => item.id === config.id)
+    if (config.id && existing >= 0) list[existing] = config
+    else list.push(config)
+    try {
+      await saveMcpConfigs(list, '已保存 MCP 服务：' + config.name)
+      closeMcpEditor()
+    } catch (error) { byId('mcpTestResult').textContent = formatError(error && error.message ? error.message : String(error)) }
+  })
+  byId('mcpDialog').addEventListener('click', event => { if (event.target === byId('mcpDialog')) closeMcpEditor() })
+  byId('mcpDialog').addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMcpEditor() }
+    if (event.key === 'Tab') {
+      const controls = Array.from(byId('mcpDialog').querySelectorAll('button,input,select,textarea,summary')).filter(n => !n.disabled && n.tabIndex >= 0 && n.offsetParent !== null)
+      const first = controls[0], last = controls[controls.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+  })
+  refreshMcp()
+}
+
+function openCapabilities(section) {
+  if(window.workflowUI)window.workflowUI.hide()
+  const center = byId('capabilityCenter')
+  center.classList.remove('hidden')
+  byId('contentFrame').classList.add('hidden')
+  byId('app').classList.add('capabilities-open')
+  byId('openCustomize').setAttribute('aria-current', 'page')
+  if (section) {
+    for (const tab of center.querySelectorAll('[data-cap-tab]')) {
+      const active = tab.dataset.capTab === section
+      tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1
+      byId(tab.getAttribute('aria-controls')).classList.toggle('hidden', !active)
+    }
+  }
+  const selected = center.querySelector('[role="tab"][aria-selected="true"]')
+  if (selected) selected.focus()
+}
+// Restore task tool rows from durable conversation facts when no browser observed the run.
+// No per-step timestamps exist in these messages: never manufacture elapsed times.
+function scheduledProcessEntries(messages) {
+  const entries = []
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]
+    if (message.role !== 'assistant' || !Array.isArray(message.tool_calls) || !message.tool_calls.length) continue
+    const content = document.createElement('div')
+    content.className = 'thinking-content'
+    for (const call of message.tool_calls) {
+      let args = {}; try { args = JSON.parse(call.function.arguments || '{}') } catch (_) {}
+      appendProcessTool(content, call.function.name, args)
+      const step = activeTimelineStep(content)
+      if (step) { step._startAt = 0; step.removeAttribute('data-started-at') }
+      const result = messages.slice(index + 1).find(item => item.role === 'tool' && item.tool_call_id === call.id)
+      if (result) appendProcessToolResult(content, call.function.name, result.content)
+      else if (step) closeTimelineStep(step, 'interrupted')
+    }
+    const nextReply = messages.slice(index + 1).find(item => item.role === 'assistant' && typeof item.content === 'string' && item.content)
+    entries.push({ html: content.innerHTML, beforeText: nextReply ? nextReply.content : '', afterMessage: index + 1 })
+  }
+  return entries
+}
+
+function setupCapabilityCenter() {
+  if (window.scheduledTasks) window.scheduledTasks.init({ settings: () => state.settings || {}, confirm: confirmDialog, sync: (data) => {
+    let changed = false
+    for (const run of data.runs.slice(0,20)) {
+      if (!run.sessionId) continue
+      let session = findSessionById(run.sessionId)
+      if (!session) { session = createSession('', run.task.name, 'recent'); session.id = run.sessionId; session.workspacePath = run.task.workspaceRoot; session.taskRunId = run.id; changed = true }
+      const status = run.status === 'needs_attention' ? 'blocked' : run.status === 'pending' ? 'idle' : run.status
+      if (!session.lastExecution || session.lastExecution.status !== status) { session.lastExecution = {status,startedAt:new Date(run.startedAt||run.createdAt).toISOString()}; changed = true }
+    }
+    if (changed) { saveSessionStore(); renderWorkspaceList() }
+  }, open: async (data) => {
+    let session = findSessionById(data.run.sessionId)
+    if (!session) { session = createSession('', data.run.task.name, 'recent'); session.id = data.run.sessionId; session.workspacePath = data.run.task.workspaceRoot }
+    session.lastExecution = data.session.execution
+    if (!session.processTimeline || !session.processTimeline.length) {
+      session.processTimeline = scheduledProcessEntries(data.session.messages || [])
+      session.legacyMessageCount = 0
+      session.legacyProcessHtml = ''
+      session.processHtml = session.processTimeline.map(entry => entry.html).join(THINKING_TURN_SEP)
+    }
+    updateSessionMessages(session.id, data.session.messages || [], data.session.memory)
+    byId('capabilityCenter').classList.add('hidden'); byId('contentFrame').classList.remove('hidden'); byId('app').classList.remove('capabilities-open'); byId('openCustomize').removeAttribute('aria-current')
+    await selectSession(session.id)
+  } })
+  const center = byId('capabilityCenter')
+  const open = (visible) => {
+    if (window.knowledgeUI) window.knowledgeUI.hide()
+    if (visible && window.workflowUI) window.workflowUI.hide()
+    center.classList.toggle('hidden', !visible)
+    byId('contentFrame').classList.toggle('hidden', visible)
+    byId('app').classList.toggle('capabilities-open', visible)
+    if (visible) openCapabilities(); else {
+      byId('openCustomize').removeAttribute('aria-current')
+      byId('openCustomize').focus()
+    }
+  }
+  byId('openCustomize').addEventListener('click', () => open(true))
+  byId('closeCapabilities').addEventListener('click', () => open(false))
+  byId('skillSearch').addEventListener('input', () => renderSkills())
+  setupMcp()
+  const tabs = Array.from(center.querySelectorAll('[data-cap-tab]'))
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => {
+      for (const other of tabs) {
+        const active = other === tab
+        other.setAttribute('aria-selected', String(active)); other.tabIndex = active ? 0 : -1
+        byId(other.getAttribute('aria-controls')).classList.toggle('hidden', !active)
+      }
+      if (tab.dataset.capTab === 'connectors') refreshMcp()
+    })
+    tab.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+      event.preventDefault()
+      const index = tabs.indexOf(tab)
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+      tabs[next].click(); tabs[next].focus()
+    })
+  }
+  center.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); open(false) } })
+}

@@ -5,11 +5,20 @@ const { foundation } = require('./plugins/foundation')
 function defaultProfile(options) {
   return [
     ...foundation(options),
+    require('./plugins/skill-library'),
     require('./plugins/model'),
+    require('./plugins/plans'),
+    require('./plugins/mcp'),
+    require('./plugins/knowledge'),
+    require('./plugins/knowledge-tools'),
     require('./plugins/sessions'),
     require('./plugins/memory'),
     require('./plugins/agent-loop'),
-    require('./plugins/agents')
+    require('./plugins/agents'),
+    require('./plugins/tasks'),
+    require('./plugins/workflow-nodes'),
+    require('./plugins/workflows'),
+    require('./plugins/workflow-tools')
   ]
 }
 module.exports = { defaultProfile }

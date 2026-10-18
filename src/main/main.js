@@ -120,6 +120,7 @@ async function createAgent() {
   pluginHost.loadFromDirectory(path.join(userData, 'plugins'))
   await pluginHost.ready()
   await pluginHost.configure()
+  try { await pluginHost.get('mcp').ready() } catch (error) { console.error('[mcp] startup failed:', error.message) }
   /* 一条会话一台 worker（与 server/index.js 同一套池，见 src/main/agent/agent-pool.js） */
   pool = new AgentPool({
     settings,
@@ -141,6 +142,7 @@ async function createAgent() {
     pluginHost,
     assetStore
   })
+  pluginHost.get('tasks').attach({ pool, home: userData, emit: sendEvent })
 }
 
 app.whenReady().then(async () => {
@@ -168,6 +170,7 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   if (runtimeShutdown) return
   runtimeShutdown = (async () => {
+    try { if (pluginHost && pluginHost.get('tasks')) await pluginHost.get('tasks').close() } catch (error) { console.error(error) }
     try { if (pool) await pool.dispose() } catch (error) { console.error(error) }
     try { if (pluginHost) await pluginHost.dispose() } catch (error) { console.error(error) }
     try { if (terminalApiModule) terminalApiModule.teardownAll() } catch (error) { console.error(error) }
@@ -197,6 +200,9 @@ ipcMain.handle('app:get-state', () => stateValue())
 ipcMain.handle('settings:save', async (_event, patch) => {
   const next = settings.update(patch || {})
   await pluginHost.configure()
+  if (patch && (Object.prototype.hasOwnProperty.call(patch, 'mcpServers') || Object.prototype.hasOwnProperty.call(patch, 'disabledBuiltinMcp'))) {
+    try { await pluginHost.get('mcp').reload() } catch (error) { console.error('[mcp] reload failed:', error.message) }
+  }
   if (patch && Object.prototype.hasOwnProperty.call(patch, 'theme')) applyWindowTheme([mainWindow], next.theme, nativeTheme)
   if (next.workspacePath) pool.setWorkspace(next.workspacePath)
   return next
@@ -216,6 +222,8 @@ function stateValue() {
     plugins: pool.listPlugins(),
     tools: pool.listTools(),
     executions: pool.executionStates(),
+    skills: pluginHost.requireService('skillLibrary').list(),
+    mcp: pluginHost.get('mcp') ? pluginHost.get('mcp').status() : { servers: [], connected: 0, tools: 0 },
     runtime: pluginHost.runtimeInfo()
   }
 }
@@ -465,4 +473,55 @@ ipcMain.handle('shell:open-external', async (_event, target) => {
   if (not(/^https?:\/\//i.test(link))) return 'BLOCKED'
   await shell.openExternal(link)
   return 'OK'
+})
+
+ipcMain.handle('workflows:request',async(_event,action,data)=>{const service=pluginHost.get('workflows');service.attach(sendEvent);if(action==='list')return service.list();if(!['save','remove','run','detail','stop','submit','context'].includes(action))throw Error('WORKFLOW_ACTION_INVALID');return service[action](data||{})})
+
+ipcMain.handle('knowledge:request', async (_event, action, data) => {
+  const knowledge = pluginHost.get('knowledge')
+  const raw = data || {}
+  if (typeof sendEvent === 'function') knowledge.attach(sendEvent)
+  if (action === 'list') return { ...await knowledge.list(), currentScope: pool.getWorkspace(), projects: settings.data.projects || [] }
+  if (action === 'create') return knowledge.create({ name: raw.name, scope: '' })
+  if (action === 'rename') return knowledge.rename(raw)
+  if (action === 'remove-base') return knowledge.removeBase(raw)
+  if (action === 'bind') return knowledge.bind(raw.scopes !== undefined ? { id: raw.id, scopes: raw.scopes } : { id: raw.id, scope: raw.enabled ? pool.getWorkspace() : '' })
+  if (action === 'bind-session' || action === 'delete-session') { if(pool.isRunning(raw.sessionId))throw Error('SESSION_BUSY');return action === 'bind-session' ? knowledge.bindSession(raw) : knowledge.deleteSession(raw) }
+  if (action === 'session-tree') return knowledge.sessionTree(raw)
+  if (action === 'session-preview') return knowledge.sessionPreview(raw)
+  if (action === 'tree') return knowledge.tree(raw)
+  if (action === 'project-preview') return knowledge.projectPreview(raw)
+  if (action === 'preview') return knowledge.preview(raw)
+  if (action === 'import') return knowledge.importBuffer(raw, Buffer.from(raw.bytes))
+  if (action === 'delete') return knowledge.remove(raw)
+  if (action === 'cancel') return knowledge.cancel(raw)
+  if (action === 'search') return raw.baseId ? knowledge.searchBase(raw) : knowledge.search(raw, pool.getWorkspace())
+  if (action === 'source') { const linked=raw.sessionId?await knowledge.sessionContext(raw.sessionId):null;return raw.baseId ? knowledge.sourceBase(raw) : knowledge.sourceSession(raw,linked?linked.workspaceRoot:pool.getWorkspace()) }
+  throw new Error('KNOWLEDGE_ACTION_INVALID')
+})
+
+ipcMain.handle('mcp:request', async (_event, action, data) => {
+  const mcp = pluginHost.get('mcp')
+  if (mcp === undefined || mcp === null) throw new Error('MCP_UNAVAILABLE')
+  if (action === 'list') return mcp.status()
+  if (action === 'reload') { await mcp.reload(); return mcp.status() }
+  if (action === 'test') return mcp.test(data)
+  throw new Error('MCP_ACTION_INVALID')
+})
+
+ipcMain.handle('tasks:request', async (_event, action, data) => {
+  const tasks = pluginHost.get('tasks')
+  if (action === 'list') return tasks.list()
+  if (action === 'save') return { task: tasks.save(data) }
+  if (action === 'bind-session' || action === 'delete-session') { if(pool.isRunning(raw.sessionId))throw Error('SESSION_BUSY');return action === 'bind-session' ? knowledge.bindSession(raw) : knowledge.deleteSession(raw) }
+  if (action === 'session-tree') return knowledge.sessionTree(raw)
+  if (action === 'session-preview') return knowledge.sessionPreview(raw)
+  if (action === 'tree') return knowledge.tree(raw)
+  if (action === 'project-preview') return knowledge.projectPreview(raw)
+  if (action === 'preview') return { nextAt: tasks.preview(data.rule) }
+  if (action === 'delete') { tasks.remove(data.id); return {ok:true} }
+  if (action === 'run') return {run:tasks.run(data.id)}
+  if (action === 'stop') { tasks.stop(data.id); return {ok:true} }
+  if (action === 'conversation') return tasks.conversation(data.runId)
+  throw new Error('TASK_ACTION_INVALID')
 })

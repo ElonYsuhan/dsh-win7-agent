@@ -97,6 +97,10 @@ async function main() {
   )
 
   /* ---- 同一目录判定 ---- */
+  check('AppTranslocation 不是可替换安装目录', installer.isTransientPackage('/private/var/folders/x/AppTranslocation/uuid/d/Agent.app', 'darwin'))
+  check('普通应用目录不被误判临时挂载', !installer.isTransientPackage('/Applications/Agent.app', 'darwin'))
+  check('其他平台不应用 macOS 临时挂载规则', !installer.isTransientPackage('/AppTranslocation/x', 'linux'))
+  check('默认后台更新无需页面或命令行标记', fs.readFileSync(path.join(__dirname, '..', 'shell/main.js'), 'utf8').includes('const result = await runUpdate()') && !fs.readFileSync(path.join(__dirname, '..', 'shell/main.js'), 'utf8').includes("loadLocal(mainWindow, 'update.html')"))
   check('samePath: 尾斜杠等价', installer.samePath('/a/b/', '/a/b', 'linux'))
   check('samePath: macOS 大小写不敏感', installer.samePath('/a/B', '/a/b', 'darwin'))
   check('samePath: linux 大小写敏感', installer.samePath('/a/B', '/a/b', 'linux') === false)

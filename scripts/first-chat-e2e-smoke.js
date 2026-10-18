@@ -16,6 +16,7 @@ const FIRST_TEXT = '第一次打开，没有新建会话，直接聊天'
 const FIRST_REPLY = '首轮本地测试回复'
 const SECOND_TEXT = '第二句话继续刚才的上下文'
 const SECOND_REPLY = '第二轮本地测试回复'
+const LARGE_CANCEL_TEXT = '取消进行中的测试请求' + 'x'.repeat(1100000) + '中文边界验证'.repeat(3000)
 let passed = 0
 
 function ok(name, condition, detail) {
@@ -107,6 +108,7 @@ async function main() {
   let logs = ''
   const model = http.createServer((req, res) => {
     let body = ''
+    req.setEncoding('utf8')
     req.on('data', (chunk) => { body += chunk.toString('utf8') })
     req.on('end', () => {
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -243,6 +245,23 @@ async function main() {
     ok('浏览器和服务进程全部关闭后重开，无本地缓存仍从磁盘恢复两轮思考',
       reopened.indexOf('检查过程：' + FIRST_REPLY) !== -1 && reopened.indexOf('检查过程：' + SECOND_REPLY) !== -1)
     ok('测试只调用了两次本机模型替身', modelRequests.length === 2)
+    await driver.input('#input', LARGE_CANCEL_TEXT)
+    await driver.click('#send')
+    await waitFor(() => modelRequests.length === 3, '超过旧 1MB 限额的请求正确到达模型并挂起')
+    ok('大于 1MB 的聊天载荷正确送达后端，界面原文完整保留', await driver.evaluate('currentSession().messages.some(m => m.content === ' + JSON.stringify(LARGE_CANCEL_TEXT) + ')'))
+    ok('模型请求继续遵循既有单条消息长度限额', modelRequests[2].messages.some(m => typeof m.content === 'string' && m.content.startsWith('取消进行中的测试请求') && m.content.length >= 60000))
+    await waitFor(() => driver.evaluate('currentRunning() && document.querySelectorAll(".thinking-active").length > 0'), '真实界面出现思考动画')
+    await driver.click('#stop')
+    await waitFor(() => driver.evaluate('!currentRunning() && document.querySelectorAll(".thinking-active").length === 0 && state.waitingTimer === null'), '停止后思考动画和等待定时器清零')
+    const stopped = await waitFor(async () => {
+      const response = await request('GET', base + '/api/state')
+      return response.data.running === false ? response.data : null
+    }, '后端模型请求取消并退出执行')
+    const stoppedSnapshot = JSON.parse(fs.readFileSync(path.join(home, 'sessions', sessionId, 'last-session.json'), 'utf8'))
+    ok('大载荷含中文的原文完整落盘，没有网络分块解码损坏', stoppedSnapshot.messages.some(m => m.content === LARGE_CANCEL_TEXT))
+    ok('真实挂起请求停止后，后端已结束，发送按钮和思考动画保持一致', stopped.runningSessions.length === 0
+      && await driver.evaluate('!document.getElementById("send").classList.contains("hidden") && document.querySelectorAll(".thinking-active").length === 0'))
+
   } catch (error) {
     console.error('FAIL  ' + (error.stack || error))
     if (driver.isOpen) {

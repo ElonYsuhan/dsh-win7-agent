@@ -237,8 +237,12 @@ async function runPreloads() {
         assert(f.root.classList.contains(platform === 'darwin' ? 'shell-mac' : 'window-controls-' + side))
       })
       check(label + ': platform-appropriate controls are created', () => {
-        assert.strictEqual(f.bar.children.length, platform === 'darwin' ? 0 : 1)
+        assert.strictEqual(f.bar.children.length, platform === 'darwin' ? 0 : 2)
         if (platform === 'darwin') return
+        const menu = f.bar.children[1]
+        assert.strictEqual(menu.attributes['aria-label'], '应用菜单')
+        menu.listeners.click()
+        assert(f.calls.some(c => c[0] === 'app:menu-popup'))
         const group = f.bar.children[0]
         assert.strictEqual(group.attributes.role, 'group')
         assert.deepStrictEqual(group.children.map((button) => button.attributes['data-window-action']), ['minimize', 'toggle-maximize', 'close'])

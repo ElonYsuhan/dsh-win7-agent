@@ -31,6 +31,7 @@ function verify(data, label) {
   assert(data.keepRecentMessages === 50, label + ': keepRecentMessages')
   assert(data.requestTimeoutMs === 1800000, label + ': requestTimeoutMs')
   assert(data.limitsVersion === 2, label + ': limitsVersion')
+  assert(Array.isArray(data.mcpServers) && data.mcpServers.length === 0, label + ': mcpServers default')
 }
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-settings-migration-'))

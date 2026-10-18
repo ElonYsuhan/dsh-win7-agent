@@ -174,7 +174,8 @@ async function run() {
     await pause(400)
     const logoName = process.platform === 'darwin' ? 'am.png' : (process.platform === 'win32' ? 'aw.png' : 'al.png')
     const logo = 'data:image/png;base64,' + fs.readFileSync(path.join(ROOT, 'assets', 'icons', logoName)).toString('base64')
-    await evaluate(`(() => { document.querySelector('.titlebar-brand img').src = ${JSON.stringify(logo)}; return true; })()`)
+    /* 侧栏品牌行已移除（用户 2026-10-17），这里按存在与否注入，避免空引用 */
+    await evaluate(`(() => { const img = document.querySelector('.titlebar-brand img'); if (img) img.src = ${JSON.stringify(logo)}; return true; })()`)
     await evaluate(`(() => { const s = document.createElement('style'); s.textContent = '*,*::before,*::after { transition:none !important; animation:none !important; }'; document.head.appendChild(s); return true; })()`)
     check('saved fixture restores real user, assistant and tool messages', await evaluate(`document.querySelectorAll('.bubble.user').length === 1 && document.querySelectorAll('.bubble.assistant').length === 2 && Boolean(document.querySelector('.thinking-tool-result'))`))
     win.webContents.debugger.attach('1.3')
@@ -220,7 +221,7 @@ async function run() {
       await capture('theme-' + theme + '-settings')
       await evaluate(`(async () => { closeSettings(); window.filePanel.open(); await window.filePanel.refresh(); await window.filePanel.openFile(${JSON.stringify(virtualRoot + '/main.js')}, { kind: 'code' }); document.getElementById('panelTerminal').click(); const details = document.querySelector('.thinking-block'); if (details) details.open = true; return true; })()`)
       await pause(200)
-      const panel = await evaluate(probe(['#filePanel', '.panel-head', '.panel-explorer', '.panel-tabs', '.panel-tab.active', '#panelPreview', '.tree-row', '.terminal-head', '.terminal-tab.on', '.terminal-dirs']))
+      const panel = await evaluate(probe(['#filePanel', '.panel-tabbar', '.panel-explorer', '.panel-tabs', '.panel-tab.active', '#panelPreview', '.tree-row', '.terminal-head', '.terminal-tab.on', '.terminal-dirs']))
       snapshots.push({ theme, phase: 'panel', snapshot: panel })
       check(theme + ': file panel, tabs, tree and terminal header follow neutral theme', Object.keys(panel.results).every((key) => panel.results[key] && neutral(panel.results[key].background) && panel.results[key].image === 'none'), Object.keys(panel.results).filter((key) => !panel.results[key] || !neutral(panel.results[key].background)).join(',') || 'all neutral')
       check(theme + ': code syntax keeps informative non-neutral colors', panel.highlights.length > 0 && panel.highlights.some((s) => !neutral(s.color)), panel.highlights.length + ' tokens')

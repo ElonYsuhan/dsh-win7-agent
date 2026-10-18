@@ -251,8 +251,8 @@ function brief(item) {
 }
 
 /** 系统提示里的技能清单块（短：id + 一句简介） */
-function systemPromptBlock() {
-  const items = scan()
+function systemPromptBlock(disabled) {
+  const items = scan().filter((item) => !disabled || !disabled.has(item.id))
   if (not(items.length)) return ''
   const lines = [
     '',

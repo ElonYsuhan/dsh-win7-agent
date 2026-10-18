@@ -65,8 +65,13 @@ class ToolRegistry {
   }
 
   async execute(name, args, context) {
+    const unattended = context && context.settings && context.settings.unattended
+    if (unattended && !unattended.tools.includes(name)) return 'DENIED: unattended ' + name + ': outside task tool allowlist'
     const tool = this.get(name)
-    if (not(tool) || !tool.active) throw new Error('UNKNOWN_TOOL: ' + name)
+    if (not(tool) || !tool.active) {
+      if (unattended) return 'DENIED: unattended ' + name + ': tool unavailable'
+      throw new Error('UNKNOWN_TOOL: ' + name)
+    }
     const controller = new AbortController()
     const signal = context && context.signal
     const onAbort = () => controller.abort()
@@ -91,15 +96,20 @@ class ToolRegistry {
     /* 热插拔兜底：插件被禁用后，即使模型仍拿着旧定义调用也拒绝执行 */
     const disabled = Array.isArray(settings.disabledPlugins) ? settings.disabledPlugins : []
     if (disabled.indexOf(tool.plugin) !== -1) {
-      return 'DISABLED: ' + name + ' belongs to disabled plugin ' + tool.plugin
+      return (settings.unattended ? 'DENIED: unattended ' : 'DISABLED: ') + name + ' belongs to disabled plugin ' + tool.plugin
+    }
+    if (settings.unattended) {
+      const reason = require('../flow/unattended-policy').blocked(tool, args || {}, settings)
+      if (reason) return 'DENIED: unattended ' + name + ': ' + reason
     }
     const mode = settings.permissionMode || 'workspace'
     const permission = tool.permission || 'write'
     // 唯一的权限闸口：deny 直接拒绝，ask 先走审批，allow 才落到工具本体
-    const decision = this.policy.decideToolPermission(permission, mode, args || {})
+    const decision = this.policy.decideToolPermission(permission, mode, args || {}, settings)
     if (decision === 'deny') {
       return 'DENIED: ' + name + ' is blocked by read-only permission'
     }
+    if (decision === 'ask' && settings.unattended) return 'DENIED: unattended ' + name + ' requires human approval'
     if (decision === 'ask') {
       if (not(context) || typeof context.approve !== 'function') {
         return 'DENIED: ' + name + ' requires approval but no approver is available'
@@ -108,14 +118,17 @@ class ToolRegistry {
         const abort = () => reject(new Error('ABORTED'))
         if (context.signal.aborted) return abort()
         context.signal.addEventListener('abort', abort, { once: true })
-        Promise.resolve().then(() => context.approve(this.policy.buildApprovalRequest(permission, args || {}))).then(resolve, reject)
+        Promise.resolve().then(() => context.approve(this.policy.buildApprovalRequest(permission, args || {}, name))).then(resolve, reject)
           .finally(() => context.signal.removeEventListener('abort', abort))
       })
       if (not(approved)) return 'DENIED: ' + name + ' was not approved'
     }
     if (context.signal.aborted) throw new Error('ABORTED')
     if (!tool.active) return 'DISABLED: ' + name + ' was unloaded while awaiting approval'
-    return tool.execute(args || {}, context || {})
+    try { return await tool.execute(args || {}, context || {}) } catch (error) {
+      if (settings.unattended && /PATH_ESCAPE|COMMAND_BLOCKED/.test(error.message)) return 'DENIED: unattended ' + name + ': ' + error.message
+      throw error
+    }
   }
 }
 

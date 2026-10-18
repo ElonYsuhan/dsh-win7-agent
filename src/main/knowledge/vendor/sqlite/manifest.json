@@ -1,0 +1,78 @@
+{
+  "bridgeSourceSha256": "58b38167d6e2d926f704bdf4e50618e58956a416b978984b42d09a781107402c",
+  "version": "3.54.0",
+  "bridgeVersion": 1,
+  "targets": {
+    "darwin-arm64": {
+      "command": "clang",
+      "args": [
+        "-arch",
+        "arm64",
+        "-mmacosx-version-min=11.0"
+      ]
+    },
+    "darwin-x64": {
+      "command": "clang",
+      "args": [
+        "-arch",
+        "x86_64",
+        "-mmacosx-version-min=10.13"
+      ]
+    },
+    "win32-x64.exe": {
+      "command": "x86_64-w64-mingw32-gcc",
+      "args": [
+        "-static",
+        "-static-libgcc",
+        "-mcrtdll=msvcrt-os",
+        "-U__MSVCRT_VERSION__",
+        "-D__MSVCRT_VERSION__=0x0700",
+        "-D_WIN32_WINNT=0x0601",
+        "-DWINVER=0x0601",
+        "-municode",
+        "-s"
+      ]
+    },
+    "linux-x64": {
+      "command": "zig",
+      "args": [
+        "cc",
+        "-target",
+        "x86_64-linux-musl",
+        "-static",
+        "-s"
+      ]
+    },
+    "linux-arm64": {
+      "command": "zig",
+      "args": [
+        "cc",
+        "-target",
+        "aarch64-linux-musl",
+        "-static",
+        "-s"
+      ]
+    }
+  },
+  "sourceSha256": "2da161e310ef0aba3465f22a4d12b8a43723236f0942fa76e8aac523c3317243",
+  "flags": [
+    "-O2",
+    "-DSQLITE_THREADSAFE=0",
+    "-DSQLITE_ENABLE_FTS5",
+    "-DSQLITE_OMIT_LOAD_EXTENSION",
+    "-DSQLITE_DQS=0"
+  ],
+  "compiler": {
+    "mac": "Apple clang (build-host SDK)",
+    "cross": "Zig 0.13.0 (Linux); MinGW-w64 14.0.0_3, GCC 16.2.0 (Windows, MSVCRT)",
+    "zigArchiveSha256": "46fae219656545dfaf4dce12fb4e8685cec5b51d721beee9389ab4194d43394c"
+  },
+  "win7HardwareVerified": false,
+  "files": {
+    "darwin-arm64": "60bad99ffd8cecab72bc175437e5f6ffc630cb96e88c6c5ec734f0aa1288b059",
+    "darwin-x64": "7d1014a53b0814455dee842ef2c7c7e5ff40685ac29fed2ed097b128c40aa298",
+    "win32-x64.exe": "484a4415458d8d49c2f8cded6f0bae07ac1c4a2d9882f8b5b11a049a7176f792",
+    "linux-x64": "e3975bf37084239074a5f252e9825ba363a62a4975e435dddc07732a40f72f38",
+    "linux-arm64": "0e06dd4d5b06b41a27bb270726bf5ebe14e34aaec04f461affbc102b5ed6fb5f"
+  }
+}

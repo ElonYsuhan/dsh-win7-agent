@@ -155,10 +155,10 @@ class PluginHost {
     return result
   }
 
-  async buildSystemPrompt(base, signal, executionContext) {
+  async buildSystemPrompt(base, signal, executionContext, agent) {
     if (!executionContext) await this.ready(signal)
     const prompts = executionContext ? executionContext.prompts : this.requireService('prompts')
-    return prompts.build(base, { workspaceRoot: this.workspaceRoot, settings: this.settings })
+    return prompts.build(base, { workspaceRoot: agent ? agent.workspaceRoot : this.workspaceRoot, settings: agent ? agent.settings : this.settings })
   }
 
   loadBuiltins() {

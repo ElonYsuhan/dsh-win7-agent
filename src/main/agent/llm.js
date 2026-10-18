@@ -70,9 +70,17 @@ function requestChat(options) {
   return new Promise((resolve, reject) => {
     let settled = false
     let timer = null
+    let responseBytes = 0
+    const acceptChunk = (chunk) => {
+      if (settled) return false
+      responseBytes += Buffer.byteLength(chunk)
+      if (responseBytes > 32 * 1024 * 1024) { finish(new Error('LLM_RESPONSE_TOO_LARGE: model response exceeds 32MB')); return false }
+      return true
+    }
     const finish = (error, value) => {
       if (settled) return
       settled = true
+      request.destroy()
       if (timer) clearTimeout(timer)
       if (signal) signal.removeEventListener('abort', onAbort)
       if (error) reject(error)
@@ -91,7 +99,10 @@ function requestChat(options) {
     }, (response) => {
       if (response.statusCode >= 400) {
         let errorBody = ''
-        response.on('data', (chunk) => { errorBody += chunk.toString('utf8') })
+        /* 必须先 setEncoding：Node 默认给 Buffer，直接 toString('utf8') 会在
+           多字节字符被 TCP 切断时解出 U+FFFD（中文回复变成一串黑菱形）。 */
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => { if (acceptChunk(chunk)) errorBody += chunk.slice(0, Math.max(0,1200-errorBody.length)) })
         response.on('end', () => {
           finish(new Error('LLM_HTTP_' + response.statusCode + ': ' + errorBody.slice(0, 1200)))
         })
@@ -105,6 +116,7 @@ function requestChat(options) {
     let responseRef = null
       let responseEnded = false
       const consumeLine = (line) => {
+        if (settled) return
         const trimmed = line.trim()
         if (trimmed === '') return
         if (not(trimmed.startsWith('data:'))) return
@@ -139,8 +151,10 @@ function requestChat(options) {
         }
       }
       if (contentType.includes('application/json')) {
-        response.on('data', (chunk) => { raw += chunk.toString('utf8') })
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => { if (acceptChunk(chunk)) raw += chunk })
         response.on('end', () => {
+          if (settled) return
           responseEnded = true
           const parsedBody = safeJsonParse(raw)
           if (not(parsedBody)) return finish(new Error('LLM_BAD_JSON: ' + raw.slice(0, 800)))
@@ -156,13 +170,18 @@ function requestChat(options) {
         })
         return
       }
+      /* setEncoding('utf8') 让 Node 用 StringDecoder 跨 chunk 拼接，半个汉字
+         不会被解成 U+FFFD（用户 2026-10-17 报的「回复里出现黑菱形」）。 */
+      response.setEncoding('utf8')
       response.on('data', (chunk) => {
-        buffer += chunk.toString('utf8')
+        if (!acceptChunk(chunk)) return
+        buffer += chunk
         const lines = buffer.split(/\r?\n/)
         buffer = lines.pop()
         for (const line of lines) consumeLine(line)
       })
       response.on('end', () => {
+        if (settled) return
         if (buffer.length) consumeLine(buffer)
         responseEnded = true
         finish(null, { content: content.join(''), toolCalls })
@@ -269,12 +288,20 @@ function requestOllamaChat(options) {
   return new Promise((resolve, reject) => {
     let settled = false
     let timer = null
+    let responseBytes = 0
+    const acceptChunk = (chunk) => {
+      if (settled) return false
+      responseBytes += Buffer.byteLength(chunk)
+      if (responseBytes > 32 * 1024 * 1024) { finish(new Error('LLM_RESPONSE_TOO_LARGE: model response exceeds 32MB')); return false }
+      return true
+    }
     const content = []
     const toolCalls = []
     let buffer = ''
     const finish = (error, value) => {
       if (settled) return
       settled = true
+      request.destroy()
       if (timer) clearTimeout(timer)
       if (signal) signal.removeEventListener('abort', onAbort)
       if (error) reject(error)
@@ -283,6 +310,7 @@ function requestOllamaChat(options) {
     const onAbort = () => { request.destroy(new Error('ABORTED')) }
     let responseRef = null
     const consumeLine = (line) => {
+      if (settled) return
       const text = String(line || '').trim()
       if (text === '') return
       const parsedLine = safeJsonParse(text)
@@ -316,13 +344,16 @@ function requestOllamaChat(options) {
       headers
     }, (response) => {
       responseRef = response
+      response.setEncoding('utf8')
       response.on('data', (chunk) => {
-        buffer += chunk.toString('utf8')
+        if (!acceptChunk(chunk)) return
+        buffer += chunk
         const lines = buffer.split(/\r?\n/)
         buffer = lines.pop()
         for (const line of lines) consumeLine(line)
       })
       response.on('end', () => {
+        if (settled) return
         if (buffer.length > 0) consumeLine(buffer)
         finish(null, { content: content.join(''), toolCalls })
       })
