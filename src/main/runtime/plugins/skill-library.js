@@ -31,7 +31,7 @@ module.exports = {
         const items = result.items.filter((item) => policy.enabled(item, ids))
         return { ok: true, total: items.length, items: items.slice(0, Math.max(1, Math.min(200, Number(limit) || 20))) }
       },
-      prompt: () => library.systemPromptBlock(disabled())
+      prompt: allowed => { const ids=disabled();if(Array.isArray(allowed))for(const item of library.list())if(!allowed.includes(item.id))ids.add(item.id);return library.systemPromptBlock(ids) }
     }
     ctx.contracts.assertService('skillLibrary', service)
     ctx.provide('skillLibrary', service)

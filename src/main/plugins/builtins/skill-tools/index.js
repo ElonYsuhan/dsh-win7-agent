@@ -57,7 +57,7 @@ module.exports = {
     })
 
     /* 技能清单进系统提示（短索引，正文按需取） */
-    ctx.addSystemPrompt(() => library.prompt())
+    ctx.addSystemPrompt(context => library.prompt(context.settings && context.settings.data && context.settings.data.unattended && context.settings.data.unattended.skillIds))
 
     const info = mdSkills.stats()
     ctx.logger.info('skills loaded: ' + info.count + ' from ' + info.root)

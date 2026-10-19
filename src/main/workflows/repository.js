@@ -30,14 +30,15 @@ class Repository{
   C.id(run);C.id(task)
   const dir=path.join(this.dir,'uploads',run,task);fs.mkdirSync(dir,{recursive:true})
   return files.map((file,index)=>{
-   const bytes=Buffer.from(file.data,'base64'),key=String(index),target=path.join(dir,key)
+   const bytes=Buffer.from(file.data,'base64'),key=String(index),target=path.join(dir,key);if(bytes.toString('base64')!==file.data)throw Error('附件编码无效')
    const fd=fs.openSync(target,'w');try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd)}finally{fs.closeSync(fd)}
    const text=/\.(txt|md|json|csv|log|xml|yaml|yml)$/i.test(file.name)?bytes.toString('utf8').slice(0,16000):''
    return {name:file.name,size:bytes.length,ref:run+'/'+task+'/'+key,text}
   })
  }
- artifactFile(run,node){return path.join(this.dir,'artifacts',C.id(run),C.id(node)+'.txt')}
- artifact(run,node,text){const file=this.artifactFile(run,node),dir=path.dirname(file),tmp=file+'.tmp';fs.mkdirSync(dir,{recursive:true});const fd=fs.openSync(tmp,'w');try{fs.writeFileSync(fd,text,'utf8');fs.fsyncSync(fd)}finally{fs.closeSync(fd)}fs.renameSync(tmp,file);return node+'.txt'}
+ artifactFile(run,node,attempt=1){return path.join(this.dir,'artifacts',C.id(run),C.id(node)+(attempt>1?'-attempt-'+attempt:'')+'.txt')}
+ workspace(run,node,attempt,input,files=[]){const dir=path.join(this.dir,'agent-workspaces',C.id(run),C.id(node),String(attempt));fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'input.txt'),input+'\n\n附件清单：\n'+files.slice(0,30).map((file,index)=>'attachment-'+index+path.extname(file.name)+' ← '+file.name).join('\n'),'utf8');for(const [index,file]of files.slice(0,30).entries()){if(typeof file.ref!=='string'||!file.ref.startsWith(run+'/')||!new RegExp('^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[0-9]+$').test(file.ref))throw Error('附件引用不属于当前实例');const source=path.join(this.dir,'uploads',file.ref),target=path.join(dir,'attachment-'+index+path.extname(file.name));fs.copyFileSync(source,target)}return dir}
+ artifact(run,node,text,attempt=1){const file=this.artifactFile(run,node,attempt),dir=path.dirname(file),tmp=file+'.tmp';fs.mkdirSync(dir,{recursive:true});const fd=fs.openSync(tmp,'w');try{fs.writeFileSync(fd,text,'utf8');fs.fsyncSync(fd)}finally{fs.closeSync(fd)}fs.renameSync(tmp,file);return path.basename(file)}
  close(){if(!this.opened)return;this.opened=false;fs.closeSync(this.fd);fs.unlinkSync(this.lock);this.details.clear();this.detailBytes=0;this.runs.clear()}
 }
 module.exports={Repository}

@@ -6313,3 +6313,17 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 #capabilityCenter .capability-card-grid::-webkit-scrollbar{width:8px;}
 #capabilityCenter #installedSkills,#capabilityCenter #installedMcp,#capabilityCenter #installedPlugins,
 #capabilityCenter #skillLibraryList,#capabilityCenter #mcpList,#capabilityCenter #pluginList{display:contents;overflow:visible;margin:0;padding:0;scrollbar-gutter:auto;}
+
+#workflowStepList.hidden,#workflowCanvasHost.hidden{display:none;}
+.workflow-step-list{overflow:auto;min-width:0;min-height:0;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);padding:12px;}
+.workflow-step-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px;background:var(--panel);}
+.workflow-step-item.selected{outline:2px solid var(--accent,#5b8bff);outline-offset:-2px;}
+.workflow-step-item>button{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.workflow-step-item>div{display:flex;gap:6px;grid-column:1/-1;justify-content:flex-end;}
+.workflow-schema-field{display:block;margin:10px 0;font-size:12px;}
+.workflow-schema-field>input,.workflow-schema-field>textarea,.workflow-schema-field>select{display:block;box-sizing:border-box;width:100%;margin-top:5px;}
+.workflow-capability-options{max-height:170px;overflow:auto;}
+#workflowStructuredOptions>details{margin:10px 0;}
+#workflowStructuredOptions summary{cursor:pointer;font-size:12px;margin-bottom:8px;}
+.workflow-current-task fieldset{min-width:0;}
+.workflow-current-task .workflow-schema-field textarea{min-height:70px;}

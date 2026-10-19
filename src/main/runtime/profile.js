@@ -17,6 +17,7 @@ function defaultProfile(options) {
     require('./plugins/agent-loop'),
     require('./plugins/agents'),
     require('./plugins/tasks'),
+    require('./plugins/workflow-agent'),
     require('./plugins/workflow-nodes'),
     require('./plugins/workflows'),
     require('./plugins/workflow-tools')

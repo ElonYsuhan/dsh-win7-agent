@@ -1,8 +1,11 @@
 'use strict'
+const Schema=require('./workflow-schema'),Agent=require('./workflow-agent')
 const TYPES=Object.freeze([
  {type:'start',name:'开始',description:'定义流程起点与初始输入'},
  {type:'human',name:'人工处理',description:'上传、判断、审阅与审批'},
  {type:'ai',name:'AI 处理',description:'调用当前配置的内网模型'},
+ {type:'agent',name:'Agent 处理',description:'受限的多步工具执行，不在节点内等待人工'},
+ {type:'tool',name:'工具调用',description:'固定调用一个已授权工具，不使用模型'},
  {type:'rest',name:'REST 接口',description:'调用 HTTP/HTTPS 外部接口，无自动重试'},
  {type:'evaluate',name:'AI 评估',description:'按指定标准使用 AI 分析依据、结论与风险'},
  {type:'template',name:'文本整理',description:'兼容已有流程的文本模板',legacy:true},
@@ -21,7 +24,9 @@ function ports(value,fallback){
  return result
 }
 function validate(raw,types=TYPES){
- if(!raw||typeof raw!=='object'||(raw.version!==undefined&&raw.version!==1))throw Error('WORKFLOW_INVALID')
+ if(!raw||typeof raw!=='object'||(raw.version!==undefined&&![1,2].includes(raw.version)))throw Error('WORKFLOW_INVALID')
+ if(raw.editor!==undefined&&!['steps','canvas'].includes(raw.editor))throw Error('流程编辑模式无效');
+ if(JSON.stringify(raw).length>512000)throw Error('流程定义超过512000字');
  const name=String(raw.name||'').trim();if(!name||name.length>120)throw Error('请输入流程名称（最多120字）')
  if(!Array.isArray(raw.nodes)||!raw.nodes.length||raw.nodes.length>100||!Array.isArray(raw.edges)||raw.edges.length>300)throw Error('流程需要1～100个节点，连线最多300条')
  const seen=new Set(),nodes=raw.nodes.map(n=>{
@@ -36,7 +41,9 @@ function validate(raw,types=TYPES){
    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||rest.url.length>2000)throw Error('REST 仅支持不含凭据的 HTTP/HTTPS 地址')
    if(!['GET','POST','PUT','PATCH','DELETE'].includes(rest.method))throw Error('REST 请求方法无效')
   }
-  return {id:key,type:n.type,rest,title:String(n.title||((types||TYPES).find(t=>t.type===n.type)||{name:n.type}).name).slice(0,120),text,description:String(n.description||'').slice(0,2000),humanKind:modes[0],humanModes:modes,inputs,outputs,pos:Array.isArray(n.pos)?n.pos.slice(0,2).map(v=>Number.isFinite(v)?v:0):[0,0]}
+  const tool=n.tool||{name:'',arguments:{},permission:'readonly'};if(n.type==='tool'&&(!tool||typeof tool.name!=='string'||!/^[-A-Za-z0-9_]{1,80}$/.test(tool.name)||!tool.arguments||typeof tool.arguments!=='object'||Array.isArray(tool.arguments)||JSON.stringify(tool.arguments).length>16000||!['readonly','workspace'].includes(tool.permission||'readonly')))throw Error('请配置工具名称、JSON 参数和权限');
+  const inputSchema=Schema.schema(n.inputSchema),outputSchema=Schema.schema(n.outputSchema),skills=Agent.strings(n.skills||[],4),agent=Agent.configuration(n.agent);if(inputSchema&&inputSchema.type!=='object')throw Error('节点输入 Schema 根类型必须为 object');const bindings=n.bindings||{};if(!bindings||typeof bindings!=='object'||Array.isArray(bindings)||Object.keys(bindings).length>24)throw Error('输入映射无效');for(const [field,b]of Object.entries(bindings))if(!Schema.safe(field)||!b||typeof b!=='object'||typeof b.nodeId!=='string'||b.path!==undefined&&typeof b.path!=='string'||String(b.path||'').length>200||b.path&&b.path.split('.').some(k=>!Schema.safe(k)))throw Error('输入字段映射无效');
+  return {tool:{name:String(tool.name||''),arguments:tool.arguments||{},permission:tool.permission||'readonly'},inputSchema,outputSchema,bindings:JSON.parse(JSON.stringify(bindings)),skills,agent,id:key,type:n.type,rest,title:String(n.title||((types||TYPES).find(t=>t.type===n.type)||{name:n.type}).name).slice(0,120),text,description:String(n.description||'').slice(0,2000),humanKind:modes[0],humanModes:modes,inputs,outputs,pos:Array.isArray(n.pos)?n.pos.slice(0,2).map(v=>Number.isFinite(v)?v:0):[0,0]}
  })
  if(nodes.reduce((sum,n)=>sum+n.text.length,0)>128000)throw Error('流程参数总量超过128000字')
  const edges=raw.edges.map(e=>{
@@ -47,14 +54,15 @@ function validate(raw,types=TYPES){
  })
  for(const n of nodes)if(['output','end'].includes(n.type)&&!edges.some(e=>e.to===n.id))throw Error('保存结果节点需要上游输入')
  if(new Set(edges.map(e=>e.to+':'+e.slot)).size!==edges.length)throw Error('同一输入端口不能连接多条连线')
- return {version:1,id:raw.id?id(raw.id):'',name,nodes,edges}
+ for(const n of nodes)for(const binding of Object.values(n.bindings))if(!nodes.some(source=>source.id===binding.nodeId)||binding.nodeId===n.id)throw Error('输入映射引用无效节点');
+ return {version:raw.version===2||nodes.some(n=>['agent','tool'].includes(n.type)||n.inputSchema||n.outputSchema)?2:1,editor:raw.editor==='steps'?'steps':'canvas',id:raw.id?id(raw.id):'',name,nodes,edges}
 }
 function submission(raw){
  id(raw.id);id(raw.nodeId);id(raw.taskId)
  const conclusion=String(raw.conclusion||'').trim();if(!conclusion||conclusion.length>16000)throw Error('请填写处理结论（最多16000字）')
  const files=raw.files||[];if(!Array.isArray(files)||files.length>3)throw Error('最多提交3个文件')
  let size=0
- for(const file of files){if(!file||typeof file.name!=='string'||!file.name.trim()||file.name.length>200||/[\\/\x00-\x1f]/.test(file.name)||typeof file.data!=='string'||file.data.length%4!==0||!/^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.data))throw Error('文件格式无效');size+=file.data.length*3/4-(file.data.endsWith('==')?2:file.data.endsWith('=')?1:0)}
+ for(const file of files){if(!file||typeof file.name!=='string'||!file.name.trim()||file.name.length>200||/[\\/\x00-\x1f]/.test(file.name)||typeof file.data!=='string'||file.data.length%4!==0||/[^A-Za-z0-9+/=]/.test(file.data))throw Error('文件格式无效');size+=file.data.length*3/4-(file.data.endsWith('==')?2:file.data.endsWith('=')?1:0)}
  if(size>512*1024)throw Error('本次附件总大小不能超过512KB')
  if(raw.decision&&!['confirm','approve','reject'].includes(raw.decision))throw Error('处理结论类型无效')
  return {conclusion,decision:raw.decision||'confirm',files}

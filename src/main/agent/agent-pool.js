@@ -183,6 +183,7 @@ class AgentPool {
     }
     this.disposals.add(pending)
     pending.then(() => this.disposals.delete(pending), () => this.disposals.delete(pending))
+    return pending
   }
 
   isRunning(sessionId) {
@@ -240,9 +241,12 @@ class AgentPool {
     if (this.isRunning(sessionId)) throw new Error('SESSION_BUSY: task session is already running')
     let finished = null
     const worker = this.acquire(sessionId), emit = worker.emit
-    worker.emit = (event) => { if (event.type === 'finished') finished = event; emit(event) }
+    const signal = configuration && configuration.signal, abort = () => worker.abort()
+    if (signal && signal.aborted) { await this.releaseWorker(keyOf(sessionId)); throw new Error('ABORTED') }
+    if (signal) signal.addEventListener('abort', abort, { once: true })
+    worker.emit = (event) => { if (signal && signal.aborted) abort(); if (event.type === 'finished') finished = event; if (configuration && configuration.onEvent) configuration.onEvent(event); if (!configuration || !configuration.quiet) emit(event) }
     try { await this.run(sessionId, prompt, [], undefined, undefined, configuration); return finished }
-    finally { worker.emit = emit; this.releaseWorker(keyOf(sessionId)) }
+    finally { if (signal) signal.removeEventListener('abort', abort); worker.emit = emit; await this.releaseWorker(keyOf(sessionId)) }
   }
 
   /* 不带 sessionId = 停全部（老客户端 / 全局急停） */

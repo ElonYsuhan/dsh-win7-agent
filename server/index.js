@@ -568,6 +568,7 @@ pluginHost.ready().then(() => pluginHost.configure()).then(async () => {
   await pluginHost.get('extensions').attach(pluginHost)
   try { await pluginHost.get('mcp').ready() } catch (error) { console.error('[mcp] startup failed:', error.message) }
   pluginHost.get('knowledge').attach(broadcast)
+  pluginHost.get('workflowAgent').attach(pool)
   pluginHost.get('tasks').attach({pool,home:AGENT_HOME,emit:broadcast})
   startListen(PORT)
 }).catch(async (error) => {

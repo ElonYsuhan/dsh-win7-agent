@@ -42,6 +42,7 @@ async function run(userText, history, images, memory) {
   let deadline = null
   const unattended = this.settings.data.unattended
   let remainingTokens = unattended ? unattended.tokenBudget : 0
+  let taskToolCalls = 0
   let taskRequests = 0
   let taskOutputBytes = 0
   try {
@@ -84,8 +85,9 @@ async function run(userText, history, images, memory) {
         if (!unattended) await this.ensureContextBudget(systemContent, signal)
         if (signal.aborted) break
         const requestMessages = await this.buildRequestMessages(systemContent)
+        const requestTools = this.state.execution.toolsEnabled ? this.plugins.getToolDefinitions().filter(t => !unattended || unattended.tools.includes(t.function.name)) : []
         if (unattended) {
-          const reserved = Buffer.byteLength(JSON.stringify(requestMessages), 'utf8') + Buffer.byteLength(JSON.stringify(this.plugins.getToolDefinitions()), 'utf8') + Number(this.settings.data.maxTokens) + 1024
+          const reserved = Buffer.byteLength(JSON.stringify(requestMessages), 'utf8') + Buffer.byteLength(JSON.stringify(requestTools), 'utf8') + Number(this.settings.data.maxTokens) + 1024
           if (++taskRequests > unattended.maxRequests || reserved > remainingTokens) throw new Error('TASK_BUDGET_EXCEEDED: request/token budget')
           remainingTokens -= reserved
         }
@@ -94,7 +96,7 @@ async function run(userText, history, images, memory) {
           result = await this.service('llm').request({
             settings: this.settings.data,
             messages: requestMessages,
-            tools: this.state.execution.toolsEnabled ? this.plugins.getToolDefinitions().filter(t => !unattended || unattended.tools.includes(t.function.name)) : [],
+            tools: requestTools,
             signal,
             onDelta: (delta) => {
               if (unattended) {
@@ -196,7 +198,9 @@ async function run(userText, history, images, memory) {
         this.record(EVENTS.TOOL_START, { id: call.id, name })
         this.emit({ type: 'tool:start', id: call.id, name, args: args || {} })
         let toolResult = ''
-        if (not(args)) {
+        if (unattended && unattended.maxToolCalls && ++taskToolCalls > unattended.maxToolCalls) {
+          toolResult = 'DENIED: unattended tool call limit reached'
+        } else if (not(args)) {
           toolResult = 'ERROR: invalid JSON arguments for ' + name
         } else {
           try {

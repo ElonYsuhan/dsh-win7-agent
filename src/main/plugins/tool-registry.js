@@ -72,6 +72,8 @@ class ToolRegistry {
       if (unattended) return 'DENIED: unattended ' + name + ': tool unavailable'
       throw new Error('UNKNOWN_TOOL: ' + name)
     }
+    if (unattended && unattended.toolContracts && unattended.toolContracts[name] !== JSON.stringify({name:tool.name,permission:tool.permission,plugin:tool.plugin,parameters:tool.parameters})) return 'DENIED: tool definition changed during workflow execution'
+    if (unattended && unattended.skillIds && name === 'load_skill' && !unattended.skillIds.includes(args && args.name)) return 'DENIED: skill is not bound to this workflow node'
     const controller = new AbortController()
     const signal = context && context.signal
     const onAbort = () => controller.abort()

@@ -14,3 +14,5 @@ node scripts/pack-extension.js examples/extensions/report-skill /tmp/report-guid
 manifest.json 为开发模板；files 摘要表由打包器生成。包安装后默认停用。详情见 docs/EXTENSION-PACKAGES.md。
 
 正式后缀：Skill `.skill.pgk`，MCP `.mcp.pgk`，插件 `.plugin.pgk`。后缀与 manifest.type 必须一致。
+
+workflow-node：通过原生 Cordis 插件注册带版本号的工作流节点，按同样方式打包为 `.plugin.pgk`。安装启用后出现在工作流节点目录中，不需要单独的节点安装器。

@@ -360,3 +360,9 @@ migration, boundaries and verification; platform support remains Node16/Win7.
 ### 统一离线能力包（2026-10-19）
 
 `core/extensions` 是原生 Cordis 服务，inject agentConfig/skillLibrary/mcp。contracts/extensions 定义纯版本、路径和清单校验；extensions/archive、worker、repository 分别负责有界解包、隔离检查和原子登记。安装检查不执行代码，确认安装仍为停用状态；启用通过现有 PluginHost / skillLibrary / mcp 服务，无第二个容器、事件总线或 Agent 执行路径。主服务就绪后 attach 原宿主；异步释放 staging、worker 和仓库锁由 Cordis effect 追踪。Skill 的用户包视图按运行时隔离，不污染模块全局索引。HTTP 和 IPC 共用同一服务，UI 支持文件选择和拖拽。协议、纯 JS 首版范围、恢复语义和兼容证据见 [离线扩展包规范](EXTENSION-PACKAGES.md)。
+
+### 轻量流程：契约、人工待办和 Headless Agent
+
+`core/workflow-agent` inject agentConfig/tools/skillLibrary/extensions，提供有界 Agent 与固定工具适配，复用启动时接入的现有 AgentPool，不自建容器或循环。workflow-nodes 通过该服务调用受限执行；workflows 负责版本2 Schema/映射、实例资源快照、边界暂停与显式重试；纯 workflow-state reducer 管理所有业务迁移和尝试历史。AgentPool quiet、外部取消和 awaited worker cleanup 是现有无人值守入口的兼容扩展，定时任务维持原行为。
+
+每次重试创建独立尝试，Agent 使用独立短 session ID 和实例工作目录，事实与产物由原仓储持久化。工具实际执行仍核对白名单、契约、权限与调用上限；Skill 仅提供专业指令。waiting/paused 释放执行资源并跨重启恢复，pending/running 记为 interrupted，不重放不确定副作用。无新生产依赖；Node16/Chromium108 与旧图兼容检查、真实浏览器验证及未做 Win7 真机验收的区别详见 [落地说明](WORKFLOW-LIGHTWEIGHT.md)。

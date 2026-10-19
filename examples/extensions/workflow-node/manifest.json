@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "publisher": "example",
+  "name": "workflow-utils",
+  "displayName": "工作流节点开发示例",
+  "description": "通过统一离线插件包注册一个确定性的文本规范化节点。",
+  "version": "1.0.0",
+  "type": "plugin",
+  "engines": { "extensionApi": 1, "node": "16", "electron": "22", "chromium": "108" },
+  "targets": ["any"],
+  "entry": "index.cjs"
+}
