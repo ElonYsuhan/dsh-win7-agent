@@ -6176,9 +6176,9 @@ html.chat-hidden #app.knowledge-open.panel-open .main,html.chat-hidden #app.know
 #capabilityCenter .mcp-error { max-height:36px; overflow:auto; }
 #capabilityCenter #taskList > .scheduled-task.task-selected { border-color:#5b8bff; box-shadow:0 0 0 1px #5b8bff; }
 /* Equal heights within each category, sized for that category's content. */
-#capabilityCenter #skillLibraryList { --cap-card-height:96px; }
-#capabilityCenter #mcpList { --cap-card-height:112px; }
-#capabilityCenter #pluginList { --cap-card-height:144px; }
+#capabilityCenter #capSkills { --cap-card-height:96px; }
+#capabilityCenter #capConnectors { --cap-card-height:112px; }
+#capabilityCenter #capPlugins { --cap-card-height:144px; }
 #capabilityCenter #taskList { --cap-card-height:144px; }
 
 .workflow-page { flex:1; min-width:0; min-height:0; height:100%; padding:24px 36px 0; display:flex; flex-direction:column; box-sizing:border-box; }
@@ -6292,13 +6292,18 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .extension-install-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;}
 .extension-install-bar .muted{font-size:12px;}
 .extension-drag-over{outline:2px dashed var(--accent);outline-offset:-6px;}
-.extension-packages:empty{display:none;}
-.extension-packages{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px;}
-.extension-card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:16px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2);min-height:118px;box-sizing:border-box;}
-.extension-card strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.extension-card p{margin:6px 0;font-size:12px;line-height:1.5;overflow-wrap:anywhere;}
-.extension-description{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:36px;}
-.extension-actions{display:flex;gap:6px;}
-.extension-actions button{padding:6px 10px;}
-.extension-card .extension-error{grid-column:1/-1;color:var(--danger,#d05b5b);}
-@media(max-width:1000px){.extension-packages{grid-template-columns:minmax(0,1fr);}}
+#capabilityCenter .extension-packages:empty{display:none;}
+#capabilityCenter .extension-packages{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));align-items:start;gap:12px;padding-right:6px;margin-bottom:12px;min-width:0;}
+#capabilityCenter .extension-card{display:flex;flex-direction:column;gap:4px;height:var(--cap-card-height);min-height:var(--cap-card-height);min-width:0;box-sizing:border-box;padding:14px 16px;border:1px solid var(--cap-card-border);border-radius:10px;background:var(--cap-card-bg);}
+.extension-card-heading{display:flex;align-items:center;gap:8px;min-width:0;flex:0 0 22px;}
+.extension-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:22px;font-weight:600;}
+.extension-card-mcp .extension-title{font-size:13px;}
+.extension-actions{display:flex;align-items:center;flex:none;gap:8px;}
+.extension-actions .extension-remove{display:flex;align-items:center;justify-content:center;width:26px;height:24px;padding:3px;}
+.extension-remove .icon{width:16px;height:16px;}
+.extension-card-body{min-height:0;overflow:hidden;}
+.extension-card p{margin:0;font-size:12px;line-height:18px;}
+.extension-card-body .muted{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:16px;}
+.extension-description{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
+.extension-card-skill .extension-description{-webkit-line-clamp:1;}
+.extension-card .extension-error{color:var(--danger,#d05b5b);overflow:auto;max-height:32px;font-size:11px;line-height:16px;}
