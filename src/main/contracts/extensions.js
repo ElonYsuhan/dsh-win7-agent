@@ -4,6 +4,12 @@ const FORMAT_VERSION = 1
 const MAX_ARCHIVE = 8 * 1024 * 1024
 const MAX_EXPANDED = 32 * 1024 * 1024
 const TYPES = ['skill', 'mcp', 'plugin']
+const SUFFIXES = { skill: '.skill.pgk', mcp: '.mcp.pgk', plugin: '.plugin.pgk' }
+function assertFilename(name, type) {
+  if (typeof name !== 'string' || !name || name.length > 255) fail('包文件名无效')
+  const lower = name.toLowerCase()
+  if (!['.agentpkg', '.zip', SUFFIXES[type]].some(suffix => lower.endsWith(suffix))) fail('文件后缀与包类型不符，' + type + ' 应使用 ' + SUFFIXES[type])
+}
 const object = v => v !== null && typeof v === 'object' && !Array.isArray(v)
 function fail(message) { throw Error('扩展包：' + message) }
 function relativeFile(value) {
@@ -38,4 +44,4 @@ function manifest(raw, target) {
   if(out.entry&&!Object.prototype.hasOwnProperty.call(out.files,out.entry))fail('入口不在文件清单中')
   return out
 }
-module.exports={FORMAT_VERSION,MAX_ARCHIVE,MAX_EXPANDED,TYPES,manifest,relativeFile,compareVersions}
+module.exports={SUFFIXES,assertFilename,FORMAT_VERSION,MAX_ARCHIVE,MAX_EXPANDED,TYPES,manifest,relativeFile,compareVersions}

@@ -15,7 +15,7 @@ module.exports={name:'core/extensions',inject:['agentConfig','skillLibrary','mcp
  const service={
   attach(value){return enqueue(async()=>{if(host)return;host=value;for(const r of repository().records.packages.filter(r=>r.enabled)){try{await activate(r)}catch(e){errors.set(r.manifest.id,e.message)}}})},
   list:()=>({packages:list()}),
-  inspect:data=>enqueue(async()=>{const result=await repository().inspect(data.data);const old=repository().records.packages.find(r=>r.manifest.id===result.manifest.id);return{...result,installedVersion:old&&old.manifest.version||''}}),
+  inspect:data=>enqueue(async()=>{const result=await repository().inspect(data.data);if(data.filename!==undefined){try{require('../../contracts/extensions').assertFilename(data.filename,result.manifest.type)}catch(e){repository().discard(result.token);throw e}}const old=repository().records.packages.find(r=>r.manifest.id===result.manifest.id);return{...result,installedVersion:old&&old.manifest.version||''}}),
   discard:data=>enqueue(()=>{repository().discard(data.token);return{ok:true}}),
   install:data=>enqueue(()=>{const record=repository().install(data.token);return{packageId:record.manifest.id,packages:list()}}),
   enable:data=>enqueue(async()=>{const r=repository().records.packages.find(r=>r.manifest.id===data.id);if(!r)throw Error('扩展不存在');const enabled=data.enabled===true;errors.delete(data.id);try{if(enabled){await activate(r);try{repository().update(data.id,{...r,enabled:true})}catch(e){await deactivate(r);throw e}}else{repository().update(data.id,{...r,enabled:false});await deactivate(r)}}catch(e){errors.set(data.id,e.message);throw e}return{packages:list()}}),

@@ -8,7 +8,9 @@
 每个目录单独打包：
 
 ```
-node scripts/pack-extension.js examples/extensions/report-skill /tmp/report-guide.agentpkg
+node scripts/pack-extension.js examples/extensions/report-skill /tmp/report-guide.skill.pgk
 ```
 
 manifest.json 为开发模板；files 摘要表由打包器生成。包安装后默认停用。详情见 docs/EXTENSION-PACKAGES.md。
+
+正式后缀：Skill `.skill.pgk`，MCP `.mcp.pgk`，插件 `.plugin.pgk`。后缀与 manifest.type 必须一致。

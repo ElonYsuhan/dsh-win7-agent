@@ -1,6 +1,6 @@
 # 统一离线扩展包（格式 1）
 
-能力中心的 Skill、MCP、插件使用同一 ZIP32 容器，推荐扩展名 `.agentpkg`，也接受符合本规范的 `.zip`。这是 Agent 的格式，不兼容 VS Code 的 VSIX 执行接口。不会扫描应用商店、联网安装 npm/pip 包、执行安装脚本或更新运行时。
+能力中心的三类包使用同一 ZIP32 容器与清单，分别采用：Skill `.skill.pgk`、MCP `.mcp.pgk`、插件 `.plugin.pgk`。后缀必须与清单 type 一致，安装检查和打包工具都会校验。旧 `.agentpkg`、`.zip` 包仍兼容。这是 Agent 的格式，不兼容 VS Code 的 VSIX 执行接口。不会扫描应用商店、联网安装 npm/pip 包、执行安装脚本或更新运行时。
 
 ## 使用
 
@@ -57,10 +57,10 @@
 ## 打包
 
 ```sh
-node scripts/pack-extension.js examples/extensions/report-skill /tmp/report-guide.agentpkg
-node scripts/pack-extension.js examples/extensions/echo-plugin /tmp/echo.agentpkg
-node scripts/pack-extension.js examples/extensions/local-mcp /tmp/local-echo.agentpkg
-node scripts/pack-extension.js examples/extensions/http-mcp /tmp/intranet.agentpkg
+node scripts/pack-extension.js examples/extensions/report-skill /tmp/report-guide.skill.pgk
+node scripts/pack-extension.js examples/extensions/echo-plugin /tmp/echo.plugin.pgk
+node scripts/pack-extension.js examples/extensions/local-mcp /tmp/local-echo.mcp.pgk
+node scripts/pack-extension.js examples/extensions/http-mcp /tmp/intranet.mcp.pgk
 ```
 
 工具自动遍历普通文件、计算 hashes、检查清单、生成包并回读验证。输出放到源目录外。源模板无需手写 files，安装成品必须有它。附属 JS 需要 CommonJS 且语法兼容 Node16；对入口进行语法检查不能证明所有 API 或目标机行为兼容。
