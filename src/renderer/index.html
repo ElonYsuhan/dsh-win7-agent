@@ -169,14 +169,14 @@
           <button id="capTabPlugins" role="tab" aria-selected="false" aria-controls="capPlugins" data-cap-tab="plugins" tabindex="-1">插件</button>
           <button id="capTabTasks" role="tab" aria-selected="false" aria-controls="capTasks" data-cap-tab="tasks" tabindex="-1">定时任务</button>
         </div>
-        <section id="capSkills" role="tabpanel" aria-labelledby="capTabSkills"><label class="capability-search">搜索技能<input id="skillSearch" type="search" placeholder="搜索名称或描述"></label><div id="installedSkills" class="extension-packages"></div><div id="skillLibraryList"></div></section>
+        <section id="capSkills" role="tabpanel" aria-labelledby="capTabSkills"><label class="capability-search">搜索技能<input id="skillSearch" type="search" placeholder="搜索名称或描述"></label><div class="capability-card-grid"><div id="installedSkills" class="extension-packages"></div><div id="skillLibraryList"></div></div></section>
         <section id="capConnectors" class="hidden" role="tabpanel" aria-labelledby="capTabConnectors">
           <div class="mcp-toolbar">
             <div><h2>MCP 连接器</h2><p class="muted">管理内置工具，或连接自己的 MCP 服务。</p></div>
             <div class="mcp-toolbar-actions"><button id="mcpAdd" type="button" class="primary">添加 MCP 服务</button></div>
           </div>
           <p id="mcpNotice" role="status" aria-live="polite"></p>
-          <div id="installedMcp" class="extension-packages"></div><div id="mcpList" class="mcp-list"></div>
+          <div class="capability-card-grid"><div id="installedMcp" class="extension-packages"></div><div id="mcpList" class="mcp-list"></div></div>
           <div id="mcpDialog" class="task-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="mcpEditorTitle">
             <form id="mcpForm" class="task-editor" aria-labelledby="mcpEditorTitle">
               <div class="task-dialog-heading"><h2 id="mcpEditorTitle">添加 MCP 服务</h2><button id="mcpCloseEditor" type="button" aria-label="关闭 MCP 编辑">×</button></div>
@@ -223,7 +223,7 @@
             </form>
           </div>
         </section>
-        <section id="capPlugins" class="hidden" role="tabpanel" aria-labelledby="capTabPlugins"><p class="muted">管理现有 Cordis 插件及其工具能力。</p><div id="installedPlugins" class="extension-packages"></div><div id="pluginList"></div></section>
+        <section id="capPlugins" class="hidden" role="tabpanel" aria-labelledby="capTabPlugins"><p class="muted">管理现有 Cordis 插件及其工具能力。</p><div class="capability-card-grid"><div id="installedPlugins" class="extension-packages"></div><div id="pluginList"></div></div></section>
         <section id="capTasks" class="hidden" role="tabpanel" aria-labelledby="capTabTasks">
           <div class="tasks-toolbar"><div class="tasks-view-tabs" role="tablist" aria-label="任务与运行记录"><button id="taskViewTasks" type="button" role="tab" aria-selected="true" aria-controls="taskOverview">定时任务</button><button id="taskViewRuns" type="button" role="tab" aria-selected="false" aria-controls="taskHistory" tabindex="-1">运行记录</button></div><div class="task-toolbar-actions"><button id="taskBatch" type="button">批量管理</button><button id="taskNew" type="button" class="primary">＋ 新建</button></div></div>
           <p id="taskNotice" role="status" aria-live="polite"></p>
