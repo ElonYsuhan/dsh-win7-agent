@@ -161,6 +161,7 @@
       </section>
       <section id="capabilityCenter" class="capability-center hidden" aria-labelledby="capabilityTitle">
         <div class="capability-heading"><div><h1 id="capabilityTitle">能力中心</h1><p class="muted">管理系统技能库、连接器、插件和定时任务。</p></div><button id="closeCapabilities" type="button">返回聊天</button></div>
+        <div id="extensionInstallBar" class="extension-install-bar"><button id="extensionInstall" type="button">安装离线扩展包</button><span class="muted">支持 Skill、MCP、插件，将 .agentpkg 文件拖到此页面即可安装</span><input id="extensionFile" type="file" accept=".agentpkg,.zip" hidden aria-label="选择离线扩展包"></div>
         <p id="capabilityNotice" role="status" aria-live="polite"></p>
         <div class="capability-tabs" role="tablist" aria-label="能力分类">
           <button id="capTabSkills" role="tab" aria-selected="true" aria-controls="capSkills" data-cap-tab="skills">技能</button>
@@ -168,14 +169,14 @@
           <button id="capTabPlugins" role="tab" aria-selected="false" aria-controls="capPlugins" data-cap-tab="plugins" tabindex="-1">插件</button>
           <button id="capTabTasks" role="tab" aria-selected="false" aria-controls="capTasks" data-cap-tab="tasks" tabindex="-1">定时任务</button>
         </div>
-        <section id="capSkills" role="tabpanel" aria-labelledby="capTabSkills"><label class="capability-search">搜索技能<input id="skillSearch" type="search" placeholder="搜索名称或描述"></label><div id="skillLibraryList"></div></section>
+        <section id="capSkills" role="tabpanel" aria-labelledby="capTabSkills"><label class="capability-search">搜索技能<input id="skillSearch" type="search" placeholder="搜索名称或描述"></label><div id="installedSkills" class="extension-packages"></div><div id="skillLibraryList"></div></section>
         <section id="capConnectors" class="hidden" role="tabpanel" aria-labelledby="capTabConnectors">
           <div class="mcp-toolbar">
             <div><h2>MCP 连接器</h2><p class="muted">管理内置工具，或连接自己的 MCP 服务。</p></div>
             <div class="mcp-toolbar-actions"><button id="mcpAdd" type="button" class="primary">添加 MCP 服务</button></div>
           </div>
           <p id="mcpNotice" role="status" aria-live="polite"></p>
-          <div id="mcpList" class="mcp-list"></div>
+          <div id="installedMcp" class="extension-packages"></div><div id="mcpList" class="mcp-list"></div>
           <div id="mcpDialog" class="task-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="mcpEditorTitle">
             <form id="mcpForm" class="task-editor" aria-labelledby="mcpEditorTitle">
               <div class="task-dialog-heading"><h2 id="mcpEditorTitle">添加 MCP 服务</h2><button id="mcpCloseEditor" type="button" aria-label="关闭 MCP 编辑">×</button></div>
@@ -222,7 +223,7 @@
             </form>
           </div>
         </section>
-        <section id="capPlugins" class="hidden" role="tabpanel" aria-labelledby="capTabPlugins"><p class="muted">管理现有 Cordis 插件及其工具能力。</p><div id="pluginList"></div></section>
+        <section id="capPlugins" class="hidden" role="tabpanel" aria-labelledby="capTabPlugins"><p class="muted">管理现有 Cordis 插件及其工具能力。</p><div id="installedPlugins" class="extension-packages"></div><div id="pluginList"></div></section>
         <section id="capTasks" class="hidden" role="tabpanel" aria-labelledby="capTabTasks">
           <div class="tasks-toolbar"><div class="tasks-view-tabs" role="tablist" aria-label="任务与运行记录"><button id="taskViewTasks" type="button" role="tab" aria-selected="true" aria-controls="taskOverview">定时任务</button><button id="taskViewRuns" type="button" role="tab" aria-selected="false" aria-controls="taskHistory" tabindex="-1">运行记录</button></div><div class="task-toolbar-actions"><button id="taskBatch" type="button">批量管理</button><button id="taskNew" type="button" class="primary">＋ 新建</button></div></div>
           <p id="taskNotice" role="status" aria-live="polite"></p>
@@ -535,6 +536,7 @@
   <script src="tasks.js"></script>
   <script src="app.js"></script>
   <script src="dialogs.js"></script>
+  <script src="extensions.js"></script>
   <script src="file-preview.js"></script>
   <script src="vendor/litegraph/litegraph.js"></script>
   <script src="workflow-canvas.js"></script>

@@ -29,6 +29,7 @@ const INDEX_DESC_CHARS = 90
 
 const not = (value) => value ? false : true
 
+function createLibrary(external = () => []) {
 let cache = null
 
 /** 解析 SKILL.md 头部 frontmatter（只认最前面的 --- 块，够了） */
@@ -77,7 +78,7 @@ function countFiles(dir, depth) {
 
 /** 递归找所有 SKILL.md，返回技能条目（带缓存；技能是随包内置的，进程内不变） */
 function scan() {
-  if (cache) return cache
+  if (cache) return cache.concat(external())
   const items = []
   const walk = (dir, depth) => {
     let entries = []
@@ -113,7 +114,7 @@ function scan() {
   }
   walk(SKILLS_ROOT, 0)
   cache = items
-  return items
+  return items.concat(external())
 }
 
 /** 按 id / 名字 / 目录名找技能（不区分大小写；skill- 前缀和空格都容错） */
@@ -176,7 +177,7 @@ function readSkill(key, file) {
   }
   const files = listSkillFiles(item, 1, '')
   const wanted = String(file || '').trim()
-  const target = not(wanted) ? path.join(item.dir, 'SKILL.md') : path.join(item.dir, path.normalize(wanted))
+  const target = not(wanted) ? path.join(item.dir, item.entry || 'SKILL.md') : path.join(item.dir, path.normalize(wanted))
   /* 目录穿越护栏：只能在技能目录里读 */
   if (path.relative(item.dir, target).split(path.sep).indexOf('..') !== -1) {
     return { ok: false, error: 'SKILL_PATH_ESCAPE: ' + wanted, id: item.id }
@@ -187,6 +188,7 @@ function readSkill(key, file) {
   } catch (error) {
     return { ok: false, error: 'SKILL_FILE_NOT_FOUND: ' + wanted, id: item.id, files: files }
   }
+  if (!fs.realpathSync(target).startsWith(fs.realpathSync(item.dir) + path.sep)) return { ok: false, error: 'SKILL_PATH_ESCAPE', id: item.id }
   if (not(stat.isFile())) return { ok: false, error: 'SKILL_FILE_NOT_FILE: ' + wanted, id: item.id, files: files }
   if (stat.size > MAX_FILE_BYTES) return { ok: false, error: 'SKILL_FILE_TOO_LARGE: ' + wanted + ' (' + stat.size + 'B)', id: item.id }
   let text = ''
@@ -276,7 +278,7 @@ function stats() {
   return { root: SKILLS_ROOT, count: items.length }
 }
 
-module.exports = {
+return {
   SKILLS_ROOT,
   parseFrontmatter,
   stripFrontmatter,
@@ -287,3 +289,6 @@ module.exports = {
   systemPromptBlock,
   stats
 }
+
+}
+module.exports = Object.assign(createLibrary(), { createLibrary })

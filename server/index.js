@@ -248,6 +248,7 @@ function serveStatic(request, response, pathname) {
 }
 
 async function handleApi(request, response, url) {
+  if (await require('./extension-api').handleExtensionApi(request,response,url,{extensions:pluginHost.get('extensions'),json,readBodyLimit}))return true
   if (await require('./task-api').handleTaskApi(request, response, url, { tasks: pluginHost.get('tasks'), json, readBody })) return true
   if (await require('./workflow-api').handleWorkflowApi(request,response,url,{workflows:pluginHost.get('workflows'),json,readBody,emit:broadcast}))return true
   if (await require('./knowledge-api').handleKnowledgeApi(request, response, url, { isRunning: id => pool.isRunning(id), projects: () => settingsStore.all().projects || [], knowledge: pluginHost.get('knowledge'), json, readBody, workspace: () => pool.getWorkspace() })) return true
@@ -564,6 +565,7 @@ function startListen(port) {
 }
 
 pluginHost.ready().then(() => pluginHost.configure()).then(async () => {
+  await pluginHost.get('extensions').attach(pluginHost)
   try { await pluginHost.get('mcp').ready() } catch (error) { console.error('[mcp] startup failed:', error.message) }
   pluginHost.get('knowledge').attach(broadcast)
   pluginHost.get('tasks').attach({pool,home:AGENT_HOME,emit:broadcast})

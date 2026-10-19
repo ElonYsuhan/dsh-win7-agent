@@ -82,6 +82,7 @@ function normalizeServer(raw, index) {
     server.envPass = Array.isArray(raw.envPass) ? Array.from(new Set(raw.envPass.map(String).map(name => name.trim()).filter(Boolean))).slice(0, 64) : []
     if (server.envPass.some(name => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))) throw new Error('MCP_ENV_NAME_INVALID')
     server.cwd = String(raw.cwd || '').trim().slice(0, 2048)
+    if (raw.bundledNode === true) server.bundledNode = true
     if (!server.command) return null
     return server
   }

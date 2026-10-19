@@ -12,9 +12,11 @@ module.exports = {
     const manager = new McpManager()
     const documents = createDocumentHost()
     const unregister = []
+    const packageUnregister = new Map()
     let chain = Promise.resolve()
     let closed = false
     let lastError = ''
+    let packageServers = []
 
     function settingsData() {
       const settings = ctx.agentConfig.settings
@@ -27,6 +29,7 @@ module.exports = {
       const value = manager.status()
       const enabled = !(settingsData().disabledBuiltinMcp || []).includes('documents')
       const builtin = documents.status(enabled)
+      for (const server of value.servers) { const item=packageServers.find(p=>p.id===server.id);if(item)server.packageId=item.packageId }
       value.servers.unshift(builtin)
       value.tools += builtin.tools.length
       value.available = value.connected + (enabled ? 1 : 0)
@@ -38,7 +41,8 @@ module.exports = {
     }
 
     async function unregisterTools() {
-      const pending = unregister.splice(0, unregister.length)
+      const pending = unregister.splice(0, unregister.length).concat(...packageUnregister.values())
+      packageUnregister.clear()
       for (const off of pending) {
         try { await off() } catch (error) {}
       }
@@ -49,7 +53,8 @@ module.exports = {
       await unregisterTools()
       lastError = ''
       const servers = contract.normalizeServers(settingsData().mcpServers)
-      await manager.start(servers)
+      if (servers.length + packageServers.length > contract.MAX_SERVERS) throw Error('MCP 服务总数不能超过32个')
+      await manager.start(servers.concat(packageServers))
       if (closed) return status()
       if (!(settingsData().disabledBuiltinMcp || []).includes('documents')) {
         for (const tool of documents.definitions) {
@@ -82,12 +87,30 @@ module.exports = {
               }
             }
           })
-          unregister.push(off)
+          if(packageServers.some(item=>item.id===server.id)){if(!packageUnregister.has(server.id))packageUnregister.set(server.id,[]);packageUnregister.get(server.id).push(off)}else unregister.push(off)
         }
       }
       return status()
     }
 
+
+    async function syncPackages(items) {
+      if(closed)throw Error('MCP_CLOSED')
+      const manual=contract.normalizeServers(settingsData().mcpServers)
+      if(manual.length+items.length>contract.MAX_SERVERS)throw Error('MCP 服务总数不能超过32个')
+      if(items.some(item=>manual.some(server=>server.id===item.id)))throw Error('MCP 扩展标识与手工配置冲突')
+      lastError=''
+      const keep=new Set(items.filter(item=>packageServers.some(old=>old.id===item.id&&JSON.stringify(old)===JSON.stringify(item))).map(item=>item.id))
+      for(const [id,disposers] of packageUnregister){if(keep.has(id))continue;for(const off of disposers)await off();packageUnregister.delete(id)}
+      packageServers=items.slice()
+      await manager.reconcile(manual.concat(packageServers))
+      for(const server of manager.status().servers){
+        if(!packageServers.some(item=>item.id===server.id)||packageUnregister.has(server.id)||server.status!=='connected')continue
+        const disposers=[];packageUnregister.set(server.id,disposers)
+        for(const tool of policy.exposedTools(server.config,server.tools))disposers.push(ctx.tools.register({name:tool.name,plugin:'core/mcp',permission:server.permission,description:'[MCP:'+server.name+'] '+(tool.description||tool.rawName),parameters:tool.parameters,execute:async(args,toolCtx)=>{try{return await manager.call(server.id,tool.rawName,args,{signal:toolCtx&&toolCtx.signal})}catch(error){if(error.message==='ABORTED')throw error;return 'ERROR: '+error.message}}}))
+      }
+      return status()
+    }
 
     function schedule() {
       chain = chain.then(() => sync()).catch((error) => {
@@ -98,6 +121,7 @@ module.exports = {
     }
 
     const service = {
+      setPackages: items => { const result=chain.then(()=>syncPackages(items));chain=result.catch(error=>{lastError=error.message;return status()});return result },
       ready: () => chain,
       reload: () => schedule(),
       status: () => status(),

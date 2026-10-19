@@ -245,7 +245,7 @@ async function groupD() {
     // Distinct stores may select adjacent ports; one store must have only one scheduler.
     const duplicate = launch(ready.port + 5)
     for (let i=0; i<100 && !duplicate.exited; i++) await delay(25)
-    check('D5b 同数据目录的第二个调度服务拒绝启动', duplicate.exited && duplicate.stderrTail.includes('TASK_OWNER_LOCKED'))
+    check('D5b 同数据目录的第二个调度服务拒绝启动', duplicate.exited && /TASK_OWNER_LOCKED|EXTENSION_OWNER_LOCKED/.test(duplicate.stderrTail))
     check('D5 端口被占自动顺延', ready2.ok === true && ready2.port > ready.port,
       'first=' + ready.port + ' second=' + ready2.port + ' reason=' + (ready2.reason || 'ok'))
   } else {

@@ -1,0 +1,24 @@
+{
+  "formatVersion": 1,
+  "publisher": "example",
+  "name": "local-echo",
+  "displayName": "离线示例 MCP",
+  "description": "离线示例 MCP，可复制此目录开发自己的扩展。",
+  "version": "1.0.0",
+  "type": "mcp",
+  "engines": {
+    "extensionApi": 1,
+    "node": "16",
+    "electron": "22",
+    "chromium": "108"
+  },
+  "targets": [
+    "any"
+  ],
+  "entry": "server.cjs",
+  "mcp": {
+    "transport": "stdio",
+    "permission": "read",
+    "args": []
+  }
+}

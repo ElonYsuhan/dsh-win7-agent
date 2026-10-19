@@ -356,3 +356,7 @@ migration, boundaries and verification; platform support remains Node16/Win7.
 ### 内存与资源生命周期
 
 工作流画布通过应用适配器拥有可取消RAF和精确事件解绑；历史实例使用轻量索引及有界详情缓存，事实不因缓存淘汰删除。模型传输在结束/失败时释放连接并限制异常响应体积，预览URL有全局缓存边界。验证方法、兼容实现及限制见 [内存排查记录](MEMORY-RELIABILITY.md)。
+
+### 统一离线能力包（2026-10-19）
+
+`core/extensions` 是原生 Cordis 服务，inject agentConfig/skillLibrary/mcp。contracts/extensions 定义纯版本、路径和清单校验；extensions/archive、worker、repository 分别负责有界解包、隔离检查和原子登记。安装检查不执行代码，确认安装仍为停用状态；启用通过现有 PluginHost / skillLibrary / mcp 服务，无第二个容器、事件总线或 Agent 执行路径。主服务就绪后 attach 原宿主；异步释放 staging、worker 和仓库锁由 Cordis effect 追踪。Skill 的用户包视图按运行时隔离，不污染模块全局索引。HTTP 和 IPC 共用同一服务，UI 支持文件选择和拖拽。协议、纯 JS 首版范围、恢复语义和兼容证据见 [离线扩展包规范](EXTENSION-PACKAGES.md)。

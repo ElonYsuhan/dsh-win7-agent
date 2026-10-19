@@ -3305,9 +3305,9 @@ function renderPlugins(plugins, tools) {
   if (not(element)) return
   if (Array.isArray(tools)) cachedToolList = tools
   element.textContent = ''
-  const pluginNames = cachedPluginList
+  const pluginNames = cachedPluginList.filter(name => !window.extensionUI || !window.extensionUI.isManagedPlugin(name))
   const toolItems = cachedToolList
-  if (byId('capTabPlugins')) byId('capTabPlugins').textContent = '插件 ' + pluginNames.length
+  if (byId('capTabPlugins')) byId('capTabPlugins').textContent = '插件 ' + (pluginNames.length + (window.extensionUI ? window.extensionUI.packageCount('plugin') : 0))
   if (pluginNames.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'muted'
@@ -4516,7 +4516,7 @@ function renderSkills(items) {
   if (!list) return
   const query = (byId('skillSearch').value || '').trim().toLowerCase()
   list.textContent = ''
-  for (const item of systemSkillList.filter((item) => (item.name + ' ' + item.id + ' ' + item.description).toLowerCase().includes(query))) {
+  for (const item of systemSkillList.filter((item) => !item.packageId).filter((item) => (item.name + ' ' + item.id + ' ' + item.description).toLowerCase().includes(query))) {
     const row = document.createElement('div')
     row.className = 'capability-row'
     const icon = document.createElement('span')
@@ -4555,7 +4555,7 @@ function renderSkills(items) {
     row.append(icon, info, scope, toggle); list.appendChild(row)
   }
   if (!list.children.length) { const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = '没有匹配的技能'; list.appendChild(empty) }
-  byId('capTabSkills').textContent = '技能 ' + systemSkillList.length
+  byId('capTabSkills').textContent = '技能 ' + (systemSkillList.filter(item => !item.packageId).length + (window.extensionUI ? window.extensionUI.packageCount('skill') : 0))
   updateShortcutMeta()
 }
 
@@ -4595,6 +4595,7 @@ function renderMcp(data) {
     return
   }
   for (const server of mcpServerState.servers) {
+    if (server.packageId) continue
     const card = document.createElement('div')
     card.className = 'mcp-server' + ((server.status === 'connected' || server.status === 'available') ? '' : ' mcp-server-off')
     const head = document.createElement('div')

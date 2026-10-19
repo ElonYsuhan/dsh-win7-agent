@@ -39,7 +39,7 @@ class StdioClient {
       stdio: ['pipe', 'pipe', 'pipe'],
       /* Win7 上的 npm/npx 通常以 .cmd 暴露；Node 16 不能直接 spawn .cmd。
          这里只启动用户显式配置的 MCP 命令，和 run_command 一样属于可信本地配置。 */
-      shell: process.platform === 'win32' && this.options.shell !== false
+      shell: process.platform === 'win32' && this.options.shell !== false && this.config.bundledNode !== true
     }
     this.child = spawn(this.config.command, this.config.args || [], options)
     this.exitPromise = new Promise((resolve) => {

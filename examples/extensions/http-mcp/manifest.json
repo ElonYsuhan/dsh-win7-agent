@@ -1,0 +1,24 @@
+{
+  "formatVersion": 1,
+  "publisher": "example",
+  "name": "intranet",
+  "displayName": "内网 MCP 配置",
+  "description": "内网 MCP 配置，可复制此目录开发自己的扩展。",
+  "version": "1.0.0",
+  "type": "mcp",
+  "engines": {
+    "extensionApi": 1,
+    "node": "16",
+    "electron": "22",
+    "chromium": "108"
+  },
+  "targets": [
+    "any"
+  ],
+  "mcp": {
+    "transport": "http",
+    "permission": "read",
+    "url": "http://127.0.0.1:9000/mcp",
+    "bearerTokenEnv": "INTRANET_MCP_TOKEN"
+  }
+}

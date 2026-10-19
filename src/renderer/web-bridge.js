@@ -117,6 +117,7 @@
     workflowRequest: (action,data) => action==='list'?request('GET','/api/workflows'):request('POST','/api/workflows/'+action,data||{}),
     knowledgeRequest: (action, data) => action === 'list' ? request('GET', '/api/knowledge') : request('POST', '/api/knowledge/' + action, data || {}),
     knowledgeUpload: async (raw, file) => { const query = new URLSearchParams(raw); const response = await fetch('/api/knowledge/import?' + query.toString(), { method: 'POST', body: file }); const value = await response.json(); if (!response.ok) throw new Error(value.error || 'KNOWLEDGE_IMPORT_FAILED'); return value },
+    extensionRequest: (action, data) => action === 'list' ? request('GET', '/api/extensions') : request('POST', '/api/extensions/' + action, data || {}),
     mcpRequest: (action, data) => action === 'list' ? request('GET', '/api/mcp') : request('POST', '/api/mcp/' + action, data || {}),
     uiStoreGet: () => request('GET', '/api/ui-store'),
     uiStorePut: (store) => request('PUT', '/api/ui-store', store),

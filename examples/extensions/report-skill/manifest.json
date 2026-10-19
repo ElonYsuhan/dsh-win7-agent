@@ -1,0 +1,19 @@
+{
+  "formatVersion": 1,
+  "publisher": "example",
+  "name": "report-guide",
+  "displayName": "报告编写规范",
+  "description": "报告编写规范，可复制此目录开发自己的扩展。",
+  "version": "1.0.0",
+  "type": "skill",
+  "engines": {
+    "extensionApi": 1,
+    "node": "16",
+    "electron": "22",
+    "chromium": "108"
+  },
+  "targets": [
+    "any"
+  ],
+  "entry": "SKILL.md"
+}

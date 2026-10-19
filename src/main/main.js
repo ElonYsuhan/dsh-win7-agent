@@ -120,6 +120,7 @@ async function createAgent() {
   pluginHost.loadFromDirectory(path.join(userData, 'plugins'))
   await pluginHost.ready()
   await pluginHost.configure()
+  await pluginHost.get('extensions').attach(pluginHost)
   try { await pluginHost.get('mcp').ready() } catch (error) { console.error('[mcp] startup failed:', error.message) }
   /* 一条会话一台 worker（与 server/index.js 同一套池，见 src/main/agent/agent-pool.js） */
   pool = new AgentPool({
@@ -499,6 +500,8 @@ ipcMain.handle('knowledge:request', async (_event, action, data) => {
   if (action === 'source') { const linked=raw.sessionId?await knowledge.sessionContext(raw.sessionId):null;return raw.baseId ? knowledge.sourceBase(raw) : knowledge.sourceSession(raw,linked?linked.workspaceRoot:pool.getWorkspace()) }
   throw new Error('KNOWLEDGE_ACTION_INVALID')
 })
+
+ipcMain.handle('extensions:request',async(_event,action,data)=>{const service=pluginHost.get('extensions');if(action==='list')return service.list();if(!['inspect','discard','install','enable','remove'].includes(action))throw Error('EXTENSION_ACTION_INVALID');return service[action](data||{})})
 
 ipcMain.handle('mcp:request', async (_event, action, data) => {
   const mcp = pluginHost.get('mcp')

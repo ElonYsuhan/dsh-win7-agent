@@ -175,6 +175,7 @@ contextBridge.exposeInMainWorld('dsh', {
   workflowRequest: (action,data) => ipcRenderer.invoke('workflows:request',action,data),
   knowledgeRequest: (action, data) => ipcRenderer.invoke('knowledge:request', action, data),
   knowledgeUpload: async (raw, bytes) => { if (bytes.byteLength > 8 * 1024 * 1024) throw new Error('KNOWLEDGE_FILE_LIMIT'); return ipcRenderer.invoke('knowledge:request', 'import', { ...raw, bytes }) },
+  extensionRequest: (action, data) => ipcRenderer.invoke('extensions:request', action, data),
   mcpRequest: (action, data) => ipcRenderer.invoke('mcp:request', action, data),
   isDesktop: true,
   getState: () => ipcRenderer.invoke('app:get-state'),

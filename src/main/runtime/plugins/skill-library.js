@@ -1,12 +1,14 @@
 'use strict'
 
 // One system-wide Markdown library; Cordis owns the service lifetime.
-const library = require('../../agent/md-skills')
+const { createLibrary } = require('../../agent/md-skills')
 const policy = require('../../flow/skill-policy')
 module.exports = {
   name: 'core/skill-library',
   inject: ['agentConfig', 'contracts'],
   apply(ctx) {
+    let packages = []
+    const library = createLibrary(() => packages)
     const disabled = () => {
       const settings = ctx.agentConfig.settings
       const data = settings && typeof settings.all === 'function' ? settings.all() : {}
@@ -14,9 +16,10 @@ module.exports = {
     }
     const enabled = (item) => policy.enabled(item, disabled())
     const service = {
+      setPackages: items => { packages = items.slice() },
       list: () => {
         const ids = disabled()
-        return library.list().map((item) => ({ id: item.id, name: item.name, description: item.description, enabled: policy.enabled(item, ids) }))
+        return library.list().map((item) => ({ id: item.id, packageId: item.packageId, name: item.name, description: item.description, enabled: policy.enabled(item, ids) }))
       },
       read: (name, file) => {
         const item = library.find(name)

@@ -53,6 +53,35 @@ class McpManager {
     return this.status()
   }
 
+  // Reconcile package changes without interrupting unrelated MCP connections.
+  async reconcile(configs) {
+    const normalized = contract.normalizeServers(configs)
+    const wanted = new Map(normalized.map(config => [config.id, config]))
+    for (const [id, entry] of this.servers) {
+      if (wanted.has(id) && JSON.stringify(wanted.get(id)) === JSON.stringify(entry.config)) continue
+      if (entry.client) await entry.client.close()
+      this.servers.delete(id)
+    }
+    this.stopped = false
+    for (const config of normalized) {
+      if (this.servers.has(config.id)) continue
+      const entry = { config, client: null, status: config.enabled ? 'connecting' : 'disabled', error: '', tools: [] }
+      this.servers.set(config.id, entry)
+      if (!config.enabled) continue
+      const client = entry.client = this.createClient(config)
+      try {
+        await client.start()
+        entry.tools = (await client.listTools()).slice(0, contract.MAX_TOOLS_PER_SERVER)
+        entry.status = 'connected'
+      } catch (error) {
+        entry.status = 'error'
+        entry.error = String(error.message || error).slice(0, 2000)
+        await client.close()
+      }
+    }
+    return this.status()
+  }
+
   async stop() {
     this.stopped = true
     await this.closeClients()

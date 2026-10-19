@@ -9,6 +9,7 @@ function defaultProfile(options) {
     require('./plugins/model'),
     require('./plugins/plans'),
     require('./plugins/mcp'),
+    require('./plugins/extensions'),
     require('./plugins/knowledge'),
     require('./plugins/knowledge-tools'),
     require('./plugins/sessions'),
