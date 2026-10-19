@@ -10,7 +10,7 @@ function report(){
   {id:'confirmation',type:'human',title:'人工确认大纲',bindings:{outline:{nodeId:'outline',path:'outline'}},humanModes:['review','approval','read'],text:'查看上游资料分析与大纲，填写确认后的大纲。选择不通过会保留结论并暂停流程，不自动进入正文。',inputSchema:object({outline:text('确认后的大纲')}),outputSchema:object({outline:text('确认后的大纲')})},
   {id:'body',type:'ai',title:'正文编写',text:'根据已由人工确认的大纲生成报告正文。保留依据，不确定事项单独说明。',inputSchema:object({outline:text('已确认大纲'),analysis:text('资料分析')}),bindings:{outline:{nodeId:'confirmation',path:'outline'},analysis:{nodeId:'analysis',path:'analysis'}},outputSchema:object({report:text('报告正文')})},
   {id:'evaluation',type:'evaluate',title:'报告评估',inputSchema:object({report:text('报告正文'),analysis:text('资料分析')}),bindings:{report:{nodeId:'body',path:'report'},analysis:{nodeId:'analysis',path:'analysis'}},text:'检查事实依据、完整性、逻辑和可操作性。verdict 为 pass、revise 或 fail。明确列出问题及修改建议。',outputSchema:object({verdict:{type:'string',title:'结论',enum:['pass','revise','fail']},summary:text('评估说明'),issues:{type:'array',title:'问题清单',items:{type:'string',maxLength:2000},maxItems:20}})},
-  {id:'end',type:'end',title:'结束交付',text:'',bindings:{report:{nodeId:'body',path:'report'},evaluation:{nodeId:'evaluation',path:''}}}
+  {id:'end',type:'end',title:'结束交付',deliverable:{format:'markdown',name:'分析报告',field:'report'},text:'',bindings:{report:{nodeId:'body',path:'report'},evaluation:{nodeId:'evaluation',path:''}}}
  ].map((n,i)=>({...n,pos:[40+(i%4)*240,80+Math.floor(i/4)*160]}))
  return{version:2,editor:'steps',name:'资料分析与报告编写',nodes,edges:nodes.slice(1).map((n,i)=>({from:nodes[i].id,to:n.id,slot:0,outputSlot:0}))}
 }

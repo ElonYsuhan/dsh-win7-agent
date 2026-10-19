@@ -1,5 +1,5 @@
 'use strict'
-const {id}=require('../contracts/workflows')
+const {id}=require('../contracts/workflows'),Artifacts=require('../contracts/workflow-artifacts')
 const terminal=['succeeded','failed','cancelled','interrupted']
 function reduce(previous,event){
  if(event.version!==1||!Number.isFinite(event.at)||event.sequence!==(previous?previous.sequence+1:1))throw Error('WORKFLOW_EVENT_INVALID')
@@ -19,7 +19,7 @@ function reduce(previous,event){
   if(previous.status!=='paused')throw Error('WORKFLOW_TRANSITION');next.status='running';next.pauseRequested=false
  }else if(event.type==='retry-requested'){
   if(!['failed','interrupted','paused','waiting'].includes(previous.status)||!step||!Array.isArray(event.affected)||!event.affected.includes(step.id))throw Error('WORKFLOW_TRANSITION')
-  for(const key of event.affected){const item=next.steps.find(s=>s.id===key);if(!item)throw Error('WORKFLOW_NODE_TRANSITION');item.status='pending';delete item.output;delete item.data;delete item.error;delete item.taskId;delete item.waitReason;delete item.artifact;delete item.endedAt;delete item.assistance;item.timeline.push({at:event.at,phase:'run',message:'用户确认重新执行，此步及下游旧结果失效'})}
+  for(const key of event.affected){const item=next.steps.find(s=>s.id===key);if(!item)throw Error('WORKFLOW_NODE_TRANSITION');item.status='pending';delete item.output;delete item.data;delete item.error;delete item.taskId;delete item.waitReason;delete item.artifact;delete item.artifacts;delete item.endedAt;delete item.assistance;item.timeline.push({at:event.at,phase:'run',message:'用户确认重新执行，此步及下游旧结果失效'})}
   next.status='running';next.pauseRequested=false;delete next.endedAt;delete next.error
  }else if(event.type==='node-started'){
   if(!step||previous.status!=='running'||step.status!=='pending')throw Error('WORKFLOW_NODE_TRANSITION')
@@ -51,8 +51,8 @@ function reduce(previous,event){
   if(event.pause){next.status='paused';next.pauseRequested=false;next.error='人工未通过，请修改或重试相应步骤后继续'}
  }else if(event.type==='node-finished'){
   if(!step||previous.status!=='running'||step.status!=='running'||!['succeeded','failed','cancelled'].includes(event.status))throw Error('WORKFLOW_NODE_TRANSITION')
-  Object.assign(step,{status:event.status,output:event.output||'',error:event.error||'',artifact:event.artifact||'',endedAt:event.at});if(event.data!==undefined)step.data=event.data;if(event.sessionId)step.agentSessionId=event.sessionId
-  if(attempt())Object.assign(attempt(),{status:event.status,output:event.output||'',data:event.data,error:event.error||'',artifact:event.artifact||'',endedAt:event.at,sessionId:event.sessionId||''})
+  Object.assign(step,{status:event.status,output:event.output||'',error:event.error||'',artifact:event.artifact||'',artifacts:Artifacts.records(event.artifacts||[]),endedAt:event.at});if(event.data!==undefined)step.data=event.data;if(event.sessionId)step.agentSessionId=event.sessionId
+  if(attempt())Object.assign(attempt(),{status:event.status,output:event.output||'',data:event.data,error:event.error||'',artifact:event.artifact||'',artifacts:Artifacts.records(event.artifacts||[]),endedAt:event.at,sessionId:event.sessionId||''})
   log('end',event.status==='succeeded'?'节点完成':event.status==='cancelled'?'节点已停止':'节点执行失败',{output:step.output,error:step.error,artifact:step.artifact})
  }else if(event.type==='finished'){
   if(!terminal.includes(event.status))throw Error('WORKFLOW_TERMINAL_INVALID')

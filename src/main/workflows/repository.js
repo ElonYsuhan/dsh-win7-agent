@@ -1,5 +1,5 @@
 'use strict'
-const fs=require('fs'),path=require('path'),S=require('../state/workflow-state'),C=require('../contracts/workflows')
+const fs=require('fs'),path=require('path'),crypto=require('crypto'),Artifacts=require('../contracts/workflow-artifacts'),S=require('../state/workflow-state'),C=require('../contracts/workflows')
 class Repository{
  constructor(home){this.dir=path.join(home,'workflows');this.runs=new Map();this.details=new Map();this.detailBytes=0;this.definitions=[];this.opened=false}
  open(){if(this.opened)return;fs.mkdirSync(this.dir,{recursive:true});this.lock=path.join(this.dir,'owner.json');try{this.fd=fs.openSync(this.lock,'wx')}catch(e){if(e.code!=='EEXIST')throw e;let owner;try{owner=JSON.parse(fs.readFileSync(this.lock,'utf8'));process.kill(owner.pid,0)}catch(error){if(error.code==='ESRCH'){fs.unlinkSync(this.lock);return this.open()}throw Error('WORKFLOW_STORAGE_LOCKED')}throw Error('WORKFLOW_STORAGE_LOCKED')}
@@ -9,7 +9,7 @@ class Repository{
  index(state){
   if(['pending','running'].includes(state.status))return state
   const {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error}=state
-  return {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,steps:state.steps.map(({id,title,status,startedAt,endedAt})=>({id,title,status,startedAt,endedAt}))}
+  return {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,artifactCount:Artifacts.current(state).length||state.steps.filter(s=>s.artifact).length,steps:state.steps.map(({id,title,status,startedAt,endedAt})=>({id,title,status,startedAt,endedAt}))}
  }
  readRun(id,repair){
   const file=path.join(this.dir,'runs',C.id(id)+'.jsonl'),bytes=fs.readFileSync(file),end=bytes.lastIndexOf(10)+1
@@ -39,6 +39,55 @@ class Repository{
  artifactFile(run,node,attempt=1){return path.join(this.dir,'artifacts',C.id(run),C.id(node)+(attempt>1?'-attempt-'+attempt:'')+'.txt')}
  workspace(run,node,attempt,input,files=[]){const dir=path.join(this.dir,'agent-workspaces',C.id(run),C.id(node),String(attempt));fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'input.txt'),input+'\n\n附件清单：\n'+files.slice(0,30).map((file,index)=>'attachment-'+index+path.extname(file.name)+' ← '+file.name).join('\n'),'utf8');for(const [index,file]of files.slice(0,30).entries()){if(typeof file.ref!=='string'||!file.ref.startsWith(run+'/')||!new RegExp('^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[0-9]+$').test(file.ref))throw Error('附件引用不属于当前实例');const source=path.join(this.dir,'uploads',file.ref),target=path.join(dir,'attachment-'+index+path.extname(file.name));fs.copyFileSync(source,target)}return dir}
  artifact(run,node,text,attempt=1){const file=this.artifactFile(run,node,attempt),dir=path.dirname(file),tmp=file+'.tmp';fs.mkdirSync(dir,{recursive:true});const fd=fs.openSync(tmp,'w');try{fs.writeFileSync(fd,text,'utf8');fs.fsyncSync(fd)}finally{fs.closeSync(fd)}fs.renameSync(tmp,file);return path.basename(file)}
+ // Files are copied into an instance-owned immutable attempt directory before facts publish them.
+ deliveries(run,node,text,attempt){
+  const spec=Artifacts.declaration(node.deliverable),items=[],sources=[]
+  if(spec.format==='files')for(const file of spec.files){
+   const step=run.steps.find(s=>s.id===file.nodeId);if(!step||step.status!=='succeeded')throw Error('产物来源节点尚未完成：'+file.nodeId)
+   const uploaded=(step.files||[]).find(f=>f.name===file.path),ref=uploaded&&uploaded.ref
+   if(ref&&(typeof ref!=='string'||!ref.startsWith(run.id+'/')||!/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[0-9]+$/.test(ref)))throw Error('产物附件不属于当前实例')
+   const root=uploaded?path.join(this.dir,'uploads',C.id(run.id)):path.join(this.dir,'agent-workspaces',C.id(run.id),C.id(step.id),String(step.attempt||1))
+   const ownedRoot=path.join(fs.realpathSync(this.dir),path.relative(this.dir,root));if(fs.realpathSync(root)!==ownedRoot)throw Error('产物文件超出节点工作目录');
+   const source=uploaded?path.join(this.dir,'uploads',ref):path.join(root,...file.path.split('/')),relative=path.relative(fs.realpathSync(root),fs.realpathSync(source)),stat=fs.statSync(source)
+   if(!relative||relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative)||!stat.isFile())throw Error('产物文件超出节点工作目录')
+   if(stat.size>64*1024*1024)throw Error('单个产物不能超过64MB');sources.push({source,name:uploaded?uploaded.name:path.basename(source),sourceNodeId:file.nodeId,size:stat.size})
+  }
+  if(sources.reduce((n,f)=>n+f.size,0)+Artifacts.current(run).reduce((n,a)=>n+(a.size||0),0)>256*1024*1024)throw Error('本次交付不能超过256MB')
+  const dir=path.join(this.dir,'artifacts',C.id(run.id));fs.mkdirSync(dir,{recursive:true})
+  if(spec.format!=='files'){
+   let content=text;if(spec.field){const value=require('../contracts/workflow-schema').pathValue(JSON.parse(text),spec.field);if(value===undefined)throw Error('缺少最终产物字段：'+spec.field);content=typeof value==='string'?value:JSON.stringify(value)}if(spec.format==='json'){try{content=JSON.stringify(JSON.parse(content),null,2)}catch(_){throw Error('JSON 交付内容不是有效 JSON')}}
+   if(!content.trim())content='# '+run.name+' 执行结果\n\n'+run.steps.filter(s=>s.status==='succeeded').map(s=>'## '+s.title+'\n'+(s.output||s.conclusion||'该步骤已完成')).join('\n\n')
+   const ext={text:'.txt',markdown:'.md',json:'.json'}[spec.format],name=(spec.name||node.title||'流程结果').replace(/[\\/\x00-\x1f<>:"|?*]/g,'_').replace(/\.(txt|md|json)$/i,'')+ext
+   // Keep legacy .txt locations readable by old clients.
+   const file=spec.format==='text'?this.artifactFile(run.id,node.id,attempt):path.join(dir,node.id+'-attempt-'+attempt+ext)
+   const temp=file+'.tmp',fd=fs.openSync(temp,'w');try{fs.writeFileSync(fd,content);fs.fsyncSync(fd)}finally{fs.closeSync(fd)}fs.renameSync(temp,file)
+   sources.push({source:file,name,size:fs.statSync(file).size,stored:true})
+  }
+  for(const [index,source]of sources.entries()){
+   const key=node.id+'-attempt-'+attempt+'-file-'+index,name=source.name
+   const file=source.stored?source.source:path.join(dir,crypto.createHash('sha256').update(key).digest('hex').slice(0,32)+path.extname(name)),temp=file+'.tmp'
+   if(!source.stored){fs.copyFileSync(source.source,temp);const fd=fs.openSync(temp,'r+');try{fs.fsyncSync(fd)}finally{fs.closeSync(fd)}fs.renameSync(temp,file)}
+   if(fs.statSync(file).size>64*1024*1024)throw Error('单个产物不能超过64MB');const hash=crypto.createHash('sha256'),fd=fs.openSync(file,'r'),buffer=Buffer.alloc(64*1024);let size=0,count
+   try{while((count=fs.readSync(fd,buffer,0,buffer.length,null))){hash.update(buffer.subarray(0,count));size+=count;if(size>64*1024*1024)throw Error('单个产物不能超过64MB')}}finally{fs.closeSync(fd)}
+   if(size!==source.size)throw Error('产物生成期间文件发生变化，请重试')
+   items.push({id:crypto.createHash('sha256').update(run.id+':'+key).digest('hex').slice(0,32),name,size,sha256:hash.digest('hex'),file:path.basename(file),sourceNodeId:source.sourceNodeId||node.id,format:path.extname(name).slice(1).toLowerCase()||'file',createdAt:Date.now()})
+  }
+  return items
+ }
+ artifactEntry(run,key){
+  C.id(key);let item=Artifacts.current(run).find(a=>a.id===key)
+  if(!item){const step=run.steps.find(s=>s.artifact&&s.id===key);if(step)item={id:step.id,name:step.artifact,file:path.basename(this.artifactFile(run.id,step.id,step.attempt||1)),nodeId:step.id,attempt:step.attempt||1}}
+  if(!item)throw Error('产物不存在或不属于当前实例')
+  const root=path.join(this.dir,'artifacts',C.id(run.id)),target=path.join(root,item.file),relative=path.relative(fs.realpathSync(root),fs.realpathSync(target))
+  if(fs.realpathSync(root)!==path.join(fs.realpathSync(this.dir),'artifacts',run.id))throw Error('产物路径无效')
+  if(!relative||relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))throw Error('产物路径无效')
+  return {item,target}
+ }
+ readArtifact(run,key,offset=0){
+  if(!Number.isInteger(offset)||offset<0)throw Error('产物读取位置无效')
+  const {item,target}=this.artifactEntry(run,key),fd=fs.openSync(target,'r')
+  try{const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.size>64*1024*1024||offset>stat.size)throw Error('产物大小或读取位置无效');const bytes=Buffer.alloc(Math.min(256*1024,stat.size-offset));const length=fs.readSync(fd,bytes,0,bytes.length,offset);return {name:item.name,size:stat.size,offset,next:offset+length,bytes:bytes.subarray(0,length).toString('base64')}}finally{fs.closeSync(fd)}
+ }
  close(){if(!this.opened)return;this.opened=false;fs.closeSync(this.fd);fs.unlinkSync(this.lock);this.details.clear();this.detailBytes=0;this.runs.clear()}
 }
 module.exports={Repository}

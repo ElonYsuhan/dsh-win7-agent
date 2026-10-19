@@ -6327,3 +6327,24 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 #workflowStructuredOptions summary{cursor:pointer;font-size:12px;margin-bottom:8px;}
 .workflow-current-task fieldset{min-width:0;}
 .workflow-current-task .workflow-schema-field textarea{min-height:70px;}
+
+/* Instance workbench: actionable form first, deliverables below; audit facts stay durable. */
+.workflow-workbench{overflow:auto;}
+.workflow-workbench>.workflow-current-task{flex:0 0 auto;max-height:none;border-top:0;overflow:visible;}
+.workflow-workbench>.workflow-property-header{order:0;}
+.workflow-node-evidence{padding:12px;border-top:1px solid var(--border);flex-shrink:0;font-size:12px;}
+.workflow-node-evidence summary{cursor:pointer;}
+.workflow-artifacts{padding:12px;border-top:1px solid var(--border);flex:1;min-height:120px;}
+.workflow-artifacts h4,.workflow-current-task h4{margin:0 0 10px;}
+.workflow-artifacts p{font-size:12px;line-height:1.6;}
+.workflow-artifact-item{padding:10px;margin-top:8px;background:var(--panel);border:1px solid var(--border);border-radius:6px;overflow-wrap:anywhere;}
+.workflow-artifact-item strong,.workflow-artifact-item small{display:block;margin-bottom:6px;}
+.workflow-artifact-item button{margin-right:6px;}
+.workflow-run-actions{display:flex;gap:8px;flex-shrink:0;}
+.workflow-delivery-file{display:grid;gap:6px;margin:12px 0;}
+.workflow-artifact-dialog{width:min(1000px,90vw);height:min(720px,85vh);padding:0;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--text);}
+.workflow-artifact-dialog::backdrop{background:rgba(0,0,0,.45);}
+.workflow-artifact-dialog[open]{display:flex;flex-direction:column;}
+.workflow-artifact-dialog header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.workflow-artifact-dialog h2{flex:1;min-width:0;font-size:16px;overflow-wrap:anywhere;margin:0;}
+.workflow-artifact-dialog .panel-preview{flex:1;min-height:0;overflow:auto;padding:16px;}

@@ -69,7 +69,7 @@
   if(mode!=='editor'||!dirty)return true
   return Boolean(await window.appDialogs.confirm('当前流程有未保存的修改，确定放弃修改吗？'))
  }
- function hide(){
+ function hide(){closeArtifact();if(artifactDownload)artifactDownload.abort();
   panDrag=null
   dirty=false
   page.classList.add('hidden')
@@ -163,10 +163,39 @@
     node('p',(labels[run.status]||run.status)+' · '+run.completed+'/'+run.stepCount+' 步'+(run.currentStep?' · 当前：'+run.currentStep:'')+' · '+new Date(run.createdAt).toLocaleString(),'muted'),
     node('small',run.id,'muted')
    )
-   row.append(info,button('查看步骤',async()=>{notice('');activeRun=run.id;runSelection='';pinnedSelection=false;detailSignature='';view('detail');await renderDetail()}))
+   const actions=node('div',undefined,'workflow-run-actions');if(run.artifactCount)actions.append(button('产物 '+run.artifactCount,async()=>{notice('');activeRun=run.id;runSelection='';pinnedSelection=false;detailSignature='';view('detail');await renderDetail();const section=$('workflowArtifacts');if(section){section.scrollIntoView({block:'nearest'});section.focus()}}));else info.append(node('small','尚未生成产物','muted'));row.append(info,actions);actions.append(button('查看步骤',async()=>{notice('');activeRun=run.id;runSelection='';pinnedSelection=false;detailSignature='';view('detail');await renderDetail()}))
    list.append(row)
   }
   if(!list.children.length)list.append(node('p','暂无匹配的执行实例','muted'))
+ }
+ function renderArtifacts(result,host){
+  const section=node('section',undefined,'workflow-artifacts');section.id='workflowArtifacts';section.tabIndex=-1;section.setAttribute('aria-label','工作流产物');section.append(node('h4','工作流产物'))
+  const artifacts=result.artifacts||[]
+  if(!artifacts.length)section.append(node('p',['failed','cancelled','interrupted'].includes(result.status)?'流程未完成，尚无最终交付产物。节点中间结果可在上方查看。':'尚未生成。完成结束节点后，最终报告或文件会出现在这里。','muted'))
+  if(artifacts.length&&result.status!=='succeeded')section.append(node('p','流程尚未完成，以下为已生成的部分产物。','muted'));
+  for(const item of artifacts){const row=node('article',undefined,'workflow-artifact-item'),entry=result.workflow.nodes.find(n=>n.id===item.nodeId);row.append(node('strong',item.name),node('small',(item.format||'文件').toUpperCase()+(item.size!==undefined?' · '+(item.size<1024?item.size+' 字节':(item.size/1024).toFixed(1)+' KB'):'')+' · '+(entry?entry.title:item.nodeId),'muted'));const actions=node('div');actions.append(button('查看',()=>openArtifact(result,item)),button('下载',()=>downloadArtifact(result,item)));row.append(actions);section.append(row)}
+  host.append(section)
+ }
+ let artifactDialog=null,artifactDownload=null
+ function closeArtifact(){if(artifactDialog)artifactDialog.close()}
+ async function downloadArtifact(result,item,signal){
+  if(artifactDownload)throw Error('已有产物正在下载，请稍候');const controller=new AbortController(),cancel=()=>controller.abort();artifactDownload=controller;if(signal){signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)cancel()}
+  try{return await readArtifactDownload(result,item,controller.signal)}finally{if(signal)signal.removeEventListener('abort',cancel);if(artifactDownload===controller)artifactDownload=null}
+ }
+ async function readArtifactDownload(result,item,signal){
+  const chunks=[];let offset=0,total
+  do{if(signal&&signal.aborted)return;const part=await api('artifact',{id:result.id,artifactId:item.id,offset});if(signal&&signal.aborted)return;if(total!==undefined&&part.size!==total||part.offset!==offset||part.next<offset||part.next===offset&&offset<part.size)throw Error('产物读取不完整');total=part.size;offset=part.next;chunks.push(Uint8Array.from(atob(part.bytes),c=>c.charCodeAt(0)))}while(offset<total)
+  const url=URL.createObjectURL(new Blob(chunks)),link=node('a');link.href=url;link.download=item.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
+ }
+ async function openArtifact(result,item){
+  closeArtifact();const prior=document.activeElement,dialog=node('dialog',undefined,'workflow-artifact-dialog'),header=node('header'),title=node('h2',item.name),body=node('div',undefined,'panel-preview'),controller=new AbortController();let url=''
+  artifactDialog=dialog;title.id='workflowArtifactTitle';dialog.setAttribute('aria-labelledby',title.id)
+  header.append(title,button('下载',()=>downloadArtifact(result,item,controller.signal)),button('关闭',()=>dialog.close()));dialog.append(header,body);document.body.append(dialog)
+  dialog.addEventListener('close',()=>{controller.abort();if(url)URL.revokeObjectURL(url);dialog.remove();if(artifactDialog===dialog)artifactDialog=null;if(prior&&prior.isConnected)prior.focus()},{once:true});dialog.showModal();body.textContent='正在读取产物…'
+  try{const value=await api('artifact',{id:result.id,artifactId:item.id,preview:true});if(controller.signal.aborted)return;const ext=item.name.split('.').pop().toLowerCase();let text=value.text||''
+   if(value.bytes){const bytes=Uint8Array.from(atob(value.bytes),c=>c.charCodeAt(0));if(['text','markdown'].includes(value.kind))text=window.filePanel.decodeBytes(bytes).text;else url=URL.createObjectURL(new Blob([bytes],{type:value.mime}))}
+   body.textContent='';window.filePreview.render(body,{...value,text,url,name:item.name,ext,kind:value.kind==='text'&&!['txt','log','csv'].includes(ext)?'code':value.kind});if(value.notice)body.append(node('p',value.notice,'muted'))
+  }catch(e){if(!controller.signal.aborted)body.textContent=e.message}
  }
  function executionState(step){return step&&step.status==='succeeded'?'done':step&&['running','waiting'].includes(step.status)?'active':step&&['failed','interrupted','cancelled'].includes(step.status)?'error':'pending'}
  function executionLabel(step){return step&&step.status==='waiting'?'执行中 · 待人工处理':step&&step.status==='succeeded'?'已结束':step&&['interrupted','cancelled'].includes(step.status)?labels[step.status]:step&&step.status==='skipped'?'待执行 · 已跳过':step&&step.status==='pending'?'待执行':labels[step&&step.status]||'待执行'}
@@ -193,33 +222,24 @@
   const entry=result.workflow.nodes.find(n=>n.id===runSelection),step=result.steps.find(s=>s.id===runSelection)
   if(!entry){right.append(node('p','选择左侧节点查看执行过程。'));return}
   const propertyHeader=node('header',undefined,'workflow-property-header');propertyHeader.append(node('h3',entry.title),node('p',executionLabel(step),'muted'));right.append(propertyHeader)
-  const propertyContent=node('div',undefined,'workflow-property-content');right.append(propertyContent)
+  const history=node('details',undefined,'workflow-node-evidence');history.append(node('summary','查看所选节点的输入与结果'));const propertyContent=node('div');history.append(propertyContent)
   if(entry.description)propertyContent.append(node('p',entry.description))
   if(step&&step.attempt)propertyContent.append(node('p','第 '+step.attempt+' 次尝试'+(step.agentSessionId?' · Agent '+step.agentSessionId:''),'muted'))
   if(step&&step.partial)propertyContent.append(node('pre',step.partial))
   if(step&&step.data!==undefined){const details=node('details');details.append(node('summary','结构化结果'),node('pre',JSON.stringify(step.data,null,2)));propertyContent.append(details)}
   if(step&&['failed','interrupted','paused','waiting'].includes(result.status)&&!['pending','skipped'].includes(step.status))propertyContent.append(button('从此步骤重试',async()=>{if(!await window.appDialogs.confirm('从“'+entry.title+'”重新执行？此步及下游的当前结果将失效，历史尝试保留。若涉及工具或外部接口，请先核查中间结果及外部操作是否已完成。'))return;await api('retry',{id:result.id,nodeId:entry.id,confirmExternal:true});pinnedSelection=false;detailSignature='';await refresh()}))
-  const timeline=node('ol',undefined,'workflow-timeline')
-  for(const [phase,title] of [['start','开始'],['run','运行'],['end','结束']]){
-   const section=node('li',undefined,'workflow-timeline-phase');const records=(step&&step.timeline||[]).filter(e=>e.phase===phase)
-   if(!records.length){const row=node('div',undefined,'workflow-timeline-row');row.append(node('h4',title),node('p',phase==='start'?(step&&step.startedAt?new Date(step.startedAt).toLocaleString():'尚未开始'):phase==='run'?'尚无运行记录':'尚未结束','muted'));section.append(row)}
-   for(const record of records){const item=node('div',undefined,'workflow-timeline-record');const row=node('div',undefined,'workflow-timeline-row'),date=new Date(record.at),time=node('time',date.toLocaleTimeString('zh-CN',{hour12:false})),message=node('p',record.message);time.title=date.toLocaleString();if(!Number.isNaN(date.getTime()))time.dateTime=date.toISOString();message.title=record.message||'';row.append(node('h4',title),time,message);item.append(row);if(record.input)item.append(node('pre',record.input));if(record.conclusion)item.append(node('pre',record.conclusion));else if(record.output)item.append(node('pre',record.output));if(record.error)item.append(node('p',record.error,'workflow-error'));if(record.artifact)item.append(node('p','产物：'+record.artifact));for(const file of record.files||[])item.append(node('p','附件：'+file.name+' · '+file.size+' 字节'));section.append(item)}
-   // Older instances have no timeline; retain access to their recorded output.
-   if(phase==='end'&&!records.length&&step){if(step.output)section.append(node('pre',step.output));if(step.error)section.append(node('p',step.error,'workflow-error'))}
-   timeline.append(section)
-  }
-  propertyContent.append(timeline)
+  if(step&&step.input)propertyContent.append(node('pre',step.input));if(step&&step.output)propertyContent.append(node('pre',step.output));if(step&&step.error)propertyContent.append(node('p',step.error,'workflow-error'));for(const file of step&&step.files||[])propertyContent.append(node('p','附件：'+file.name));
+  if(step&&step.timeline&&step.timeline.length){const records=node('details'),list=node('ul');records.append(node('summary','执行记录'));for(const fact of step.timeline){const row=node('li',new Date(fact.at).toLocaleTimeString()+' · '+fact.message);if(fact.output)row.append(node('pre',fact.output));list.append(row)}records.append(list);propertyContent.append(records)}
   const task=node('section',undefined,'workflow-current-task'),waiting=result.steps.find(s=>s.status==='waiting'),waitingEntry=waiting&&result.workflow.nodes.find(n=>n.id===waiting.id)
   task.append(node('h4',waiting?'当前待办 · '+waiting.title:'当前待办'))
   for(const key of taskForms.keys())if(key.startsWith(result.id+':')&&(!waiting||key!==result.id+':'+waiting.taskId))taskForms.delete(key)
   if(waiting){
    task.append(button('打开会话分析',()=>window.workflowChat.open({workflowId:result.workflowId,runId:result.id,nodeId:waiting.id,name:result.name,nodeTitle:waiting.title})))
-   if(waiting.id!==runSelection){task.append(node('p','你正在查看历史节点；当前待办仍保留在下方。','muted'));task.append(button('定位当前节点',()=>{runSelection=waiting.id;pinnedSelection=false;detailSignature='';renderDetail()}))}
+   if(waiting.id!==runSelection){task.append(node('p','正在查看历史节点，当前待办可在此直接处理。','muted'));task.append(button('定位当前节点',()=>{runSelection=waiting.id;pinnedSelection=false;detailSignature='';renderDetail()}))}
    renderHumanForm(result,waitingEntry,waiting,task)
   }else task.append(node('p',result.status==='running'?'系统正在自动处理，无需人工操作。':result.status==='pending'?'等待执行。':'此实例当前没有待办。','muted'))
-  if(step&&step.output)task.append(button('复制结果',()=>copyText(step.output)))
-  if(step&&step.artifactPath&&window.dsh.openPath)task.append(button('打开产物',()=>window.dsh.openPath(step.artifactPath)))
-  right.append(task)
+  if(step&&step.output)propertyContent.append(button('复制结果',()=>copyText(step.output)))
+  right.append(task,history);renderArtifacts(result,right)
  }
  function filePayload(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({name:file.name,data:String(reader.result).split(',')[1]||''});reader.onerror=()=>reject(Error('文件读取失败：'+file.name));reader.readAsDataURL(file)})}
  function renderHumanForm(result,entry,step,task){
@@ -342,6 +362,25 @@
  function renderStructured(n){
   const host=$('workflowStructuredOptions');host.textContent='';if(!n)return
   const props=n.properties,type=n.type.split('/')[1]
+  if(['end','output'].includes(type)){
+   const group=node('fieldset');group.append(node('legend','最终交付产物'))
+   const spec=props.deliverable||(props.deliverable={format:'text',name:'',files:[]}),label=node('label','交付格式'),select=node('select');select.setAttribute('aria-label','交付格式')
+   for(const [value,title]of [['text','文本报告（TXT）'],['markdown','Markdown 报告'],['json','结构化结果（JSON）'],['files','实际文件（PPT、模型、场景等）']]){const option=node('option',title);option.value=value;option.selected=spec.format===value;select.append(option)}
+   select.addEventListener('change',()=>{spec.format=select.value;dirty=true;renderStructured(n)});label.append(select);group.append(label)
+   if(spec.format!=='files'){const nameLabel=node('label','产物名称'),input=node('input');input.value=spec.name;input.maxLength=120;input.placeholder='默认使用节点标题';input.addEventListener('input',()=>{spec.name=input.value;dirty=true});nameLabel.append(input);group.append(nameLabel);const fieldLabel=node('label','提取结构化结果字段（可选）'),field=node('input');field.value=spec.field||'';field.placeholder='例如 report，留空交付全部结果';field.addEventListener('input',()=>{spec.field=field.value;dirty=true});fieldLabel.append(field);group.append(fieldLabel)}
+   else{
+    group.append(node('p','文件由 Agent、工具或扩展节点实际生成，也可使用人工节点上传的附件名称，结束时归档。所有配置文件均为必需交付，缺失时不会标记成功。每文件最多64MB，单实例总计256MB。','muted'))
+    for(const [index,file]of spec.files.entries()){
+     const row=node('div',undefined,'workflow-delivery-file'),source=node('select');source.setAttribute('aria-label','产物 '+(index+1)+' 来源节点')
+     const empty=node('option','选择来源节点');empty.value='';source.append(empty)
+     for(const other of graph._nodes.filter(item=>item!==n&&(['workflow/agent','workflow/tool','workflow/human'].includes(item.type)||!(data.nodes||[]).some(t=>t.type===item.type.split('/')[1]&&['start','end','input','output','ai','evaluate','rest','template'].includes(t.type))))){const option=node('option',other.title+' · '+other.properties.workflowId);option.value=other.properties.workflowId;source.append(option)}source.value=file.nodeId;source.addEventListener('change',()=>{file.nodeId=source.value;dirty=true})
+     const input=node('input');input.setAttribute('aria-label','产物 '+(index+1)+' 相对文件路径');input.placeholder='例如 output/report.pptx';input.value=file.path;input.maxLength=240;input.addEventListener('input',()=>{file.path=input.value;dirty=true})
+     row.append(source,input,button('移除',()=>{spec.files.splice(index,1);dirty=true;renderStructured(n)},'移除产物 '+(index+1)));group.append(row)
+    }
+    const add=button('添加交付文件',()=>{spec.files.push({nodeId:'',path:''});dirty=true;renderStructured(n)});add.disabled=spec.files.length>=20;group.append(add)
+   }
+   host.append(group)
+  }
   for(const [key,title]of [['inputSchema',type==='human'?'人工表单 Schema':'结构化输入 Schema'],['outputSchema','结构化输出 Schema'],['bindings','输入字段映射']]){
    const details=node('details');details.append(node('summary',title));const label=node('label',key==='bindings'?'示例：{"字段":{"nodeId":"上游ID","path":"report"}}':'支持 object、string、number、boolean、integer、array；字段使用英文标识'),text=node('textarea'),error=node('p',undefined,'workflow-error');text.rows=5;text.maxLength=16000;text.value=props[key]?JSON.stringify(props[key],null,2):'';text.setAttribute('aria-label',title);error.setAttribute('role','alert');text.addEventListener('input',()=>{try{props[key]=text.value.trim()?JSON.parse(text.value):key==='bindings'?{}:null;props.schemaErrors=props.schemaErrors||{};delete props.schemaErrors[key];error.textContent='';text.removeAttribute('aria-invalid');dirty=true}catch(e){props.schemaErrors=props.schemaErrors||{};props.schemaErrors[key]=true;error.textContent='JSON 格式无效';text.setAttribute('aria-invalid','true')}});label.append(text);details.append(label,error);if(key==='inputSchema'&&type==='human'&&props[key]){const preview=node('div',undefined,'workflow-form-preview');preview.append(node('p','运行时表单预览（填写内容不会提交）','muted'));try{window.workflowForms.render(preview,props[key],{})}catch(_){preview.append(node('p','Schema 无效，请修正后重新选择节点。','workflow-error'))}details.append(preview)}host.append(details)
   }
@@ -406,7 +445,7 @@
    n.properties.humanKind=entry.humanKind||'review'
    n.properties.humanModes=humanModes(entry).slice()
    n.properties.rest=entry.rest||{url:'',method:'GET'}
-   for(const key of ['inputSchema','outputSchema','bindings','skills','agent','tool'])if(entry[key]!==undefined)n.properties[key]=JSON.parse(JSON.stringify(entry[key]))
+   for(const key of ['inputSchema','outputSchema','bindings','skills','agent','tool','deliverable'])if(entry[key]!==undefined)n.properties[key]=JSON.parse(JSON.stringify(entry[key]))
    if(Array.isArray(entry.inputs)){n.inputs=[];for(const port of entry.inputs)n.addInput(port.name,'text')}
    if(Array.isArray(entry.outputs)){n.outputs=[];for(const port of entry.outputs)n.addOutput(port.name,'text')}
    n.size=n.computeSize()
@@ -525,7 +564,7 @@
   const b=controls.save;b.disabled=true
   try{
    if(graph._nodes.some(n=>Object.keys(n.properties.schemaErrors||{}).length))throw Error('请先修正节点 Schema 或输入映射 JSON')
-   const nodes=graph._nodes.map(n=>({...Object.fromEntries(['inputSchema','outputSchema','bindings','skills','agent','tool'].filter(k=>n.properties[k]!==undefined).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:(n.inputs||[]).map(p=>({name:p.name,type:'text'})),outputs:(n.outputs||[]).map(p=>({name:p.name,type:'text'})),pos:Array.from(n.pos)}))
+   const nodes=graph._nodes.map(n=>({...Object.fromEntries(['inputSchema','outputSchema','bindings','skills','agent','tool','deliverable'].filter(k=>n.properties[k]!==undefined).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:(n.inputs||[]).map(p=>({name:p.name,type:'text'})),outputs:(n.outputs||[]).map(p=>({name:p.name,type:'text'})),pos:Array.from(n.pos)}))
    const byGraph=new Map(graph._nodes.map((n,i)=>[n.id,nodes[i].id]))
    const edges=Object.values(graph.links).filter(Boolean).map(l=>({from:byGraph.get(l.origin_id),to:byGraph.get(l.target_id),slot:l.target_slot||0,outputSlot:l.origin_slot||0}))
    await api('save',{...editing,editor:stepsMode?'steps':'canvas',name:$('workflowName').value,nodes,edges})

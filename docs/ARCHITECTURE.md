@@ -366,3 +366,13 @@ migration, boundaries and verification; platform support remains Node16/Win7.
 `core/workflow-agent` inject agentConfig/tools/skillLibrary/extensions，提供有界 Agent 与固定工具适配，复用启动时接入的现有 AgentPool，不自建容器或循环。workflow-nodes 通过该服务调用受限执行；workflows 负责版本2 Schema/映射、实例资源快照、边界暂停与显式重试；纯 workflow-state reducer 管理所有业务迁移和尝试历史。AgentPool quiet、外部取消和 awaited worker cleanup 是现有无人值守入口的兼容扩展，定时任务维持原行为。
 
 每次重试创建独立尝试，Agent 使用独立短 session ID 和实例工作目录，事实与产物由原仓储持久化。工具实际执行仍核对白名单、契约、权限与调用上限；Skill 仅提供专业指令。waiting/paused 释放执行资源并跨重启恢复，pending/running 记为 interrupted，不重放不确定副作用。无新生产依赖；Node16/Chromium108 与旧图兼容检查、真实浏览器验证及未做 Win7 真机验收的区别详见 [落地说明](WORKFLOW-LIGHTWEIGHT.md)。
+
+### 工作流产物契约与归档
+
+结束节点通过 `contracts/workflow-artifacts` 声明文本或真实文件交付，纯拓扑策略校验
+来源依赖；`workflow-state` 校验并保存产物元数据事实，文件复制 / fsync / 哈希及有界
+分块读取归属既有 workflow repository。Cordis workflows 服务协调归档成功后发布事实，
+不增加容器、执行循环或状态标志。HTTP / IPC 仅提供按实例和产物 ID 访问的适配。
+文本、PPT、模型和场景共享归档契约，具体预览和生成能力可替换，不把业务契约绑定到
+Electron 或某个模型平台。Node16 内置文件 API、离线预览和旧 TXT 记录兼容；范围与
+验证见 [轻量流程说明](WORKFLOW-LIGHTWEIGHT.md)。
