@@ -38,11 +38,11 @@ async function main(){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'workflow-u
  await driver.click('#workflowBack');await wait(()=>driver.evaluate('!document.getElementById("workflowCards").classList.contains("hidden")'),'return cards');
  await driver.evaluate('document.querySelector(".workflow-card button").click();true');await wait(()=>driver.evaluate('!!document.querySelector(".workflow-current-task form")'),'upload form');
  await driver.evaluate(`(()=>{const form=document.querySelector('.workflow-current-task form'),transfer=new DataTransfer();transfer.items.add(new File(['验收资料正文'],'资料.md',{type:'text/markdown'}));form.querySelector('input[type=file]').files=transfer.files;form.querySelector('textarea').value='分析资料';form.requestSubmit();return true})()`);
- await wait(()=>driver.evaluate('document.querySelector(".workflow-workbench h3").textContent==="人工判断"&&!!document.querySelector(".workflow-current-task form")'),'review form');
+ await wait(()=>driver.evaluate('document.querySelector(".workflow-node-title h2").textContent==="人工判断"&&!!document.querySelector(".workflow-current-task form")'),'review form');
  await driver.evaluate(`(()=>{document.querySelector('.workflow-current-task textarea').value='未提交的判断草稿';Array.from(document.querySelectorAll('.workflow-map-node')).find(b=>b.querySelector('strong').textContent==='AI 分析').click();return true})()`);
- await wait(()=>driver.evaluate('document.querySelector(".workflow-workbench h3").textContent==="AI 分析"'),'inspect historical AI node');
- assert(await driver.evaluate('document.querySelector(".workflow-current-task textarea").value==="未提交的判断草稿"&&document.querySelector(".workflow-current-task h4").textContent.includes("人工判断")'));
- await sleep(1700);assert(await driver.evaluate('document.querySelector(".workflow-workbench h3").textContent==="AI 分析"'),'Polling must not force selection back to current node');
+ await wait(()=>driver.evaluate('document.querySelector(".workflow-node-title h2").textContent==="AI 分析"'),'inspect historical AI node');
+ assert(await driver.evaluate('document.querySelector(".workflow-current-task textarea").value==="未提交的判断草稿"&&document.querySelector(".workflow-current-task h3").textContent.includes("人工判断")'));
+ await sleep(1700);assert(await driver.evaluate('document.querySelector(".workflow-node-title h2").textContent==="AI 分析"'),'Polling must not force selection back to current node');
  
  await driver.evaluate('Array.from(document.querySelectorAll(".workflow-current-task button")).find(b=>b.textContent==="打开会话分析").click();true');
  await wait(()=>driver.evaluate('!document.getElementById("workflowChatContext").classList.contains("hidden")&&document.getElementById("workflowPage").classList.contains("hidden")'),'node conversation');

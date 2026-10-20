@@ -1,7 +1,7 @@
 'use strict'
 ;(function(){
  const $=id=>document.getElementById(id),page=$('workflowPage');if(!page)return
- const controls={back:$('workflowBack'),save:$('workflowSave')}
+ const controls={back:$('workflowBack'),save:$('workflowSave'),close:$('workflowClose')},pageHeader=page.querySelector('.workflow-header')
  const labels={paused:'已暂停',pending:'等待执行',running:'执行中',waiting:'待人工处理',succeeded:'已结束',failed:'失败',cancelled:'已停止',interrupted:'已中断',skipped:'未执行'}
  const FALLBACK_NODES=[
   {type:'input',name:'文本输入',description:'提供初始文本'},
@@ -112,6 +112,8 @@
  }
  function view(next){
   mode=next
+  page.classList.remove('workflow-detail-ready');page.setAttribute('aria-labelledby','workflowHeading');pageHeader.append(controls.close)
+  if(next==='detail'){detailSignature='';$('workflowRunDetail').textContent=''}
   page.classList.toggle('workflow-detail-mode',next==='detail')
   page.classList.toggle('workflow-editor-mode',next==='editor')
   $('workflowMainToolbar').classList.toggle('hidden',next==='editor'||next==='detail')
@@ -172,7 +174,7 @@
  }
  function renderArtifacts(result,host){
   const artifacts=result.artifacts||[],section=node('section',undefined,'workflow-artifacts'+(!artifacts.length?' is-empty':''));section.id='workflowArtifacts';section.tabIndex=-1;section.setAttribute('aria-label','工作流产物')
-  const head=node('div',undefined,'workflow-section-heading');head.append(node('h4','工作流产物'),node('span',String(artifacts.length),'workflow-section-count'));section.append(head)
+  const head=node('div',undefined,'workflow-section-heading');head.append(node('h3','工作流产物'),node('span',String(artifacts.length),'workflow-section-count'));section.append(head)
   if(!artifacts.length){const empty=node('div',undefined,'workflow-artifacts-empty'),copy=node('div');copy.append(node('strong','产物将在这里交付'),node('p',['failed','cancelled','interrupted'].includes(result.status)?'此次执行未完成，可展开节点记录查看中间结果。':'完成流程后，可在这里查看和下载报告、模型或场景文件。'));empty.append(glyph('file'),copy);section.append(empty)}
   if(artifacts.length&&result.status!=='succeeded')section.append(node('p','流程尚未完成，以下为已生成的部分产物。','muted'))
   for(const item of artifacts){
@@ -233,7 +235,7 @@
   const entry=result.workflow.nodes.find(n=>n.id===runSelection),step=result.steps.find(s=>s.id===runSelection)
   if(!entry){right.append(node('p','选择左侧节点查看执行过程。'));return}
   const propertyHeader=node('header',undefined,'workflow-property-header'),context=node('div',undefined,'workflow-workbench-context'),propertyTitle=node('div',undefined,'workflow-node-title'),index=result.plan.indexOf(entry.id)
-  context.append(node('span','节点工作台'),node('span',index<0?'未纳入执行路径':'步骤 '+String(index+1).padStart(2,'0')+' / '+result.plan.length));propertyTitle.append(node('h3',entry.title),node('span',executionLabel(step),'workflow-status-pill workflow-status-'+executionState(step)));propertyHeader.append(context,propertyTitle);right.append(propertyHeader)
+  context.append(node('span','节点工作台'),node('span',index<0?'未纳入执行路径':'步骤 '+String(index+1).padStart(2,'0')+' / '+result.plan.length));propertyTitle.append(node('h2',entry.title),node('span',executionLabel(step),'workflow-status-pill workflow-status-'+executionState(step)));propertyHeader.append(context,propertyTitle);right.append(propertyHeader)
   const workbenchBody=node('div',undefined,'workflow-workbench-body');right.append(workbenchBody)
 
   const history=node('details',undefined,'workflow-node-evidence');history.append(node('summary','节点输入与执行记录'));const propertyContent=node('div');history.append(propertyContent)
@@ -245,7 +247,7 @@
   if(step&&step.input)propertyContent.append(node('pre',step.input));if(step&&step.output)propertyContent.append(node('pre',step.output));if(step&&step.error)propertyContent.append(node('p',step.error,'workflow-error'));for(const file of step&&step.files||[])propertyContent.append(node('p','附件：'+file.name));
   if(step&&step.timeline&&step.timeline.length){const records=node('details'),list=node('ul');records.append(node('summary','执行记录'));for(const fact of step.timeline){const row=node('li',new Date(fact.at).toLocaleTimeString()+' · '+fact.message);if(fact.output)row.append(node('pre',fact.output));list.append(row)}records.append(list);propertyContent.append(records)}
   const task=node('section',undefined,'workflow-current-task'),waiting=result.steps.find(s=>s.status==='waiting'),waitingEntry=waiting&&result.workflow.nodes.find(n=>n.id===waiting.id)
-  const taskHead=node('div',undefined,'workflow-task-heading'),taskTitle=node('div');taskTitle.append(node('h4',waiting?(waiting.id===runSelection?'当前待办':'当前待办 · '+waiting.title):'当前待办'))
+  const taskHead=node('div',undefined,'workflow-task-heading'),taskTitle=node('div');taskTitle.append(node('h3',waiting?(waiting.id===runSelection?'当前待办':'当前待办 · '+waiting.title):'当前待办'))
   taskHead.append(taskTitle);task.append(taskHead)
 
   for(const key of taskForms.keys())if(key.startsWith(result.id+':')&&(!waiting||key!==result.id+':'+waiting.taskId))taskForms.delete(key)
@@ -302,18 +304,18 @@
   if(!pinnedSelection||!result.workflow.nodes.some(n=>n.id===runSelection))runSelection=(result.steps.find(s=>['running','waiting','failed'].includes(s.status))||result.steps.find(s=>s.status==='pending')||result.steps[0]||{}).id
   const host=$('workflowRunDetail');host.textContent=''
   const runState=result.status==='succeeded'?'done':result.status==='failed'?'error':['running','waiting','paused'].includes(result.status)?'active':'pending'
-  const head=node('div',undefined,'workflow-detail-heading')
+  const head=node('header',undefined,'workflow-detail-heading')
   const titleWrap=node('div',undefined,'workflow-detail-title')
   const titleRow=node('div',undefined,'workflow-detail-title-row')
-  titleRow.append(node('h2',result.name),node('span',labels[result.status]||result.status,'workflow-status-pill workflow-status-'+runState))
-  titleWrap.append(node('div','执行实例','workflow-detail-kicker'),titleRow,node('p','#'+String(result.id).slice(0,8)+' · 流程版本 v'+result.revision+' · '+result.workflow.nodes.length+' 个节点','workflow-detail-meta'))
-  const actions=node('div',undefined,'workflow-detail-actions')
+  const heading=node('h1',result.name);heading.id='workflowDetailHeading';heading.title=result.name;titleRow.append(heading,node('span',labels[result.status]||result.status,'workflow-status-pill workflow-status-'+runState))
+  const meta=node('p','实例 #'+String(result.id).slice(0,8)+' · 版本 v'+result.revision+' · '+result.workflow.nodes.length+' 个节点','workflow-detail-meta');meta.title='实例 '+result.id;titleWrap.append(titleRow,meta)
+  const actions=node('div',undefined,'workflow-detail-actions');actions.setAttribute('role','group');actions.setAttribute('aria-label','实例操作')
   if(['pending','running','waiting','paused'].includes(result.status))actions.append(button('停止执行',async()=>{await api('stop',{id});detailSignature='';await refresh()}))
   else if(data.workflows.some(w=>w.id===result.workflowId))actions.append(button('再次执行',async()=>{const next=await startRun(data.workflows.find(w=>w.id===result.workflowId));if(!next)return;activeRun=next.id;runSelection='';pinnedSelection=false;detailSignature='';await refresh()}))
   if(result.status==='running')actions.append(button(result.pauseRequested?'等待当前步骤结束后暂停':'暂停',async()=>{await api('pause',{id});detailSignature='';await refresh()}))
   if(result.status==='paused')actions.append(button('继续执行',async()=>{await api('resume',{id});detailSignature='';await refresh()}))
-  head.append(controls.back,titleWrap,actions)
-  host.append(head)
+  actions.append(controls.close);head.append(controls.back,titleWrap,actions)
+  host.append(head);page.classList.add('workflow-detail-ready');page.setAttribute('aria-labelledby',heading.id)
   if(result.error)host.append(node('p',result.error,'workflow-error'))
   drawExecution(result,host)
  }
