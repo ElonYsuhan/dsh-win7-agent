@@ -18,5 +18,5 @@
   control.required=required;label.append(control);if(schema.description){const hint=element('small',schema.description);hint.className='muted';label.append(hint)}
   return{element:label,read}
  }
- window.workflowForms={render(host,schema,value){const result=field(schema,value,true,schema.title||'处理表单');host.append(result.element);return result.read}}
+ window.workflowForms={render(host,schema,value,title){const result=field(schema,value,true,title||schema.title||'处理表单');host.append(result.element);return result.read}}
 })()

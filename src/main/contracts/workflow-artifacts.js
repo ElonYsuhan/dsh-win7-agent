@@ -15,4 +15,13 @@ function records(value){
  return value.map(a=>({...a}))
 }
 function current(run){return run.steps.flatMap(s=>(s.artifacts&&s.artifacts.length?s.artifacts:s.artifact?[{id:s.id,name:s.artifact,file:s.artifact,format:'txt'}]:[]).map(a=>({...a,nodeId:s.id,attempt:s.attempt||1})))}
-module.exports={declaration,current,records}
+function filename(node){const spec=declaration(node.deliverable);return (spec.name||node.title||'流程结果').replace(/[\\/\x00-\x1f<>:"|?*]/g,'_').replace(/\.(txt|md|json)$/i,'')+({text:'.txt',markdown:'.md',json:'.json'}[spec.format]||'')}
+function planned(workflow){return workflow.nodes.filter(n=>['end','output'].includes(n.type)).flatMap(n=>{const spec=declaration(n.deliverable);return spec.format==='files'?spec.files.map((f,index)=>({nodeId:n.id,index,name:f.path.split('/').pop(),format:f.path.split('.').pop().toLowerCase(),sourceNodeId:f.nodeId,status:'planned'})):[{nodeId:n.id,index:0,name:filename(n),format:{text:'txt',markdown:'md',json:'json'}[spec.format],sourceNodeId:n.id,status:'draft'}]})}
+function initial(value,workflow){
+ if(!Array.isArray(value)||value.length>2000||new Set(value.map(a=>a&&a.id)).size!==value.length||new Set(value.map(a=>a&&a.nodeId+':'+a.index)).size!==value.length)throw Error('产物计划无效')
+ const expected=workflow?planned(workflow):null;if(expected&&expected.length!==value.length)throw Error('产物计划与流程不匹配')
+ for(const a of value){if(!a||! /^[a-f0-9]{32}$/.test(a.id)||!['draft','planned'].includes(a.status)||!Number.isInteger(a.index)||a.index<0||a.index>19||typeof a.nodeId!=='string'||! /^[A-Za-z0-9_-]{1,80}$/.test(a.nodeId)||typeof a.name!=='string'||!a.name||a.name.length>240)throw Error('产物计划无效');if(a.status==='draft'&&(typeof a.file!=='string'||a.file!==a.id+'.'+a.format||!['txt','md','json'].includes(a.format)||a.size!==(a.format==='json'?2:0)||typeof a.sha256!=='string'||! /^[a-f0-9]{64}$/.test(a.sha256)))throw Error('产物草稿记录无效');if(expected&&!expected.some(p=>p.nodeId===a.nodeId&&p.index===a.index&&p.name===a.name&&p.status===a.status&&p.format===a.format))throw Error('产物计划与流程不匹配')}
+ return value.map(a=>({...a}))
+}
+function deliverables(run){return(run.plannedArtifacts||[]).map(item=>{const step=run.steps.find(s=>s.id===item.nodeId),actual=step&&((step.artifacts||[])[item.index]||item.index===0&&step.artifact&&{id:step.id,name:step.artifact,format:'txt'});return actual?{...actual,nodeId:item.nodeId,index:item.index,status:'delivered'}:item})}
+module.exports={declaration,current,records,filename,planned,initial,deliverables}

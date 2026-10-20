@@ -1,5 +1,5 @@
 'use strict'
-const Schema=require('./workflow-schema'),Agent=require('./workflow-agent'),Artifacts=require('./workflow-artifacts')
+const Schema=require('./workflow-schema'),Agent=require('./workflow-agent'),Artifacts=require('./workflow-artifacts'),Processing=require('./workflow-processing')
 const TYPES=Object.freeze([
  {type:'start',name:'开始',description:'定义流程起点与初始输入'},
  {type:'human',name:'人工处理',description:'上传、判断、审阅与审批'},
@@ -31,6 +31,7 @@ function validate(raw,types=TYPES){
  if(!Array.isArray(raw.nodes)||!raw.nodes.length||raw.nodes.length>100||!Array.isArray(raw.edges)||raw.edges.length>300)throw Error('流程需要1～100个节点，连线最多300条')
  const seen=new Set(),nodes=raw.nodes.map(n=>{
   const key=id(n.id);if(seen.has(key)||typeof n.type!=='string'||!/^[a-z][a-z0-9_.-]{0,79}$/.test(n.type)||(types&&!types.some(t=>t.type===n.type)))throw Error('节点重复或类型不支持');seen.add(key)
+  if(n.processing!==undefined&&n.type!=='human')throw Error('处理内容仅用于人工节点');
   const text=String(n.text||'');if(text.length>16000)throw Error('节点参数超过16000字')
   const modes=humanModes(n);if(!modes.length||modes.some(m=>!HUMAN_MODES.includes(m))||new Set(modes).size!==modes.length)throw Error('请选择有效的人工处理方式')
   const inputs=ports(n.inputs,['input','start'].includes(n.type)?[]:['输入1','输入2']),outputs=ports(n.outputs,['output','end'].includes(n.type)?[]:['文本'])
@@ -43,9 +44,9 @@ function validate(raw,types=TYPES){
   }
   const tool=n.tool||{name:'',arguments:{},permission:'readonly'};if(n.type==='tool'&&(!tool||typeof tool.name!=='string'||!/^[-A-Za-z0-9_]{1,80}$/.test(tool.name)||!tool.arguments||typeof tool.arguments!=='object'||Array.isArray(tool.arguments)||JSON.stringify(tool.arguments).length>16000||!['readonly','workspace'].includes(tool.permission||'readonly')))throw Error('请配置工具名称、JSON 参数和权限');
   const inputSchema=Schema.schema(n.inputSchema),outputSchema=Schema.schema(n.outputSchema),skills=Agent.strings(n.skills||[],4),agent=Agent.configuration(n.agent);if(inputSchema&&inputSchema.type!=='object')throw Error('节点输入 Schema 根类型必须为 object');const bindings=n.bindings||{};if(!bindings||typeof bindings!=='object'||Array.isArray(bindings)||Object.keys(bindings).length>24)throw Error('输入映射无效');for(const [field,b]of Object.entries(bindings))if(!Schema.safe(field)||!b||typeof b!=='object'||typeof b.nodeId!=='string'||b.path!==undefined&&typeof b.path!=='string'||String(b.path||'').length>200||b.path&&b.path.split('.').some(k=>!Schema.safe(k)))throw Error('输入字段映射无效');
-  return {deliverable:['end','output'].includes(n.type)?Artifacts.declaration(n.deliverable):undefined,tool:{name:String(tool.name||''),arguments:tool.arguments||{},permission:tool.permission||'readonly'},inputSchema,outputSchema,bindings:JSON.parse(JSON.stringify(bindings)),skills,agent,id:key,type:n.type,rest,title:String(n.title||((types||TYPES).find(t=>t.type===n.type)||{name:n.type}).name).slice(0,120),text,description:String(n.description||'').slice(0,2000),humanKind:modes[0],humanModes:modes,inputs,outputs,pos:Array.isArray(n.pos)?n.pos.slice(0,2).map(v=>Number.isFinite(v)?v:0):[0,0]}
+  return {processing:n.type==='human'&&n.processing!==undefined?Processing.view({...n,inputSchema}):undefined,deliverable:['end','output'].includes(n.type)?Artifacts.declaration(n.deliverable):undefined,tool:{name:String(tool.name||''),arguments:tool.arguments||{},permission:tool.permission||'readonly'},inputSchema,outputSchema,bindings:JSON.parse(JSON.stringify(bindings)),skills,agent,id:key,type:n.type,rest,title:String(n.title||((types||TYPES).find(t=>t.type===n.type)||{name:n.type}).name).slice(0,120),text,description:String(n.description||'').slice(0,2000),humanKind:modes[0],humanModes:modes,inputs,outputs,pos:Array.isArray(n.pos)?n.pos.slice(0,2).map(v=>Number.isFinite(v)?v:0):[0,0]}
  })
- if(nodes.reduce((sum,n)=>sum+n.text.length,0)>128000)throw Error('流程参数总量超过128000字')
+ if(nodes.reduce((sum,n)=>sum+n.text.length+(n.processing?JSON.stringify(n.processing).length:0),0)>128000)throw Error('流程参数总量超过128000字')
  const edges=raw.edges.map(e=>{
   const from=nodes.find(n=>n.id===e.from),to=nodes.find(n=>n.id===e.to),slot=e.slot===undefined?0:e.slot,outputSlot=e.outputSlot===undefined?0:e.outputSlot
   if(!from||!to||from===to)throw Error('连线引用无效节点')
@@ -56,11 +57,11 @@ function validate(raw,types=TYPES){
  if(new Set(edges.map(e=>e.to+':'+e.slot)).size!==edges.length)throw Error('同一输入端口不能连接多条连线')
  for(const n of nodes)for(const file of n.deliverable&&n.deliverable.files||[]){const source=nodes.find(source=>source.id===file.nodeId&&source.id!==n.id);if(!source)throw Error('产物引用的来源节点不存在');if(TYPES.some(t=>t.type===source.type)&&!['agent','tool','human'].includes(source.type))throw Error('文件产物需来自 Agent、工具、人工附件或文件节点扩展；单次 AI 节点请使用文本交付')};
  for(const n of nodes)for(const binding of Object.values(n.bindings))if(!nodes.some(source=>source.id===binding.nodeId)||binding.nodeId===n.id)throw Error('输入映射引用无效节点');
- return {version:raw.version===2||nodes.some(n=>['agent','tool'].includes(n.type)||n.inputSchema||n.outputSchema)?2:1,editor:raw.editor==='steps'?'steps':'canvas',id:raw.id?id(raw.id):'',name,nodes,edges}
+ return {version:raw.version===2||nodes.some(n=>['agent','tool'].includes(n.type)||n.inputSchema||n.outputSchema||n.processing)?2:1,editor:raw.editor==='steps'?'steps':'canvas',id:raw.id?id(raw.id):'',name,nodes,edges}
 }
-function submission(raw){
+function submission(raw,requireConclusion=true){
  id(raw.id);id(raw.nodeId);id(raw.taskId)
- const conclusion=String(raw.conclusion||'').trim();if(!conclusion||conclusion.length>16000)throw Error('请填写处理结论（最多16000字）')
+ const conclusion=String(raw.conclusion||'').trim();if(requireConclusion&&!conclusion||conclusion.length>16000)throw Error('请填写处理结论（最多16000字）')
  const files=raw.files||[];if(!Array.isArray(files)||files.length>3)throw Error('最多提交3个文件')
  let size=0
  for(const file of files){if(!file||typeof file.name!=='string'||!file.name.trim()||file.name.length>200||/[\\/\x00-\x1f]/.test(file.name)||typeof file.data!=='string'||file.data.length%4!==0||/[^A-Za-z0-9+/=]/.test(file.data))throw Error('文件格式无效');size+=file.data.length*3/4-(file.data.endsWith('==')?2:file.data.endsWith('=')?1:0)}

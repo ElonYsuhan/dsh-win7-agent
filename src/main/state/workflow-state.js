@@ -3,13 +3,15 @@ const {id}=require('../contracts/workflows'),Artifacts=require('../contracts/wor
 const terminal=['succeeded','failed','cancelled','interrupted']
 function reduce(previous,event){
  if(event.version!==1||!Number.isFinite(event.at)||event.sequence!==(previous?previous.sequence+1:1))throw Error('WORKFLOW_EVENT_INVALID')
- if(!previous){if(event.type!=='created')throw Error('WORKFLOW_FIRST_EVENT');id(event.run.id);return {...event.run,sequence:1,status:'pending',steps:event.run.plan.map(key=>({id:key,title:event.run.workflow.nodes.find(n=>n.id===key).title,status:'pending',timeline:[],attempts:[]}))}}
- if(terminal.includes(previous.status)&&event.type!=='retry-requested')throw Error('WORKFLOW_ALREADY_FINISHED')
+ if(!previous){if(event.type!=='created')throw Error('WORKFLOW_FIRST_EVENT');id(event.run.id);if(event.run.plannedArtifacts!==undefined)Artifacts.initial(event.run.plannedArtifacts,event.run.workflow);return {...event.run,sequence:1,status:'pending',steps:event.run.plan.map(key=>({id:key,title:event.run.workflow.nodes.find(n=>n.id===key).title,status:'pending',timeline:[],attempts:[]}))}}
+ if(terminal.includes(previous.status)&&!['retry-requested','deliveries-initialized'].includes(event.type))throw Error('WORKFLOW_ALREADY_FINISHED')
  const next={...previous,sequence:event.sequence,steps:previous.steps.map(s=>({...s,timeline:(s.timeline||[]).slice(),attempts:(s.attempts||[]).map(a=>({...a}))}))}
  const step=next.steps.find(s=>s.id===event.nodeId)
  const log=(phase,message,extra={})=>step.timeline.push({at:event.at,phase,message,...extra})
  const attempt=()=>step.attempts[step.attempts.length-1]
- if(event.type==='started'){
+ if(event.type==='deliveries-initialized'){
+  if(previous.plannedArtifacts!==undefined)throw Error('产物计划已初始化');next.plannedArtifacts=Artifacts.initial(event.deliverables,previous.workflow)
+ }else if(event.type==='started'){
   if(previous.status!=='pending')throw Error('WORKFLOW_TRANSITION');next.status='running';next.startedAt=event.at
  }else if(event.type==='pause-requested'){
   if(previous.status!=='running')throw Error('WORKFLOW_TRANSITION');next.pauseRequested=true

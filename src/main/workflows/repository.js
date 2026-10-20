@@ -9,7 +9,7 @@ class Repository{
  index(state){
   if(['pending','running'].includes(state.status))return state
   const {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error}=state
-  return {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,artifactCount:Artifacts.current(state).length||state.steps.filter(s=>s.artifact).length,steps:state.steps.map(({id,title,status,startedAt,endedAt})=>({id,title,status,startedAt,endedAt}))}
+  return {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,deliveryCount:(state.plannedArtifacts||[]).length,artifactCount:Artifacts.current(state).length||state.steps.filter(s=>s.artifact).length,steps:state.steps.map(({id,title,status,startedAt,endedAt})=>({id,title,status,startedAt,endedAt}))}
  }
  readRun(id,repair){
   const file=path.join(this.dir,'runs',C.id(id)+'.jsonl'),bytes=fs.readFileSync(file),end=bytes.lastIndexOf(10)+1
@@ -39,6 +39,15 @@ class Repository{
  artifactFile(run,node,attempt=1){return path.join(this.dir,'artifacts',C.id(run),C.id(node)+(attempt>1?'-attempt-'+attempt:'')+'.txt')}
  workspace(run,node,attempt,input,files=[]){const dir=path.join(this.dir,'agent-workspaces',C.id(run),C.id(node),String(attempt));fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'input.txt'),input+'\n\n附件清单：\n'+files.slice(0,30).map((file,index)=>'attachment-'+index+path.extname(file.name)+' ← '+file.name).join('\n'),'utf8');for(const [index,file]of files.slice(0,30).entries()){if(typeof file.ref!=='string'||!file.ref.startsWith(run+'/')||!new RegExp('^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[0-9]+$').test(file.ref))throw Error('附件引用不属于当前实例');const source=path.join(this.dir,'uploads',file.ref),target=path.join(dir,'attachment-'+index+path.extname(file.name));fs.copyFileSync(source,target)}return dir}
  artifact(run,node,text,attempt=1){const file=this.artifactFile(run,node,attempt),dir=path.dirname(file),tmp=file+'.tmp';fs.mkdirSync(dir,{recursive:true});const fd=fs.openSync(tmp,'w');try{fs.writeFileSync(fd,text,'utf8');fs.fsyncSync(fd)}finally{fs.closeSync(fd)}fs.renameSync(tmp,file);return path.basename(file)}
+ drafts(run,workflow){
+  const dir=path.join(this.dir,'drafts',C.id(run));fs.mkdirSync(dir,{recursive:true})
+  if(fs.realpathSync(dir)!==path.join(fs.realpathSync(this.dir),'drafts',run))throw Error('产物草稿路径无效')
+  return Artifacts.planned(workflow).map(item=>{const id=crypto.createHash('sha256').update(run+':draft:'+item.nodeId+':'+item.index).digest('hex').slice(0,32);if(item.status==='planned')return{...item,id};const file=id+'.'+item.format,target=path.join(dir,file);let fd
+   try{fd=fs.openSync(target,'wx');fs.writeFileSync(fd,item.format==='json'?'{}':'','utf8');fs.fsyncSync(fd)}catch(e){if(e.code!=='EEXIST')throw e}finally{if(fd!==undefined)fs.closeSync(fd)}
+   if(fs.realpathSync(target)!==path.join(fs.realpathSync(dir),file)||!fs.statSync(target).isFile()||fs.statSync(target).size>1024*1024)throw Error('产物草稿文件无效')
+   const bytes=fs.readFileSync(target);if(bytes.toString('utf8')!==(item.format==='json'?'{}':''))throw Error('初始草稿内容无效');return{...item,id,file,size:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')}
+  })
+ }
  // Files are copied into an instance-owned immutable attempt directory before facts publish them.
  deliveries(run,node,text,attempt){
   const spec=Artifacts.declaration(node.deliverable),items=[],sources=[]
@@ -57,7 +66,7 @@ class Repository{
   if(spec.format!=='files'){
    let content=text;if(spec.field){const value=require('../contracts/workflow-schema').pathValue(JSON.parse(text),spec.field);if(value===undefined)throw Error('缺少最终产物字段：'+spec.field);content=typeof value==='string'?value:JSON.stringify(value)}if(spec.format==='json'){try{content=JSON.stringify(JSON.parse(content),null,2)}catch(_){throw Error('JSON 交付内容不是有效 JSON')}}
    if(!content.trim())content='# '+run.name+' 执行结果\n\n'+run.steps.filter(s=>s.status==='succeeded').map(s=>'## '+s.title+'\n'+(s.output||s.conclusion||'该步骤已完成')).join('\n\n')
-   const ext={text:'.txt',markdown:'.md',json:'.json'}[spec.format],name=(spec.name||node.title||'流程结果').replace(/[\\/\x00-\x1f<>:"|?*]/g,'_').replace(/\.(txt|md|json)$/i,'')+ext
+   const ext={text:'.txt',markdown:'.md',json:'.json'}[spec.format],name=Artifacts.filename(node)
    // Keep legacy .txt locations readable by old clients.
    const file=spec.format==='text'?this.artifactFile(run.id,node.id,attempt):path.join(dir,node.id+'-attempt-'+attempt+ext)
    const temp=file+'.tmp',fd=fs.openSync(temp,'w');try{fs.writeFileSync(fd,content);fs.fsyncSync(fd)}finally{fs.closeSync(fd)}fs.renameSync(temp,file)
@@ -75,13 +84,13 @@ class Repository{
   return items
  }
  artifactEntry(run,key){
-  C.id(key);let item=Artifacts.current(run).find(a=>a.id===key)
+  C.id(key);let item=Artifacts.current(run).find(a=>a.id===key),draft=false;if(!item){item=(run.plannedArtifacts||[]).find(a=>a.id===key);draft=!!item;if(item&&item.status==='planned')throw Error('该交付文件尚未生成')}
   if(!item){const step=run.steps.find(s=>s.artifact&&s.id===key);if(step)item={id:step.id,name:step.artifact,file:path.basename(this.artifactFile(run.id,step.id,step.attempt||1)),nodeId:step.id,attempt:step.attempt||1}}
   if(!item)throw Error('产物不存在或不属于当前实例')
-  const root=path.join(this.dir,'artifacts',C.id(run.id)),target=path.join(root,item.file),relative=path.relative(fs.realpathSync(root),fs.realpathSync(target))
-  if(fs.realpathSync(root)!==path.join(fs.realpathSync(this.dir),'artifacts',run.id))throw Error('产物路径无效')
+  const area=draft?'drafts':'artifacts',root=path.join(this.dir,area,C.id(run.id)),target=path.join(root,item.file),relative=path.relative(fs.realpathSync(root),fs.realpathSync(target))
+  if(fs.realpathSync(root)!==path.join(fs.realpathSync(this.dir),area,run.id))throw Error('产物路径无效')
   if(!relative||relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))throw Error('产物路径无效')
-  return {item,target}
+  return {item:{...item,status:draft?'draft':'delivered'},target}
  }
  readArtifact(run,key,offset=0){
   if(!Number.isInteger(offset)||offset<0)throw Error('产物读取位置无效')

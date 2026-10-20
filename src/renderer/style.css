@@ -6811,3 +6811,27 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
  .workflow-detail-title-row h1 {font-size:20px;}
 }
 @media(prefers-reduced-motion:reduce) {.workflow-map-node {transition:none;}}
+
+/* Processing blocks are declared per node; navigation stays in the task heading. */
+.workflow-current-task .workflow-analyze-action {min-height:34px;padding:6px 11px;border-color:#b9cdec;background:#edf3ff;color:#245ba6;font-weight:600;box-shadow:0 1px 2px rgba(30,67,120,.06);}
+.workflow-current-task .workflow-analyze-action .icon {color:currentColor;}
+.workflow-current-task .workflow-analyze-action:hover:not(:disabled) {background:#e2ecff;border-color:#759acb;}
+[data-theme="dark"] .workflow-current-task .workflow-analyze-action {background:#24334c;border-color:#45618d;color:#b6ceff;box-shadow:none;}
+[data-theme="dark"] .workflow-current-task .workflow-analyze-action:hover:not(:disabled) {background:#2c3f5e;border-color:#6888b9;}
+.workflow-current-task-title {display:flex;align-items:center;gap:6px;min-width:0;flex:1;}
+.workflow-current-task-title h3 {flex:1;min-width:0;}
+.workflow-current-task .workflow-locate-action {flex:none;display:grid;place-items:center;width:26px;min-height:26px;padding:4px;margin:0;border:0;border-radius:5px;background:transparent;color:var(--muted);}
+.workflow-current-task .workflow-locate-action:hover:not(:disabled) {background:var(--selection-bg);color:var(--text);}
+.workflow-current-task .workflow-analyze-action {flex:none;}
+.workflow-current-task form > fieldset:not(.workflow-decision) {padding:0;border:0;background:transparent;}
+.workflow-current-task form > fieldset:not(.workflow-decision) > legend {padding:0;margin-bottom:10px;}
+.workflow-processing-block {min-width:0;}
+.workflow-processing-reference h4 {font-size:12px;margin:0 0 8px;}
+.workflow-processing-reference pre {max-height:180px;margin:0;}
+.workflow-processing-block .workflow-file-note {margin-top:8px;}
+.workflow-processing-block .workflow-selected-files:not(:empty) {margin-top:8px;}
+.workflow-current-task form .workflow-task-requirements {margin:0;}
+.workflow-processing-editor fieldset {margin:10px 0;padding:10px;}
+.workflow-processing-editor-actions {display:flex;gap:6px;flex-wrap:wrap;}
+.workflow-processing-editor-actions button {min-height:28px;padding:4px 8px;font-size:11px;}
+.workflow-draft-note {padding:10px 12px;margin:0 0 16px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);color:var(--muted);font-size:12px;}

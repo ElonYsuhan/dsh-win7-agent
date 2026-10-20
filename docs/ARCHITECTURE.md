@@ -376,3 +376,11 @@ migration, boundaries and verification; platform support remains Node16/Win7.
 文本、PPT、模型和场景共享归档契约，具体预览和生成能力可替换，不把业务契约绑定到
 Electron 或某个模型平台。Node16 内置文件 API、离线预览和旧 TXT 记录兼容；范围与
 验证见 [轻量流程说明](WORKFLOW-LIGHTWEIGHT.md)。
+
+节点处理内容由纯 `contracts/workflow-processing` 版本1声明说明、资料、Schema 表单、
+附件和结论，运行服务提供规范化视图；审批/审阅和字段校验仍在原提交边界执行。
+初始草稿/待生成交付项进入实例事实，当前产物视图从计划与正式节点结果派生。
+文件独占创建、摘要和归属校验继续由 workflow repository 承担；没有将 UI 可见性
+当作权限或完成状态。旧实例仅追加一次草稿初始化事实，不恢复不确定的外部执行。
+使用内置 Node16 API，平台/预览适配可替换，业务契约不依赖 Electron。边界和回归
+证据见轻量流程说明的“可组合的节点处理内容与初始草稿”。
