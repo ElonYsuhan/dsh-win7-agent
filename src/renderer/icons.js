@@ -50,6 +50,8 @@
     'panel-right': '<svg ' + base + '><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="15" y1="4" x2="15" y2="20"/></svg>',
     /* 文件目录（资源管理器）：文件夹上多一道横线，跟侧边栏那枚 folder 区分开 */
     'folder-tree': '<svg ' + base + '><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 11h18"/></svg>',
+    upload: '<svg ' + base + '><path d="M12 16V3m-5 5 5-5 5 5M4 16v4h16v-4"/></svg>',
+    download: '<svg ' + base + '><path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"/></svg>',
     file: '<svg ' + base + '><path d="M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"/><path d="M13 3v6h6"/></svg>',
     'chevron-right': '<svg ' + base + '><path d="M9 6l6 6-6 6"/></svg>',
     refresh: '<svg ' + base + '><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4.5V10h-5.5"/></svg>',

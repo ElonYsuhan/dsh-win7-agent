@@ -35,6 +35,8 @@
   b.addEventListener('click',async()=>{if(b.disabled)return;b.disabled=true;try{await fn()}catch(e){notice(e.message)}finally{b.disabled=false}})
   return b
  }
+ function glyph(name,cls){const icon=node('span',undefined,'icon'+(cls?' '+cls:''));icon.setAttribute('aria-hidden','true');if(window.renderIcon)icon.innerHTML=window.renderIcon(name);return icon}
+ function formatBytes(size){return size<1024?size+' 字节':size<1024*1024?(size/1024).toFixed(1)+' KB':(size/1024/1024).toFixed(1)+' MB'}
  async function copyText(text){
   if(navigator.clipboard&&typeof navigator.clipboard.writeText==='function'){await navigator.clipboard.writeText(text);return}
   const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove()
@@ -169,11 +171,15 @@
   if(!list.children.length)list.append(node('p','暂无匹配的执行实例','muted'))
  }
  function renderArtifacts(result,host){
-  const section=node('section',undefined,'workflow-artifacts');section.id='workflowArtifacts';section.tabIndex=-1;section.setAttribute('aria-label','工作流产物');section.append(node('h4','工作流产物'))
-  const artifacts=result.artifacts||[]
-  if(!artifacts.length)section.append(node('p',['failed','cancelled','interrupted'].includes(result.status)?'流程未完成，尚无最终交付产物。节点中间结果可在上方查看。':'尚未生成。完成结束节点后，最终报告或文件会出现在这里。','muted'))
-  if(artifacts.length&&result.status!=='succeeded')section.append(node('p','流程尚未完成，以下为已生成的部分产物。','muted'));
-  for(const item of artifacts){const row=node('article',undefined,'workflow-artifact-item'),entry=result.workflow.nodes.find(n=>n.id===item.nodeId);row.append(node('strong',item.name),node('small',(item.format||'文件').toUpperCase()+(item.size!==undefined?' · '+(item.size<1024?item.size+' 字节':(item.size/1024).toFixed(1)+' KB'):'')+' · '+(entry?entry.title:item.nodeId),'muted'));const actions=node('div');actions.append(button('查看',()=>openArtifact(result,item)),button('下载',()=>downloadArtifact(result,item)));row.append(actions);section.append(row)}
+  const artifacts=result.artifacts||[],section=node('section',undefined,'workflow-artifacts'+(!artifacts.length?' is-empty':''));section.id='workflowArtifacts';section.tabIndex=-1;section.setAttribute('aria-label','工作流产物')
+  const head=node('div',undefined,'workflow-section-heading');head.append(node('h4','工作流产物'),node('span',String(artifacts.length),'workflow-section-count'));section.append(head)
+  if(!artifacts.length){const empty=node('div',undefined,'workflow-artifacts-empty'),copy=node('div');copy.append(node('strong','产物将在这里交付'),node('p',['failed','cancelled','interrupted'].includes(result.status)?'此次执行未完成，可展开节点记录查看中间结果。':'完成流程后，可在这里查看和下载报告、模型或场景文件。'));empty.append(glyph('file'),copy);section.append(empty)}
+  if(artifacts.length&&result.status!=='succeeded')section.append(node('p','流程尚未完成，以下为已生成的部分产物。','muted'))
+  for(const item of artifacts){
+   const row=node('article',undefined,'workflow-artifact-item'),entry=result.workflow.nodes.find(n=>n.id===item.nodeId),info=node('div',undefined,'workflow-artifact-info'),actions=node('div',undefined,'workflow-artifact-actions')
+   const title=node('strong',item.name);title.title=item.name;info.append(title,node('small',(item.format||'文件').toUpperCase()+(item.size!==undefined?' · '+formatBytes(item.size):'')+' · '+(entry?entry.title:item.nodeId),'muted'))
+   const preview=button('查看',()=>openArtifact(result,item),'查看 '+item.name),download=button('',()=>downloadArtifact(result,item),'下载 '+item.name);download.append(glyph('download'));download.className='workflow-icon-action';actions.append(preview,download);row.append(glyph('file','workflow-file-glyph'),info,actions);section.append(row)
+  }
   host.append(section)
  }
  let artifactDialog=null,artifactDownload=null
@@ -202,27 +208,35 @@
  function drawExecution(result,host){
   const layout=node('div',undefined,'workflow-execution-layout'),left=node('section',undefined,'workflow-execution-map'),right=node('section',undefined,'workflow-workbench')
   left.setAttribute('aria-label','执行流程图');right.setAttribute('aria-label','节点执行工作台')
+  const mapHeader=node('div',undefined,'workflow-map-header')
+  const mapTitle=node('div',undefined,'workflow-map-title')
+  mapTitle.append(node('strong','执行路径'),node('span','共 '+result.workflow.nodes.length+' 个节点 · '+result.steps.filter(step=>step.status==='succeeded').length+' 个已完成','muted'))
   const legend=node('div',undefined,'workflow-state-legend')
   for(const [state,label] of [['done','已结束'],['active','执行中'],['pending','待执行'],['error','失败']])legend.append(node('span',label,'workflow-state-'+state))
-  left.append(legend)
+  mapHeader.append(mapTitle,legend)
+  left.append(mapHeader)
   const scroll=node('div',undefined,'workflow-map-scroll'),stage=node('div',undefined,'workflow-map-stage'),positions=new Map(),depth=new Map()
   for(const id of result.plan){const upstream=result.workflow.edges.filter(e=>e.to===id).map(e=>depth.get(e.from)||0);depth.set(id,upstream.length?Math.max(...upstream)+1:0)}
   // Include unconnected nodes as pending; the actual dependency edges remain visible.
   for(const entry of result.workflow.nodes)if(!depth.has(entry.id))depth.set(entry.id,Math.max(0,...depth.values())+1)
   const ranks=new Map();for(const entry of result.workflow.nodes){const rank=depth.get(entry.id);if(!ranks.has(rank))ranks.set(rank,[]);ranks.get(rank).push(entry)}
-  const columns=Math.max(1,...[...ranks.values()].map(items=>items.length)),width=Math.max(320,columns*240+40),height=(Math.max(...depth.values())+1)*136+40
+  const NODE_W=280,NODE_H=96,GAP_X=24,GAP_Y=148
+  const columns=Math.max(1,...[...ranks.values()].map(items=>items.length)),width=Math.max(360,columns*(NODE_W+GAP_X)+48),height=(Math.max(...depth.values())+1)*GAP_Y+48
   stage.style.width=width+'px';stage.style.height=height+'px'
-  for(const [rank,entries] of ranks)entries.forEach((entry,index)=>positions.set(entry.id,{x:(width-entries.length*240)/2+index*240+10,y:rank*136+24}))
+  for(const [rank,entries] of ranks)entries.forEach((entry,index)=>positions.set(entry.id,{x:(width-entries.length*(NODE_W+GAP_X)+GAP_X)/2+index*(NODE_W+GAP_X),y:rank*GAP_Y+24}))
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',height);svg.setAttribute('aria-hidden','true')
-  for(const edge of result.workflow.edges){const from=positions.get(edge.from),to=positions.get(edge.to);if(!from||!to)continue;const path=document.createElementNS(svg.namespaceURI,'path'),x=from.x+110,y=from.y+90,tx=to.x+110,ty=to.y;path.setAttribute('d',`M ${x} ${y} C ${x} ${y+24}, ${tx} ${ty-24}, ${tx} ${ty}`);svg.append(path)}
+  for(const edge of result.workflow.edges){const from=positions.get(edge.from),to=positions.get(edge.to);if(!from||!to)continue;const path=document.createElementNS(svg.namespaceURI,'path'),x=from.x+NODE_W/2,y=from.y+NODE_H,tx=to.x+NODE_W/2,ty=to.y;path.setAttribute('d',`M ${x} ${y} C ${x} ${y+28}, ${tx} ${ty-28}, ${tx} ${ty}`);svg.append(path)}
   stage.append(svg)
-  for(const entry of result.workflow.nodes){const step=result.steps.find(s=>s.id===entry.id),pos=positions.get(entry.id),state=executionState(step);const card=button('',()=>{runSelection=entry.id;pinnedSelection=true;detailSignature='';renderDetail()},entry.title+' · '+executionLabel(step));card.className='workflow-map-node workflow-state-'+state+(runSelection===entry.id?' selected':'');card.setAttribute('aria-pressed',String(runSelection===entry.id));card.style.left=pos.x+'px';card.style.top=pos.y+'px';card.append(node('strong',entry.title),node('span',executionLabel(step)),node('small',(data.nodes.find(n=>n.type===entry.type)||{}).name||entry.type));stage.append(card)}
+  for(const entry of result.workflow.nodes){const step=result.steps.find(s=>s.id===entry.id),pos=positions.get(entry.id),state=executionState(step),isWaiting=step&&step.status==='waiting';const card=button('',()=>{runSelection=entry.id;pinnedSelection=true;detailSignature='';renderDetail()},entry.title+' · '+executionLabel(step));card.className='workflow-map-node workflow-state-'+state+(isWaiting?' is-waiting':'')+(runSelection===entry.id?' selected':'');card.setAttribute('aria-pressed',String(runSelection===entry.id));card.style.left=pos.x+'px';card.style.top=pos.y+'px';card.style.width=NODE_W+'px';card.style.height=NODE_H+'px';card.append(node('span',result.plan.includes(entry.id)?String(result.plan.indexOf(entry.id)+1).padStart(2,'0'):'—','workflow-map-index'),node('strong',entry.title),node('span',executionLabel(step),'workflow-map-state'),node('small',(data.nodes.find(n=>n.type===entry.type)||{}).name||entry.type,'workflow-map-type'));stage.append(card)}
   scroll.append(stage);left.append(scroll);layout.append(left,right);host.append(layout)
-  requestAnimationFrame(()=>{const selected=positions.get(runSelection);if(selected&&scroll.isConnected){scroll.scrollTop=Math.max(0,selected.y-scroll.clientHeight/3);scroll.scrollLeft=Math.max(0,selected.x-scroll.clientWidth/2+110)}})
+  if(pinnedSelection)requestAnimationFrame(()=>{const selected=positions.get(runSelection);if(selected&&scroll.isConnected){scroll.scrollTop=Math.max(0,selected.y-scroll.clientHeight/3);scroll.scrollLeft=Math.max(0,selected.x-scroll.clientWidth/2+NODE_W/2)}})
   const entry=result.workflow.nodes.find(n=>n.id===runSelection),step=result.steps.find(s=>s.id===runSelection)
   if(!entry){right.append(node('p','选择左侧节点查看执行过程。'));return}
-  const propertyHeader=node('header',undefined,'workflow-property-header');propertyHeader.append(node('h3',entry.title),node('p',executionLabel(step),'muted'));right.append(propertyHeader)
-  const history=node('details',undefined,'workflow-node-evidence');history.append(node('summary','查看所选节点的输入与结果'));const propertyContent=node('div');history.append(propertyContent)
+  const propertyHeader=node('header',undefined,'workflow-property-header'),context=node('div',undefined,'workflow-workbench-context'),propertyTitle=node('div',undefined,'workflow-node-title'),index=result.plan.indexOf(entry.id)
+  context.append(node('span','节点工作台'),node('span',index<0?'未纳入执行路径':'步骤 '+String(index+1).padStart(2,'0')+' / '+result.plan.length));propertyTitle.append(node('h3',entry.title),node('span',executionLabel(step),'workflow-status-pill workflow-status-'+executionState(step)));propertyHeader.append(context,propertyTitle);right.append(propertyHeader)
+  const workbenchBody=node('div',undefined,'workflow-workbench-body');right.append(workbenchBody)
+
+  const history=node('details',undefined,'workflow-node-evidence');history.append(node('summary','节点输入与执行记录'));const propertyContent=node('div');history.append(propertyContent)
   if(entry.description)propertyContent.append(node('p',entry.description))
   if(step&&step.attempt)propertyContent.append(node('p','第 '+step.attempt+' 次尝试'+(step.agentSessionId?' · Agent '+step.agentSessionId:''),'muted'))
   if(step&&step.partial)propertyContent.append(node('pre',step.partial))
@@ -231,51 +245,75 @@
   if(step&&step.input)propertyContent.append(node('pre',step.input));if(step&&step.output)propertyContent.append(node('pre',step.output));if(step&&step.error)propertyContent.append(node('p',step.error,'workflow-error'));for(const file of step&&step.files||[])propertyContent.append(node('p','附件：'+file.name));
   if(step&&step.timeline&&step.timeline.length){const records=node('details'),list=node('ul');records.append(node('summary','执行记录'));for(const fact of step.timeline){const row=node('li',new Date(fact.at).toLocaleTimeString()+' · '+fact.message);if(fact.output)row.append(node('pre',fact.output));list.append(row)}records.append(list);propertyContent.append(records)}
   const task=node('section',undefined,'workflow-current-task'),waiting=result.steps.find(s=>s.status==='waiting'),waitingEntry=waiting&&result.workflow.nodes.find(n=>n.id===waiting.id)
-  task.append(node('h4',waiting?'当前待办 · '+waiting.title:'当前待办'))
+  const taskHead=node('div',undefined,'workflow-task-heading'),taskTitle=node('div');taskTitle.append(node('h4',waiting?(waiting.id===runSelection?'当前待办':'当前待办 · '+waiting.title):'当前待办'))
+  taskHead.append(taskTitle);task.append(taskHead)
+
   for(const key of taskForms.keys())if(key.startsWith(result.id+':')&&(!waiting||key!==result.id+':'+waiting.taskId))taskForms.delete(key)
   if(waiting){
-   task.append(button('打开会话分析',()=>window.workflowChat.open({workflowId:result.workflowId,runId:result.id,nodeId:waiting.id,name:result.name,nodeTitle:waiting.title})))
+   const analyze=button('打开会话分析',()=>window.workflowChat.open({workflowId:result.workflowId,runId:result.id,nodeId:waiting.id,name:result.name,nodeTitle:waiting.title}));analyze.prepend(glyph('customize'));analyze.className='workflow-analyze-action';taskHead.append(analyze)
    if(waiting.id!==runSelection){task.append(node('p','正在查看历史节点，当前待办可在此直接处理。','muted'));task.append(button('定位当前节点',()=>{runSelection=waiting.id;pinnedSelection=false;detailSignature='';renderDetail()}))}
-   renderHumanForm(result,waitingEntry,waiting,task)
+   const taskActions=renderHumanForm(result,waitingEntry,waiting,task);if(taskActions)right.append(taskActions)
   }else task.append(node('p',result.status==='running'?'系统正在自动处理，无需人工操作。':result.status==='pending'?'等待执行。':'此实例当前没有待办。','muted'))
   if(step&&step.output)propertyContent.append(button('复制结果',()=>copyText(step.output)))
-  right.append(task,history);renderArtifacts(result,right)
+  workbenchBody.append(task,history);renderArtifacts(result,workbenchBody)
  }
  function filePayload(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({name:file.name,data:String(reader.result).split(',')[1]||''});reader.onerror=()=>reject(Error('文件读取失败：'+file.name));reader.readAsDataURL(file)})}
  function renderHumanForm(result,entry,step,task){
   const key=result.id+':'+step.taskId,modes=step.waitKind==='agent'?['review']:step.waitKind==='evaluation'?['review','approval','read']:humanModes(entry)
-  if(taskForms.has(key)){task.append(taskForms.get(key));return}
-  const content=node('div');task.append(content);task=content;taskForms.set(key,content)
-  task.append(node('p',step.waitReason||entry.text||'请查看输入资料并填写处理结论。'))
-  task.append(node('p','TXT、Markdown、JSON、CSV 等文本附件提取前16000字传给下游；其他文件仅保存引用，暂不自动解析。','muted'))
-  const form=node('form'),schema=step.waitKind==='agent'?null:step.waitKind==='evaluation'?entry.outputSchema:entry.inputSchema,readValues=schema?window.workflowForms.render(form,schema,step.partialData||step.inputData):null,inputLabel=node('label','附件（最多3个，总计512KB）'),files=node('input');files.type='file';files.multiple=true;files.required=modes.includes('upload');inputLabel.append(files)
-  const label=node('label',modes.includes('approval')?'审批意见（必填）':'处理结论（必填）'),conclusion=node('textarea');conclusion.rows=4;conclusion.maxLength=16000;conclusion.required=true;label.append(conclusion)
-  const error=node('p',undefined,'workflow-error');error.id='workflowTaskError';error.setAttribute('role','alert');conclusion.setAttribute('aria-describedby',error.id);files.setAttribute('aria-describedby',error.id)
-  const decision=node('fieldset'),legend=node('legend','审批结论');decision.append(legend)
+  if(taskForms.has(key)){const cached=taskForms.get(key);task.append(cached.content);return cached.actions}
+  const content=node('div'),cached={content,actions:null};task.append(content);task=content;taskForms.set(key,cached)
+  content.className='workflow-human-content'
+  const requirements=node('details',undefined,'workflow-task-requirements');requirements.open=true;requirements.append(node('summary','处理要求'),node('p',step.waitReason||entry.text||'请查看输入资料并填写处理结论。'));task.append(requirements)
+  const form=node('form'),schema=step.waitKind==='agent'?null:step.waitKind==='evaluation'?entry.outputSchema:entry.inputSchema,readValues=schema?window.workflowForms.render(form,schema,step.partialData||step.inputData):null
+  form.id='workflowTaskForm-'+result.id+'-'+step.taskId
+  const inputLabel=node('label',undefined,'workflow-upload-field'),uploadHeading=node('span','附件'+(modes.includes('upload')?'（必填）':'（可选）'),'workflow-field-label'),zone=node('span',undefined,'workflow-upload-zone'),zoneText=node('span',undefined,'workflow-upload-copy'),files=node('input');files.type='file';files.multiple=true;files.required=modes.includes('upload');files.setAttribute('aria-label','添加附件')
+  const hint=node('span','最多 3 个文件，合计 512 KB','workflow-upload-hint');hint.id='workflowUploadHint';zoneText.append(node('strong','点击选择或拖入文件'),hint);zone.append(glyph('upload'),zoneText,files);inputLabel.append(uploadHeading,zone)
+  const selectedList=node('ul',undefined,'workflow-selected-files');selectedList.setAttribute('aria-label','已选附件');selectedList.setAttribute('aria-live','polite')
+  const fileNote=node('details',undefined,'workflow-file-note');fileNote.append(node('summary','附件如何传递？'),node('p','TXT、Markdown、JSON、CSV 等文本附件提取前 16000 字传给后续步骤，其他格式保留文件引用。'))
+  const label=node('label',undefined,'workflow-conclusion-field'),conclusion=node('textarea');label.append(node('span',modes.includes('approval')?'审批意见（必填）':'处理结论（必填）','workflow-field-label'));conclusion.rows=4;conclusion.maxLength=16000;conclusion.required=true;conclusion.placeholder=modes.includes('approval')?'说明审批意见、判断依据或需要修改的内容…':'填写你的判断、结论或需要补充的说明…';label.append(conclusion)
+  const error=node('p',undefined,'workflow-error');error.id='workflowTaskError';error.setAttribute('role','alert');conclusion.setAttribute('aria-describedby',error.id);files.setAttribute('aria-describedby',hint.id+' '+error.id)
+  function setFiles(list){
+   if(list.length>3||list.reduce((sum,file)=>sum+file.size,0)>512*1024){error.textContent='最多 3 个附件，合计不能超过 512KB。';files.setAttribute('aria-invalid','true');return false}
+   const transfer=new DataTransfer();for(const file of list)transfer.items.add(file);files.files=transfer.files;error.textContent='';files.removeAttribute('aria-invalid');renderSelected();return true
+  }
+  function renderSelected(){selectedList.textContent='';for(const [index,file]of Array.from(files.files||[]).entries()){const row=node('li'),name=node('span',file.name),size=node('small',formatBytes(file.size),'muted'),remove=button('',()=>setFiles(Array.from(files.files).filter((_,i)=>i!==index)),'移除附件 '+file.name);remove.append(glyph('close'));name.title=file.name;row.append(glyph('file'),name,size,remove);selectedList.append(row)}}
+  files.addEventListener('change',()=>{const list=Array.from(files.files||[]);if(!setFiles(list)){files.value='';renderSelected()}})
+  zone.addEventListener('dragover',event=>{event.preventDefault();event.stopPropagation();zone.classList.add('is-dragging')})
+  zone.addEventListener('dragleave',event=>{if(!zone.contains(event.relatedTarget))zone.classList.remove('is-dragging')})
+  zone.addEventListener('drop',event=>{event.preventDefault();event.stopPropagation();zone.classList.remove('is-dragging');setFiles(Array.from(files.files||[]).concat(Array.from(event.dataTransfer&&event.dataTransfer.files||[])))})
+  const decision=node('fieldset',undefined,'workflow-decision'),legend=node('legend','审批结论');decision.append(legend)
   if(modes.includes('approval'))for(const [value,title] of [['approve','通过'],['reject','不通过']]){const row=node('label',undefined,'workflow-radio'),radio=node('input');radio.type='radio';radio.name='workflowDecision';radio.value=value;radio.required=true;row.append(radio,document.createTextNode(title));decision.append(row)}
   const reviewed=node('input');reviewed.type='checkbox';reviewed.required=modes.includes('read')
-  if(modes.includes('read')){const readLabel=node('label',undefined,'workflow-radio');readLabel.append(reviewed,document.createTextNode('我已审阅资料和相关节点的执行记录'));form.append(readLabel)}
-  const submit=node('button',step.waitKind==='agent'?'补充并重新执行 Agent':'提交并继续');submit.type='submit'
+  form.append(inputLabel,selectedList,fileNote,label)
   if(modes.includes('approval'))form.append(decision)
-  form.append(inputLabel,label,error,submit)
+  if(modes.includes('read')){const readLabel=node('label',undefined,'workflow-radio workflow-review-confirm');readLabel.append(reviewed,document.createTextNode('我已审阅资料和相关节点的执行记录'));form.append(readLabel)}
+  const actions=node('div',undefined,'workflow-task-actions'),submitTitle=step.waitKind==='agent'?'补充并重新执行 Agent':'提交并继续',submit=node('button',submitTitle);submit.type='submit';submit.setAttribute('form',form.id);submit.append(glyph('chevron-right'));actions.append(node('span','确认后进入下一步','muted'),submit);cached.actions=actions;form.append(error)
   form.addEventListener('submit',async event=>{
-   event.preventDefault();if(submit.disabled)return;error.textContent='';submit.disabled=true
-   try{const selected=Array.from(files.files||[]);if(selected.length>3||selected.reduce((sum,file)=>sum+file.size,0)>512*1024)throw Error('最多3个附件，总大小不能超过512KB');const payload=await Promise.all(selected.map(filePayload));await api('submit',{id:result.id,nodeId:step.id,taskId:step.taskId,conclusion:conclusion.value,values:readValues?readValues():undefined,reviewed:reviewed.checked,decision:modes.includes('approval')?new FormData(form).get('workflowDecision'):'confirm',files:payload});pinnedSelection=false;detailSignature='';await refresh()}catch(e){error.textContent=e.message}finally{submit.disabled=false}
+   event.preventDefault();if(submit.disabled)return;error.textContent='';submit.disabled=true;submit.textContent='正在提交…';form.setAttribute('aria-busy','true')
+   try{const selected=Array.from(files.files||[]);if(selected.length>3||selected.reduce((sum,file)=>sum+file.size,0)>512*1024)throw Error('最多3个附件，总大小不能超过512KB');files.removeAttribute('aria-invalid');const payload=await Promise.all(selected.map(filePayload));await api('submit',{id:result.id,nodeId:step.id,taskId:step.taskId,conclusion:conclusion.value,values:readValues?readValues():undefined,reviewed:reviewed.checked,decision:modes.includes('approval')?new FormData(form).get('workflowDecision'):'confirm',files:payload});pinnedSelection=false;detailSignature='';await refresh()}catch(e){error.textContent=e.message}finally{submit.disabled=false;submit.textContent=submitTitle;submit.append(glyph('chevron-right'));form.removeAttribute('aria-busy')}
   })
-  task.append(form)
+  task.append(form);return actions
  }
+
  async function renderDetail(){
   const id=activeRun;if(!id)return
   const result=await api('detail',{id});if(mode!=='detail'||id!==activeRun)return
   const signature=JSON.stringify(result);if(signature===detailSignature)return;detailSignature=signature;runDetail=result
-  if(!pinnedSelection||!result.workflow.nodes.some(n=>n.id===runSelection))runSelection=(result.steps.find(s=>['running','waiting','failed'].includes(s.status))||result.steps.find(s=>s.status==='pending')||result.steps[result.steps.length-1]||{}).id
+  if(!pinnedSelection||!result.workflow.nodes.some(n=>n.id===runSelection))runSelection=(result.steps.find(s=>['running','waiting','failed'].includes(s.status))||result.steps.find(s=>s.status==='pending')||result.steps[0]||{}).id
   const host=$('workflowRunDetail');host.textContent=''
-  const head=node('div',undefined,'workflow-detail-heading');head.append(controls.back,node('h2',result.name),node('span',labels[result.status]||result.status,'muted'))
-  if(['pending','running','waiting','paused'].includes(result.status))head.append(button('停止执行',async()=>{await api('stop',{id});detailSignature='';await refresh()}))
-  else if(data.workflows.some(w=>w.id===result.workflowId))head.append(button('再次执行',async()=>{const next=await startRun(data.workflows.find(w=>w.id===result.workflowId));if(!next)return;activeRun=next.id;runSelection='';pinnedSelection=false;detailSignature='';await refresh()}))
-  if(result.status==='running')head.append(button(result.pauseRequested?'等待当前步骤结束后暂停':'暂停',async()=>{await api('pause',{id});detailSignature='';await refresh()}))
-  if(result.status==='paused')head.append(button('继续执行',async()=>{await api('resume',{id});detailSignature='';await refresh()}))
-  host.append(head,node('p','实例 '+result.id+' · 流程版本 v'+result.revision,'workflow-instance-meta'))
+  const runState=result.status==='succeeded'?'done':result.status==='failed'?'error':['running','waiting','paused'].includes(result.status)?'active':'pending'
+  const head=node('div',undefined,'workflow-detail-heading')
+  const titleWrap=node('div',undefined,'workflow-detail-title')
+  const titleRow=node('div',undefined,'workflow-detail-title-row')
+  titleRow.append(node('h2',result.name),node('span',labels[result.status]||result.status,'workflow-status-pill workflow-status-'+runState))
+  titleWrap.append(node('div','执行实例','workflow-detail-kicker'),titleRow,node('p','#'+String(result.id).slice(0,8)+' · 流程版本 v'+result.revision+' · '+result.workflow.nodes.length+' 个节点','workflow-detail-meta'))
+  const actions=node('div',undefined,'workflow-detail-actions')
+  if(['pending','running','waiting','paused'].includes(result.status))actions.append(button('停止执行',async()=>{await api('stop',{id});detailSignature='';await refresh()}))
+  else if(data.workflows.some(w=>w.id===result.workflowId))actions.append(button('再次执行',async()=>{const next=await startRun(data.workflows.find(w=>w.id===result.workflowId));if(!next)return;activeRun=next.id;runSelection='';pinnedSelection=false;detailSignature='';await refresh()}))
+  if(result.status==='running')actions.append(button(result.pauseRequested?'等待当前步骤结束后暂停':'暂停',async()=>{await api('pause',{id});detailSignature='';await refresh()}))
+  if(result.status==='paused')actions.append(button('继续执行',async()=>{await api('resume',{id});detailSignature='';await refresh()}))
+  head.append(controls.back,titleWrap,actions)
+  host.append(head)
   if(result.error)host.append(node('p',result.error,'workflow-error'))
   drawExecution(result,host)
  }
