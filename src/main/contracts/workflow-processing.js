@@ -1,7 +1,8 @@
 'use strict'
+const Interaction=require('./workflow-interaction')
 const TYPES=['instructions','reference','form','attachments','conclusion']
 function view(node,kind='human'){
- const schema=kind==='evaluation'?node.outputSchema:kind==='agent'?null:node.inputSchema,modes=kind==='evaluation'?['review','approval','read']:kind==='agent'?['review']:Array.isArray(node.humanModes)?node.humanModes:[node.humanKind||'review']
+ const schema=kind==='evaluation'?node.outputSchema:kind==='agent'?null:node.inputSchema,modes=kind==='evaluation'?['review','approval','read']:kind==='agent'?['review']:Interaction.modes(node)
  const raw=kind==='human'?node.processing:null
  if(raw!==undefined&&raw!==null){
   if(!raw||Object.keys(raw).some(k=>!['version','blocks'].includes(k))||raw.version!==1||!Array.isArray(raw.blocks)||raw.blocks.length>12)throw Error('节点处理内容需要 version 1，最多12个内容块')
@@ -11,6 +12,7 @@ function view(node,kind='human'){
   if(modes.includes('upload')&&!blocks.some(b=>b.type==='attachments'))throw Error('上传处理方式必须包含附件内容块')
   return{version:1,blocks}
  }
+ if(kind==='human'&&node.interaction)return{version:1,blocks:[{type:'instructions',title:'处理描述'},...(schema?[{type:'form',title:schema.title||'填写内容'}]:[]),...(modes.includes('upload')?[{type:'attachments',title:'附件'}]:[])]}
  return{version:1,blocks:[{type:'instructions',title:'处理要求'},...(schema?[{type:'form',title:schema.title||'处理表单'}]:[]),{type:'attachments',title:'附件'},{type:'conclusion',title:modes.includes('approval')?'审批意见':'处理结论',required:true}]}
 }
 function requiresConclusion(node,kind){return view(node,kind).blocks.some(b=>b.type==='conclusion'&&b.required!==false)}

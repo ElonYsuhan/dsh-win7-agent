@@ -2,6 +2,7 @@
 ;(function(){
  const $=id=>document.getElementById(id),page=$('workflowPage');if(!page)return
  const controls={back:$('workflowBack'),save:$('workflowSave'),close:$('workflowClose')},pageHeader=page.querySelector('.workflow-header')
+ let mapCollapsed=false
  const labels={paused:'已暂停',pending:'等待执行',running:'执行中',waiting:'待人工处理',succeeded:'已结束',failed:'失败',cancelled:'已停止',interrupted:'已中断',skipped:'未执行'}
  const FALLBACK_NODES=[
   {type:'input',name:'文本输入',description:'提供初始文本'},
@@ -12,7 +13,7 @@
  const PARAM_HINTS={
   agent:'在固定白名单和限额内完成多步任务，不在节点内部请求人工授权。缺少资料或需要判断时转外层人工待办；绑定技能提供专业方法，不扩大权限。',
   tool:'固定调用一个已启用的工具，不请求模型。JSON 参数中的文本支持 {{input}} 引用上游内容。文件访问范围为本实例工作目录。',
-  human:'此节点会暂停流程。根据处理方式上传资料、填写判断或审批结论，提交后继续。审批不通过作为业务结论传递，首版不自动回退。',
+  human:'完成办理、审阅或审批后进入下一步；驳回时填写原因，退回指定的人工环节修改。附件和填写项按业务需要添加。',
   input:'提供流程的初始输入文本。',
   start:'流程起点，可填写初始文本或运行目标。',
   end:'流程终点，汇总上游内容并保存为实例产物。',
@@ -22,7 +23,7 @@
   template:'使用 {{input}} 引用全部上游内容，或用 {{input1}}、{{input2}} 分别引用输入1、输入2端口。',
   output:'将上游汇聚的文本保存为本次执行的产物文件（可留空节点内容）。'
  }
- let data={workflows:[],runs:[],nodes:FALLBACK_NODES.slice()},mode='flows',filter='',activeRun='',editing=null,graph=null,canvas=null,selectedNode=null,refreshing=false,refreshAgain=false,detailSignature='',disposed=false,dirty=false,runSelection='',runDetail=null,pinnedSelection=false,canvasMode='select',panDrag=null
+ let data={workflows:[],runs:[],nodes:FALLBACK_NODES.slice()},mode='flows',filter='',activeRun='',editing=null,graph=null,canvas=null,selectedNode=null,refreshing=false,refreshAgain=false,detailSignature='',disposed=false,dirty=false,runSelection='',runDetail=null,pinnedSelection=false,canvasMode='select'
  const taskForms=new Map()
  const humanModes=n=>Array.isArray(n.humanModes)?n.humanModes:[n.humanKind||'review']
  let stepsMode=false
@@ -47,13 +48,14 @@
   return{width:parseFloat(value('width')),height:parseFloat(value('height')),radius:parseFloat(value('radius')),background:value('background'),border:value('border'),selected:value('selected'),text:value('text'),muted:value('muted'),hover:value('hover'),hoverBorder:style.getPropertyValue('--hover-border').trim(),font:style.fontFamily,canvas:style.getPropertyValue('--bg').trim()}
  }
  function fitNodeText(ctx,text,width){let result=String(text||'');if(ctx.measureText(result).width<=width)return result;while(result&&ctx.measureText(result+'…').width>width)result=result.slice(0,-1);return result+'…'}
+ function interactionName(config){return config&&{handle:'办理',review:'审阅',approve:'审批'}[config.type]||''}
  function drawNodeCard(n,ctx,size,selected,hovered){
   const theme=cardTheme,top=-LiteGraph.NODE_TITLE_HEIGHT,height=size[1]-top,width=size[0]
   ctx.save();ctx.shadowColor='transparent';ctx.globalAlpha=1
   ctx.beginPath();ctx.roundRect(.5,top+.5,width-1,height-1,[theme.radius]);ctx.fillStyle=hovered&&!selected?theme.hover:theme.background;ctx.fill();ctx.strokeStyle=selected?theme.selected:hovered?theme.hoverBorder:theme.border;ctx.lineWidth=selected?2:1;ctx.stroke()
   ctx.beginPath();ctx.roundRect(0,top+15,3,height-30,[0,2,2,0]);ctx.fillStyle=theme.muted;ctx.fill()
   ctx.beginPath();ctx.rect(12,top+8,width-24,height-16);ctx.clip();ctx.textAlign='left';ctx.font='600 14px '+theme.font;ctx.fillStyle=theme.text;ctx.fillText(fitNodeText(ctx,n.title,width-36),18,top+27)
-  ctx.font='10px '+theme.font;ctx.fillStyle=theme.muted;ctx.fillText(fitNodeText(ctx,n.constructor.title,width-36),18,size[1]-12);ctx.restore()
+  ctx.font='10px '+theme.font;ctx.fillStyle=theme.muted;const meta=(n.constructor.title||'')+(interactionName(n.properties&&n.properties.interaction)?' · '+interactionName(n.properties.interaction):'');ctx.fillText(fitNodeText(ctx,meta,width-36),18,size[1]-12);ctx.restore()
  }
  function applyNodeTheme(n){
   if(!n)return
@@ -85,7 +87,7 @@
   return Boolean(await window.appDialogs.confirm('当前流程有未保存的修改，确定放弃修改吗？'))
  }
  function hide(){closeArtifact();if(artifactDownload)artifactDownload.abort();
-  panDrag=null
+  finishSplit(true);closeCanvasMenu(false)
   dirty=false
   page.classList.add('hidden')
   $('app').classList.remove('workflows-open')
@@ -124,6 +126,7 @@
   }
  }
  function view(next){
+  finishSplit(true);closeCanvasMenu(false)
   mode=next
   page.classList.remove('workflow-detail-ready');page.setAttribute('aria-labelledby','workflowHeading');pageHeader.append(controls.close)
   if(next==='detail'){detailSignature='';$('workflowRunDetail').textContent=''}
@@ -228,7 +231,11 @@
   mapTitle.append(node('strong','执行路径'),node('span','共 '+result.workflow.nodes.length+' 个节点 · '+result.steps.filter(step=>step.status==='succeeded').length+' 个已完成','muted'))
   const legend=node('div',undefined,'workflow-state-legend')
   for(const [state,label] of [['done','已结束'],['active','执行中'],['pending','待执行'],['error','失败']])legend.append(node('span',label,'workflow-state-'+state))
-  mapHeader.append(mapTitle,legend)
+  const toggle=button(mapCollapsed?'展开执行路径':'收起执行路径',()=>{mapCollapsed=!mapCollapsed;detailSignature='';renderDetail()},mapCollapsed?'展开执行路径':'收起执行路径')
+  toggle.className='workflow-map-toggle';toggle.setAttribute('aria-expanded',String(!mapCollapsed))
+  const mapSide=node('div',undefined,'workflow-map-side');mapSide.append(legend,toggle)
+  if(mapCollapsed)left.classList.add('is-collapsed')
+  mapHeader.append(mapTitle,mapSide)
   left.append(mapHeader)
   const scroll=node('div',undefined,'workflow-map-scroll'),stage=node('div',undefined,'workflow-map-stage'),positions=new Map(),depth=new Map()
   for(const id of result.plan){const upstream=result.workflow.edges.filter(e=>e.to===id).map(e=>depth.get(e.from)||0);depth.set(id,upstream.length?Math.max(...upstream)+1:0)}
@@ -242,13 +249,13 @@
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',height);svg.setAttribute('aria-hidden','true')
   for(const edge of result.workflow.edges){const from=positions.get(edge.from),to=positions.get(edge.to);if(!from||!to)continue;const path=document.createElementNS(svg.namespaceURI,'path'),x=from.x+NODE_W/2,y=from.y+NODE_H,tx=to.x+NODE_W/2,ty=to.y;path.setAttribute('d',`M ${x} ${y} C ${x} ${y+28}, ${tx} ${ty-28}, ${tx} ${ty}`);svg.append(path)}
   stage.append(svg)
-  for(const entry of result.workflow.nodes){const step=result.steps.find(s=>s.id===entry.id),pos=positions.get(entry.id),state=executionState(step),isWaiting=step&&step.status==='waiting';const card=button('',()=>{runSelection=entry.id;pinnedSelection=true;detailSignature='';renderDetail()},entry.title+' · '+executionLabel(step));card.className='workflow-map-node workflow-state-'+state+(isWaiting?' is-waiting':'')+(runSelection===entry.id?' selected':'');card.setAttribute('aria-pressed',String(runSelection===entry.id));card.style.left=pos.x+'px';card.style.top=pos.y+'px';card.style.width=NODE_W+'px';card.style.height=NODE_H+'px';card.append(node('span',result.plan.includes(entry.id)?String(result.plan.indexOf(entry.id)+1).padStart(2,'0'):'—','workflow-map-index'),node('strong',entry.title),node('span',executionLabel(step),'workflow-map-state'),node('small',(data.nodes.find(n=>n.type===entry.type)||{}).name||entry.type,'workflow-map-type'));stage.append(card)}
+  for(const entry of result.workflow.nodes){const step=result.steps.find(s=>s.id===entry.id),pos=positions.get(entry.id),state=executionState(step),isWaiting=step&&step.status==='waiting';const card=button('',()=>{runSelection=entry.id;pinnedSelection=true;detailSignature='';renderDetail()},entry.title+' · '+executionLabel(step));card.className='workflow-map-node workflow-state-'+state+(isWaiting?' is-waiting':'')+(runSelection===entry.id?' selected':'');card.setAttribute('aria-pressed',String(runSelection===entry.id));card.style.left=pos.x+'px';card.style.top=pos.y+'px';card.style.width=NODE_W+'px';card.style.height=NODE_H+'px';card.append(node('span',result.plan.includes(entry.id)?String(result.plan.indexOf(entry.id)+1).padStart(2,'0'):'—','workflow-map-index'),node('strong',entry.title),node('span',executionLabel(step),'workflow-map-state'),node('small',((data.nodes.find(n=>n.type===entry.type)||{}).name||entry.type)+(interactionName(entry.interaction)?' · '+interactionName(entry.interaction):''),'workflow-map-type'));stage.append(card)}
   scroll.append(stage);left.append(scroll);layout.append(left,right);host.append(layout)
   if(pinnedSelection)requestAnimationFrame(()=>{const selected=positions.get(runSelection);if(selected&&scroll.isConnected){scroll.scrollTop=Math.max(0,selected.y-scroll.clientHeight/3);scroll.scrollLeft=Math.max(0,selected.x-scroll.clientWidth/2+NODE_W/2)}})
   const entry=result.workflow.nodes.find(n=>n.id===runSelection),step=result.steps.find(s=>s.id===runSelection)
   if(!entry){right.append(node('p','选择左侧节点查看执行过程。'));return}
   const propertyHeader=node('header',undefined,'workflow-property-header'),context=node('div',undefined,'workflow-workbench-context'),propertyTitle=node('div',undefined,'workflow-node-title'),index=result.plan.indexOf(entry.id)
-  context.append(node('span','节点工作台'),node('span',index<0?'未纳入执行路径':'步骤 '+String(index+1).padStart(2,'0')+' / '+result.plan.length));propertyTitle.append(node('h2',entry.title),node('span',executionLabel(step),'workflow-status-pill workflow-status-'+executionState(step)));propertyHeader.append(context,propertyTitle);right.append(propertyHeader)
+  context.append(node('span','节点工作台'),node('span',(index<0?'未纳入执行路径':'步骤 '+String(index+1).padStart(2,'0')+' / '+result.plan.length)+(interactionName(entry.interaction)?' · 人工'+interactionName(entry.interaction):'')));propertyTitle.append(node('h2',entry.title),node('span',executionLabel(step),'workflow-status-pill workflow-status-'+executionState(step)));propertyHeader.append(context,propertyTitle);right.append(propertyHeader)
   const workbenchBody=node('div',undefined,'workflow-workbench-body');right.append(workbenchBody)
 
   const history=node('details',undefined,'workflow-node-evidence');history.append(node('summary','节点输入与执行记录'));const propertyContent=node('div');history.append(propertyContent)
@@ -274,13 +281,15 @@
  }
  function filePayload(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({name:file.name,data:String(reader.result).split(',')[1]||''});reader.onerror=()=>reject(Error('文件读取失败：'+file.name));reader.readAsDataURL(file)})}
  function renderHumanForm(result,entry,step,task){
-  const key=result.id+':'+step.taskId,modes=step.waitKind==='agent'?['review']:step.waitKind==='evaluation'?['review','approval','read']:humanModes(entry)
+  const key=result.id+':'+step.taskId
+  const interaction=entry.type==='human'&&entry.interaction&&step.waitKind!=='agent'&&step.waitKind!=='evaluation'?entry.interaction:null,flowView=interaction?result.interactionViews&&result.interactionViews[step.id]:null
+  const modes=interaction?[interaction.type==='approve'?'approval':interaction.type==='review'?'read':'review',...(humanModes(entry).includes('upload')?['upload']:[])]:step.waitKind==='agent'?['review']:step.waitKind==='evaluation'?['review','approval','read']:humanModes(entry)
   if(taskForms.has(key)){const cached=taskForms.get(key);task.append(cached.content);return cached.actions}
   const content=node('div'),cached={content,actions:null};task.append(content);task=content;taskForms.set(key,cached)
   content.className='workflow-human-content'
   const form=node('form'),schema=step.waitKind==='agent'?null:step.waitKind==='evaluation'?entry.outputSchema:entry.inputSchema,view=result.processingViews&&result.processingViews[step.id]||entry.processing||{version:1,blocks:[{type:'instructions'},...(schema?[{type:'form'}]:[]),{type:'attachments'},{type:'conclusion',required:true}]};let readValues=null
   form.id='workflowTaskForm-'+result.id+'-'+step.taskId
-  const inputLabel=node('label',undefined,'workflow-upload-field'),uploadHeading=node('span','附件'+(modes.includes('upload')?'（必填）':'（可选）'),'workflow-field-label'),zone=node('span',undefined,'workflow-upload-zone'),zoneText=node('span',undefined,'workflow-upload-copy'),files=node('input');files.type='file';files.multiple=true;files.required=modes.includes('upload');files.setAttribute('aria-label','添加附件')
+  const inputLabel=node('label',undefined,'workflow-upload-field'),uploadHeading=node('span','附件'+(modes.includes('upload')?'（必填）':'（可选）'),'workflow-field-label'),zone=node('span',undefined,'workflow-upload-zone'),zoneText=node('span',undefined,'workflow-upload-copy'),files=node('input');files.type='file';files.multiple=true;files.required=modes.includes('upload')&&!(step.returnFiles||[]).length;files.setAttribute('aria-label','添加附件')
   const hint=node('span','最多 3 个文件，合计 512 KB','workflow-upload-hint');hint.id='workflowUploadHint';zoneText.append(node('strong','点击选择或拖入文件'),hint);zone.append(glyph('upload'),zoneText,files);inputLabel.append(uploadHeading,zone)
   const selectedList=node('ul',undefined,'workflow-selected-files');selectedList.setAttribute('aria-label','已选附件');selectedList.setAttribute('aria-live','polite')
   const fileNote=node('details',undefined,'workflow-file-note');fileNote.append(node('summary','附件如何传递？'),node('p','TXT、Markdown、JSON、CSV 等文本附件提取前 16000 字传给后续步骤，其他格式保留文件引用。'))
@@ -296,9 +305,22 @@
   zone.addEventListener('dragleave',event=>{if(!zone.contains(event.relatedTarget))zone.classList.remove('is-dragging')})
   zone.addEventListener('drop',event=>{event.preventDefault();event.stopPropagation();zone.classList.remove('is-dragging');setFiles(Array.from(files.files||[]).concat(Array.from(event.dataTransfer&&event.dataTransfer.files||[])))})
   const decision=node('fieldset',undefined,'workflow-decision'),legend=node('legend','审批结论');decision.append(legend)
-  if(modes.includes('approval'))for(const [value,title] of [['approve','通过'],['reject','不通过']]){const row=node('label',undefined,'workflow-radio'),radio=node('input');radio.type='radio';radio.name='workflowDecision';radio.value=value;radio.required=true;row.append(radio,document.createTextNode(title));decision.append(row)}
-  const reviewed=node('input');reviewed.type='checkbox';reviewed.required=modes.includes('read')
+  let reviewReject=false
+  const choice=()=>{if(interaction&&interaction.type==='review'&&reviewReject)return 'reject';const picked=decision.querySelector('input[name=workflowDecision]:checked');return picked?picked.value:''}
+  let reason=null,reasonLabel=null
+  if(modes.includes('approval'))for(const [value,title] of [['approve',interaction?'通过并继续':'通过'],['reject',interaction?'驳回并退回修改':'不通过']]){const row=node('label',undefined,'workflow-radio'),radio=node('input');radio.type='radio';radio.name='workflowDecision';radio.value=value;radio.required=true;if(interaction&&value==='approve')radio.checked=true;row.append(radio,document.createTextNode(title));if(value==='reject'&&interaction&&flowView&&!flowView.canReject){radio.disabled=true;row.title='没有可退回的上游人工办理环节';row.classList.add('is-disabled')}decision.append(row)}
+  if(interaction&&['approve','review'].includes(interaction.type)){
+   reasonLabel=node('label',undefined,'workflow-conclusion-field');reasonLabel.append(node('span','驳回原因（必填）','workflow-field-label'))
+   reason=node('textarea');reason.rows=4;reason.maxLength=16000;reason.placeholder='说明需要修改的内容与依据，退回后由上游办理环节重新提交…'
+   reasonLabel.append(reason);reasonLabel.hidden=true;decision.append(reasonLabel)
+   const target=flowView&&flowView.returnTargetTitle
+   decision.append(node('p',target?'驳回后退回「'+target+'」修改；原有处理记录与已交付的产物版本都会保留。':'没有可退回的上游人工办理环节，此节点只能通过。','muted'))
+  }
+  if(interaction&&interaction.type==='review'){legend.textContent='退回修改';decision.hidden=true}
+  const reviewed=node('input');reviewed.type='checkbox';reviewed.required=modes.includes('read')&&!interaction
   const attachmentBlock=node('div',undefined,'workflow-processing-block');attachmentBlock.append(inputLabel,selectedList,fileNote)
+  const reused=new Set((step.returnFiles||[]).map(f=>f.ref))
+  if(reused.size){const previous=node('div',undefined,'workflow-reused-files');previous.append(node('p','上轮附件已保留，可继续使用或移除后重新上传。','muted'));for(const file of step.returnFiles){const row=node('label',undefined,'workflow-radio'),check=node('input');check.type='checkbox';check.checked=true;check.addEventListener('change',()=>{if(check.checked)reused.add(file.ref);else reused.delete(file.ref);files.required=modes.includes('upload')&&!reused.size});row.append(check,document.createTextNode(file.name+' · '+formatBytes(file.size)));previous.append(row)}attachmentBlock.prepend(previous)}
   for(const block of view.blocks){
    if(block.type==='instructions'){const requirements=node('details',undefined,'workflow-task-requirements workflow-processing-block');requirements.open=true;requirements.append(node('summary',block.title||'处理要求'),node('p',block.text||step.waitReason||entry.text||'请查看本步骤资料后继续。'));form.append(requirements)}
    if(block.type==='reference'){const reference=node('section',undefined,'workflow-processing-block workflow-processing-reference');reference.append(node('h4',block.title||'参考资料'),node('pre',String(block.source==='partial'?step.partial||'暂无中间结果':step.input||'暂无上游输入')));form.append(reference)}
@@ -306,12 +328,25 @@
    if(block.type==='attachments'){uploadHeading.textContent=(block.title||'附件')+(modes.includes('upload')?'（必填）':'（可选）');form.append(attachmentBlock)}
    if(block.type==='conclusion'){conclusion.required=block.required!==false;label.firstChild.textContent=(block.title||(modes.includes('approval')?'审批意见':'处理结论'))+(conclusion.required?'（必填）':'（可选）');form.append(label)}
   }
-  if(modes.includes('approval'))form.append(decision)
-  if(modes.includes('read')){const readLabel=node('label',undefined,'workflow-radio workflow-review-confirm');readLabel.append(reviewed,document.createTextNode('我已审阅资料和相关节点的执行记录'));form.append(readLabel)}
-  const actions=node('div',undefined,'workflow-task-actions'),submitTitle=step.waitKind==='agent'?'补充并重新执行 Agent':view.blocks.some(b=>['form','attachments','conclusion'].includes(b.type))?'提交并继续':'确认并继续',submit=node('button',submitTitle);submit.type='submit';submit.setAttribute('form',form.id);submit.append(glyph('chevron-right'));actions.append(node('span','确认后进入下一步','muted'),submit);cached.actions=actions;form.append(error)
+  if(modes.includes('approval')||interaction&&interaction.type==='review'&&flowView&&flowView.canReject)form.append(decision)
+  if(modes.includes('read')&&!interaction){const readLabel=node('label',undefined,'workflow-radio workflow-review-confirm');readLabel.append(reviewed,document.createTextNode('我已审阅资料和相关节点的执行记录'));form.append(readLabel)}
+  const actions=node('div',undefined,'workflow-task-actions'),submitTitle=interaction?(interaction.type==='approve'?'通过并继续':interaction.type==='review'?'已审阅，继续':'完成并继续'):step.waitKind==='agent'?'补充并重新执行 Agent':view.blocks.some(b=>['form','attachments','conclusion'].includes(b.type))?'提交并继续':'确认并继续',submit=node('button',submitTitle);submit.type='submit';submit.setAttribute('form',form.id);submit.append(glyph('chevron-right'));actions.append(node('span',interaction&&interaction.type==='approve'?'通过后进入下一步，驳回则退回修改':'确认后进入下一步','muted'),submit);cached.actions=actions;form.append(error)
+  const fieldsBeforeDecision=Array.from(form.querySelectorAll('input,textarea,select')).filter(field=>!decision.contains(field)),initialDisabled=new Map(fieldsBeforeDecision.map(field=>[field,field.disabled]))
+  const syncDecision=()=>{const rejected=choice()==='reject';if(interaction&&interaction.type==='review')decision.hidden=!rejected;if(reasonLabel)reasonLabel.hidden=!rejected;if(reason)reason.required=rejected;for(const field of fieldsBeforeDecision)field.disabled=rejected||initialDisabled.get(field);submit.textContent=rejected?'驳回并退回':submitTitle;submit.append(glyph('chevron-right'))}
+  if(interaction&&modes.includes('approval'))for(const radio of decision.querySelectorAll('input[name=workflowDecision]'))radio.addEventListener('change',syncDecision)
+  if(interaction&&interaction.type==='review'&&flowView&&flowView.canReject){const reject=button('驳回',()=>{reviewReject=!reviewReject;reject.textContent=reviewReject?'取消驳回':'驳回';syncDecision();if(reviewReject)reason.focus()});reject.className='workflow-review-reject';actions.insertBefore(reject,submit)}
   form.addEventListener('submit',async event=>{
    event.preventDefault();if(submit.disabled)return;error.textContent='';submit.disabled=true;submit.textContent='正在提交…';form.setAttribute('aria-busy','true')
-   try{const selected=Array.from(files.files||[]);if(selected.length>3||selected.reduce((sum,file)=>sum+file.size,0)>512*1024)throw Error('最多3个附件，总大小不能超过512KB');files.removeAttribute('aria-invalid');const payload=await Promise.all(selected.map(filePayload));await api('submit',{id:result.id,nodeId:step.id,taskId:step.taskId,conclusion:label.isConnected?conclusion.value:'',values:readValues?readValues():undefined,reviewed:reviewed.checked,decision:modes.includes('approval')?new FormData(form).get('workflowDecision'):'confirm',files:payload});pinnedSelection=false;detailSignature='';await refresh()}catch(e){error.textContent=e.message}finally{submit.disabled=false;submit.textContent=submitTitle;submit.append(glyph('chevron-right'));form.removeAttribute('aria-busy')}
+   try{const selected=Array.from(files.files||[]);if(selected.length>3||selected.reduce((sum,file)=>sum+file.size,0)>512*1024)throw Error('最多3个附件，总大小不能超过512KB');files.removeAttribute('aria-invalid')
+    const approvable=modes.includes('approval'),rejected=!!interaction&&choice()==='reject'||approvable&&choice()==='reject'
+    if(approvable&&!choice())throw Error(interaction?'请选择通过或驳回':'请选择通过或不通过')
+    if(rejected&&reason&&!reason.value.trim())throw Error('请填写驳回原因（最多16000字）')
+    const payload=rejected&&interaction?[]:await Promise.all(selected.map(filePayload))
+    await api('submit',{id:result.id,nodeId:step.id,taskId:step.taskId,conclusion:rejected&&reason?reason.value:label.isConnected?conclusion.value:'',values:rejected&&interaction?undefined:readValues?readValues():undefined,reuseFiles:rejected&&interaction?[]:Array.from(reused),reviewed:reviewed.checked||!!(interaction&&interaction.type==='review'),decision:approvable||rejected?choice():'confirm',files:payload})
+    // 退回信息由实例头部的退回横幅承载，页面顶部不再重复提示。
+    pinnedSelection=false;detailSignature='';notice('')
+    await refresh()
+   }catch(e){error.textContent=e.message}finally{submit.disabled=false;syncDecision();form.removeAttribute('aria-busy')}
   })
   task.append(form);return actions
  }
@@ -332,9 +367,22 @@
   if(['pending','running','waiting','paused'].includes(result.status))actions.append(button('停止执行',async()=>{await api('stop',{id});detailSignature='';await refresh()}))
   else if(data.workflows.some(w=>w.id===result.workflowId))actions.append(button('再次执行',async()=>{const next=await startRun(data.workflows.find(w=>w.id===result.workflowId));if(!next)return;activeRun=next.id;runSelection='';pinnedSelection=false;detailSignature='';await refresh()}))
   if(result.status==='running')actions.append(button(result.pauseRequested?'等待当前步骤结束后暂停':'暂停',async()=>{await api('pause',{id});detailSignature='';await refresh()}))
-  if(result.status==='paused')actions.append(button('继续执行',async()=>{await api('resume',{id});detailSignature='';await refresh()}))
+  if(result.status==='paused')actions.append(button(result.externalConfirm&&result.externalConfirm.length?'已核查，继续执行':'继续执行',async()=>{
+   let confirmExternal=false
+   if(result.externalConfirm&&result.externalConfirm.length){
+    const key=result.replayGuard?result.replayGuard.nodeId:result.plan.find(id=>result.externalConfirm.includes(id)),entry=result.steps.find(s=>s.id===key),names=entry?entry.title:key
+    if(!await window.appDialogs.confirm('重新执行会再次调用外部接口或工具：'+names+'。\n\n请先确认上一次调用与中间结果，确实需要重放时再继续。'))return
+    confirmExternal=true
+   }
+   await api('resume',{id,confirmExternal});detailSignature='';await refresh()}))
   actions.append(controls.close);head.append(controls.back,titleWrap,actions)
   host.append(head);page.classList.add('workflow-detail-ready');page.setAttribute('aria-labelledby',heading.id)
+  if(result.returnedFrom){
+   const returned=node('div',undefined,'workflow-return-banner')
+   const copy=node('div');copy.append(node('strong','「'+result.returnedFrom.title+'」驳回，退回「'+result.returnedFrom.targetTitle+'」修改'),node('p',result.returnedFrom.reason,'muted'))
+   returned.append(glyph('wf-marquee'),copy);host.append(returned)
+  }
+  if(result.externalConfirm&&result.externalConfirm.length)host.append(node('p','退回后需要重新执行外部操作：'+result.externalConfirm.map(key=>{const entry=result.steps.find(s=>s.id===key);return entry?entry.title:key}).join('、')+'。核查上一次调用与中间结果后点“已核查，继续执行”。','workflow-checkpoint-note'))
   if(result.error)host.append(node('p',result.error,'workflow-error'))
   drawExecution(result,host)
  }
@@ -359,7 +407,19 @@
    LiteGraph.registered_node_types['workflow/'+def.type].title=def.name
   }
  }
- function nextNodeId(type){
+ function ancestorsOf(target){
+ const found=new Set(),queue=[target]
+ while(queue.length){
+  const current=queue.shift()
+  for(const input of current.inputs||[]){
+   const link=input.link===null||input.link===undefined?null:graph.links[input.link]
+   const from=link?graph.getNodeById(link.origin_id):null
+   if(from&&from!==target&&!found.has(from)){found.add(from);queue.push(from)}
+  }
+ }
+ return [...found]
+}
+function nextNodeId(type){
   const prefix=String(type||'node').replace(/[^a-zA-Z0-9_-]/g,'_')
   const used=new Set((graph&&Array.isArray(graph._nodes)?graph._nodes:[]).map(n=>(n.properties&&n.properties.workflowId)||('node_'+n.id)))
   let index=1
@@ -368,27 +428,62 @@
  }
  function parameter(n){
   selectedNode=n
+  const panel=page.querySelector('.workflow-parameters');if(panel)panel.classList.toggle('is-empty',!n)
+  const human=!!n&&n.type==='workflow/human',simple=human&&!!n.properties.interaction
   $('workflowNodeTitle').value=n?n.title:''
-  $('workflowNodeText').value=n?(n.properties.text||''):''
+  $('workflowNodeText').value=n?(n.properties.text||(human?n.properties.description:'')||''):''
+  $('workflowNodeText').rows=human?4:12
+  $('workflowNodeTextField').classList.toggle('is-human',human)
+  $('workflowNodeTextLabel').textContent=human?'处理描述':'执行指令'
   $('workflowNodeTitle').disabled=!n
   $('workflowNodeText').disabled=!n
   $('workflowRemoveNode').disabled=!n
   $('workflowNodeDescription').value=n?(n.properties.description||''):''
   $('workflowNodeDescription').disabled=!n
-  $('workflowHumanOptions').classList.toggle('hidden',!n||n.type!=='workflow/human')
+  $('workflowHumanInteractionOptions').classList.toggle('hidden',!human)
+  $('workflowHumanExtras').classList.toggle('hidden',!simple)
+  $('workflowLegacyHumanOptions').classList.toggle('hidden',!human||simple)
+  $('workflowHumanOptions').classList.toggle('hidden',!human||simple)
+  $('workflowInteractionType').value=simple?n.properties.interaction.type:'legacy'
+  $('workflowInteractionType').querySelector('[value="legacy"]').hidden=!!simple
+  $('workflowInteractionHint').textContent=simple?{handle:'处理完成后，一次提交进入下一步。',review:'阅读资料后直接确认，无需重复勾选或填写结论。',approve:'通过则继续；驳回时填写原因，退回人工环节修改。'}[n.properties.interaction.type]:'此节点保留原有组合要求，可在下方兼容配置中查看。'
+  if(window.agentSelect)window.agentSelect.refresh($('workflowInteractionType'))
+  $('workflowNodeAdvanced').classList.toggle('workflow-advanced-visible',!human)
+  $('workflowNodeAdvanced').open=!human
+  $('workflowNodeDescriptionField').classList.toggle('hidden',human&&(!n.properties.description||n.properties.description===n.properties.text))
+  $('workflowNodeDescriptionLabel').textContent=human?'原步骤说明（兼容）':'步骤说明'
   for(const checkbox of document.querySelectorAll('[name=workflowHumanKind]'))checkbox.checked=!!n&&humanModes(n.properties).includes(checkbox.value)
   $('workflowRestOptions').classList.toggle('hidden',!n||n.type!=='workflow/rest')
   $('workflowRestUrl').value=n&&n.properties.rest?n.properties.rest.url:''
   for(const radio of document.querySelectorAll('[name=workflowRestMethod]'))radio.checked=!!n&&radio.value===(n.properties.rest&&n.properties.rest.method||'GET')
   renderPorts(n)
   renderStructured(n)
+  renderHumanExtras(n)
   if(stepsMode)renderSteps()
-  $('workflowNodeMode').textContent=n?(n.type==='workflow/human'?'人工处理 · 提交后继续':'自动执行 · 完成后继续'):'选择节点查看配置'
+  $('workflowNodeMode').textContent=n?(human?(simple?{handle:'人工办理 · 完成后继续',review:'人工审阅 · 已阅后继续',approve:'人工审批 · 通过或驳回'}[n.properties.interaction.type]:'人工处理 · 保留原配置'):'自动执行 · 完成后继续'):'选择节点查看配置'
   const hint=$('workflowParamHint')
   if(hint){
    const type=n&&typeof n.type==='string'?n.type.split('/')[1]:''
    hint.textContent=PARAM_HINTS[type]||'文本整理或 AI 节点可用 {{input}}、{{input1}}、{{input2}} 引用上游内容。拖动端口连线，选中节点后修改参数。'
   }
+ }
+ function processingForEditor(props){return props.processing||{version:1,blocks:[{type:'instructions'},...(props.inputSchema?[{type:'form'}]:[]),...(props.interaction?[]:[{type:'attachments'},{type:'conclusion',required:true}])]}}
+ function renderHumanExtras(n){
+  const host=$('workflowSimpleExtras');host.textContent='';if(!n||n.type!=='workflow/human'||!n.properties.interaction)return
+  const props=n.properties,config=processingForEditor(props),has=type=>config.blocks.some(b=>b.type===type)
+  const change=fn=>{if(!props.processing)props.processing=JSON.parse(JSON.stringify(config));fn(props.processing);dirty=true}
+  const rerender=()=>{renderHumanExtras(n);renderStructured(n);$('workflowHumanExtras').open=true}
+  const optional=(title,checked,fn)=>{const label=node('label',undefined,'workflow-radio'),input=node('input');input.type='checkbox';input.checked=checked;input.addEventListener('change',()=>fn(input.checked));label.append(input,document.createTextNode(title));host.append(label);return input}
+  optional('允许添加附件',has('attachments'),checked=>{change(c=>{c.blocks=c.blocks.filter(b=>b.type!=='attachments');if(checked)c.blocks.push({type:'attachments',title:'附件'})});if(!checked)props.humanModes=humanModes(props).filter(m=>m!=='upload');rerender()})
+  if(has('attachments'))optional('必须上传附件',humanModes(props).includes('upload'),checked=>{props.humanModes=humanModes(props).filter(m=>m!=='upload');if(checked)props.humanModes.push('upload');dirty=true})
+  optional('填写补充意见（可选）',has('conclusion'),checked=>{change(c=>{c.blocks=c.blocks.filter(b=>b.type!=='conclusion');if(checked)c.blocks.push({type:'conclusion',title:'补充意见',required:false})});rerender()})
+  const group=node('fieldset',undefined,'workflow-simple-fields');group.append(node('legend','填写项'))
+  for(const [key,field]of Object.entries(props.inputSchema&&props.inputSchema.properties||{})){
+   const row=node('div',undefined,'workflow-simple-field'),label=node('label','名称'),title=node('input');title.value=field.title||key;title.maxLength=120;title.addEventListener('input',()=>{field.title=title.value;dirty=true});label.append(title);row.append(label)
+   const requiredLabel=node('label',undefined,'workflow-radio'),required=node('input');required.type='checkbox';required.checked=(props.inputSchema.required||[]).includes(key);required.addEventListener('change',()=>{props.inputSchema.required=(props.inputSchema.required||[]).filter(v=>v!==key);if(required.checked)props.inputSchema.required.push(key);dirty=true});requiredLabel.append(required,document.createTextNode('必填'));row.append(requiredLabel)
+   row.append(button('移除',()=>{delete props.inputSchema.properties[key];props.inputSchema.required=(props.inputSchema.required||[]).filter(v=>v!==key);if(props.bindings)delete props.bindings[key];if(!Object.keys(props.inputSchema.properties).length){props.inputSchema=null;change(c=>{c.blocks=c.blocks.filter(b=>b.type!=='form')})}dirty=true;rerender()},'移除填写项 '+(field.title||key)));group.append(row)
+  }
+  const add=button('添加填写项',()=>{props.inputSchema=props.inputSchema||{type:'object',properties:{},required:[],additionalProperties:false};props.inputSchema.properties=props.inputSchema.properties||{};let index=1;while(props.inputSchema.properties['field_'+index])index++;props.inputSchema.properties['field_'+index]={type:'string',title:'填写项 '+index,maxLength:16000};change(c=>{if(!c.blocks.some(b=>b.type==='form'))c.blocks.push({type:'form',title:'处理表单'})});rerender()});add.disabled=Object.keys(props.inputSchema&&props.inputSchema.properties||{}).length>=24;group.append(add,node('p','新增项默认为文本；复杂字段可在高级设置中调整。','muted'));host.append(group)
  }
  async function startRun(flow){
   if(!flow)return null
@@ -405,7 +500,7 @@
   stepsMode=value;$('workflowStepList').classList.toggle('hidden',!value);$('workflowCanvasHost').classList.toggle('hidden',value);$('workflowStepsToggle').textContent=value?'画布视图':'步骤视图';$('workflowStepsToggle').setAttribute('aria-pressed',String(value));if(value){if(canvas)canvas.stopRendering();renderSteps()}else if(canvas){canvas.startRendering();requestAnimationFrame(()=>{resize();fitGraph()})}
  }
  function renderSteps(){const host=$('workflowStepList');host.textContent='';if(!graph)return
-  graph._nodes.forEach((n,index)=>{const row=node('article',undefined,'workflow-step-item'+(selectedNode===n?' selected':'')),select=button((index+1)+'. '+n.title,()=>{canvas.selectNode(n);parameter(n)});select.setAttribute('aria-pressed',String(selectedNode===n));const actions=node('div');for(const [offset,label]of [[-1,'上移'],[1,'下移']]){const b=button(label,()=>{const target=index+offset;[graph._nodes[index],graph._nodes[target]]=[graph._nodes[target],graph._nodes[index]];rechain()});const target=graph._nodes[index+offset];b.disabled=['workflow/start','workflow/end'].includes(n.type)||!target||['workflow/start','workflow/end'].includes(target.type);actions.append(b)}row.append(select,node('small',(data.nodes.find(d=>'workflow/'+d.type===n.type)||{}).name||n.type,'muted'),actions);host.append(row)})
+  graph._nodes.forEach((n,index)=>{const row=node('article',undefined,'workflow-step-item'+(selectedNode===n?' selected':'')),select=button((index+1)+'. '+n.title,()=>{canvas.selectNode(n);parameter(n)});select.setAttribute('aria-pressed',String(selectedNode===n));const actions=node('div');for(const [offset,label]of [[-1,'上移'],[1,'下移']]){const b=button(label,()=>{const target=index+offset;[graph._nodes[index],graph._nodes[target]]=[graph._nodes[target],graph._nodes[index]];rechain()});const target=graph._nodes[index+offset];b.disabled=['workflow/start','workflow/end'].includes(n.type)||!target||['workflow/start','workflow/end'].includes(target.type);actions.append(b)}row.append(select,node('small',((data.nodes.find(d=>'workflow/'+d.type===n.type)||{}).name||n.type)+(interactionName(n.properties&&n.properties.interaction)?' · '+interactionName(n.properties.interaction):''),'muted'),actions);host.append(row)})
   if(!graph._nodes.length)host.append(node('p','从上方选择节点，按步骤配置流程。','muted'))
  }
  function renderStructured(n){
@@ -430,11 +525,22 @@
    }
    host.append(group)
   }
-  if(type==='human'){
+  if(type==='human'&&props.interaction&&props.interaction.type!=='handle'){
+   const group=node('fieldset');group.append(node('legend','驳回设置'))
+   const label=node('label','驳回后退回到'),select=node('select');select.setAttribute('aria-label','驳回退回节点')
+   const fallback=node('option','默认 · 最近的上游人工办理节点');fallback.value='';select.append(fallback)
+   for(const other of ancestorsOf(n).filter(item=>item.type==='workflow/human')){const option=node('option',other.title+' · '+(other.properties.workflowId||''));option.value=other.properties.workflowId;select.append(option)}
+   const configured=props.interaction.returnTo&&props.interaction.returnTo!=='previous-human'?props.interaction.returnTo:''
+   select.value=configured
+   if(configured&&!select.value)fallback.textContent='默认 · 原指定节点已不在上游'
+   select.addEventListener('change',()=>{props.interaction.returnTo=select.value||'previous-human';dirty=true})
+   label.append(select);group.append(label,node('p','没有上游人工节点时，此节点只能通过。','muted'));host.append(group)
+  }
+  if(type==='human'&&!props.interaction){
    const details=node('details',undefined,'workflow-processing-editor');details.append(node('summary','节点处理内容（可组合）'))
    const defaults={version:1,blocks:[{type:'instructions'},...(props.inputSchema?[{type:'form'}]:[]),{type:'attachments'},{type:'conclusion',required:true}]},config=props.processing||defaults,names={instructions:'文字说明',reference:'上游 / 中间资料',form:'处理表单',attachments:'文件上传',conclusion:'文字结论'}
    const change=fn=>{if(!props.processing)props.processing=JSON.parse(JSON.stringify(config));fn(props.processing);dirty=true}
-   const redraw=index=>{renderStructured(n);const section=host.querySelector('.workflow-processing-editor');section.open=true;const rows=section.querySelectorAll(':scope > fieldset'),row=rows[Math.min(index,rows.length-1)];if(row)row.querySelector('input').focus();else{const select=section.querySelector('select');if(window.agentSelect)window.agentSelect.enhance(select);(section.querySelector('.select-trigger')||select).focus()}}
+   const redraw=index=>{renderStructured(n);const section=host.querySelector('.workflow-processing-editor');if(!section)return;for(let parent=section;parent&&parent!==document.body;parent=parent.parentElement)if(parent.tagName==='DETAILS'&&!parent.open)parent.open=true;section.open=true;const rows=section.querySelectorAll(':scope > fieldset'),row=rows[Math.min(index,rows.length-1)];if(row)row.querySelector('input').focus();else{const select=section.querySelector('select');if(window.agentSelect)window.agentSelect.enhance(select);(section.querySelector('.select-trigger')||select).focus()}}
    details.append(node('p','按顺序组合本步骤需要展示的内容；表单字段由下方输入 Schema 定义。','muted'))
    config.blocks.forEach((block,index)=>{const row=node('fieldset');row.append(node('legend',names[block.type]||block.type));const title=node('label','标题'),input=node('input');input.value=block.title||'';input.maxLength=80;input.placeholder=names[block.type];input.addEventListener('input',()=>change(c=>c.blocks[index].title=input.value));title.append(input);row.append(title)
     if(block.type==='instructions'){const textLabel=node('label','说明文字（留空使用节点处理要求）'),text=node('textarea');text.value=block.text||'';text.maxLength=16000;text.rows=3;text.addEventListener('input',()=>change(c=>c.blocks[index].text=text.value));textLabel.append(text);row.append(textLabel)}
@@ -484,6 +590,7 @@
   view('editor')
   if(canvas)canvas.dispose()
   graph=new LGraph()
+  graph.onNodeRemoved=()=>{dirty=true;parameter(null)}
   canvas=window.workflowCanvasLifecycle.create($('workflowCanvas'),graph)
   canvas.background_image=null
   canvas.render_canvas_border=false
@@ -493,12 +600,16 @@
   canvas.drawNodeShape=function(n,ctx,size,color,background,selected,hovered){drawNodeCard(n,ctx,size,selected,hovered)}
   canvas.drawNode=function(n,ctx){ctx.save();ctx.beginPath();ctx.rect(-8,-LiteGraph.NODE_TITLE_HEIGHT-8,n.size[0]+16,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+16);ctx.clip();ctx.font=this.inner_text_font;for(const ports of [n.inputs||[],n.outputs||[]])for(const port of ports)port.label=fitNodeText(ctx,port.name,n.size[0]/2-28);try{return drawNode.call(this,n,ctx)}finally{ctx.restore()}}
   canvas.allow_searchbox=false
-  canvas.processContextMenu=(n,e)=>{if(e&&typeof e.preventDefault==='function')e.preventDefault();if(n){canvas.selectNode(n);parameter(n)}return false}
-  canvas.onShowNodePanel=n=>{canvas.selectNode(n);parameter(n);if(!$('workflowNodeText').disabled)$('workflowNodeText').focus();return false}
+  canvas.processContextMenu=(n,e)=>{if(e&&typeof e.preventDefault==='function')e.preventDefault();if(n){canvas.selectNode(n);parameter(n)}else if(e)showCanvasMenu(e.clientX,e.clientY);return false}
+  canvas.onShowNodePanel=n=>{if(n.is_selected&&Object.keys(canvas.selected_nodes).length>1)return false;canvas.selectNode(n);parameter(n);if(!$('workflowNodeText').disabled)$('workflowNodeText').focus();return false}
   canvas.prompt=()=>false
   canvas.onNodeMoved=()=>{dirty=true}
-  canvas.onNodeSelected=parameter
+  const selectionChanged=()=>{const nodes=Object.values(canvas.selected_nodes);parameter(nodes.length===1?nodes[0]:null);if(nodes.length>1)$('workflowNodeMode').textContent='已选择 '+nodes.length+' 个节点 · 拖动可整体移动，点击空白取消选择'}
+  canvas.onNodeSelected=selectionChanged
   canvas.onNodeDeselected=()=>parameter(null)
+  canvas.onSelectionChange=selectionChanged
+  canvas.onDrawForeground=drawSplitGuide
+  canvas.onMouse=function(event){if(canvasMode==='select'&&event.which===1&&event.shiftKey){const hit=graph.getNodeOnPos(event.canvasX,event.canvasY,canvas.visible_nodes);if(hit){this.selectNode(hit,true);this.node_dragged=null;this.setDirty(true,true);event.preventDefault();event.stopPropagation();return true}}if(canvasMode!=='box'||event.which!==1)return false;if(!event.shiftKey)this.deselectAllNodes();this.dragging_rectangle=new Float32Array([event.canvasX,event.canvasY,1,1]);this.dragging_canvas=false;this.last_mouse[0]=event.clientX;this.last_mouse[1]=event.clientY;event.preventDefault();event.stopPropagation();this.setDirty(true,true);return true}
   syncCanvasTheme()
   const map=new Map()
   for(const entry of flow.nodes){
@@ -510,7 +621,7 @@
    n.properties.humanKind=entry.humanKind||'review'
    n.properties.humanModes=humanModes(entry).slice()
    n.properties.rest=entry.rest||{url:'',method:'GET'}
-   for(const key of ['inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing'])if(entry[key]!==undefined)n.properties[key]=JSON.parse(JSON.stringify(entry[key]))
+   for(const key of ['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing'])if(entry[key]!==undefined)n.properties[key]=JSON.parse(JSON.stringify(entry[key]))
    if(Array.isArray(entry.inputs)){n.inputs=[];for(const port of entry.inputs)n.addInput(port.name,'text')}
    if(Array.isArray(entry.outputs)){n.outputs=[];for(const port of entry.outputs)n.addOutput(port.name,'text')}
    n.size=n.computeSize()
@@ -536,6 +647,8 @@
    for(const type of items){
     const add=button('',()=>{
      const n=LiteGraph.createNode('workflow/'+type.type);n.title=type.name;n.properties.workflowId=nextNodeId(type.type)
+     // 新加的人工节点从“办理”开始：默认只要描述和一个提交按钮。
+     if(type.type==='human')n.properties.interaction={version:1,type:'handle',returnTo:'previous-human'}
      n.pos=[canvas.canvas.width/(2*canvas.ds.scale)-canvas.ds.offset[0]-n.size[0]/2+(graph._nodes.length%3)*24,canvas.canvas.height/(2*canvas.ds.scale)-canvas.ds.offset[1]-n.size[1]/2+(graph._nodes.length%3)*24]
      applyNodeTheme(n);graph.add(n);if(stepsMode){const end=graph._nodes.find(v=>v.type==='workflow/end');if(end&&end!==n){graph._nodes.splice(graph._nodes.indexOf(n),1);graph._nodes.splice(graph._nodes.indexOf(end),0,n)}rechain()}canvas.selectNode(n);parameter(n);dirty=true;graph.setDirtyCanvas(true,true)
     },'添加'+type.name)
@@ -551,14 +664,41 @@
   requestAnimationFrame(()=>{resize();fitGraph()})
  }
  function updateZoom(){if(canvas)$('workflowZoom').textContent=Math.round(canvas.ds.scale*100)+'%'}
+ let splitAxis='x',splitGesture=null,splitGuide=null
  function canvasModeSet(mode){
-  canvasMode=mode;panDrag=null
-  if(canvas){canvas.allow_dragnodes=mode==='select';canvas.allow_interaction=mode!=='pan';canvas.dragging_canvas=false;canvas.connecting_node=null;canvas.setDirty(true,true)}
-  $('workflowCanvas').style.cursor=mode==='pan'?'grab':mode==='connect'?'crosshair':'default'
+  finishSplit(true);canvasMode=mode;splitGuide=null
+  if(canvas){canvas.allow_dragnodes=mode==='select';canvas.allow_interaction=!['box','split'].includes(mode);canvas.dragging_canvas=false;canvas.connecting_node=null;canvas.setDirty(true,true)}
+  $('workflowCanvas').style.cursor=mode==='split'?(splitAxis==='x'?'ew-resize':'ns-resize'):mode==='box'||mode==='connect'?'crosshair':'default'
   for(const b of document.querySelectorAll('[data-canvas-mode]'))b.setAttribute('aria-pressed',String(b.dataset.canvasMode===mode))
-  $('workflowCanvasHint').textContent=mode==='pan'?'拖动平移画布 · 滚轮缩放':mode==='connect'?'从输出圆点拖到输入圆点连线':'拖动节点调整位置 · 从端口拖动连线'
+  const axis=$('workflowSplitAxis');if(axis){axis.hidden=mode!=='split';axis.textContent=splitAxis==='x'?'左右':'上下';axis.setAttribute('aria-label','分割方向：'+(splitAxis==='x'?'左右，点击切换上下':'上下，点击切换左右'))}
+  $('workflowCanvasHint').textContent=mode==='split'?'拖动分割线拉开或收拢两侧全部节点 · 切换左右/上下 · Esc 取消本次移动':mode==='box'?'拖动框选多个节点 · 松开后拖动任一卡片整体移动':mode==='connect'?'从输出圆点拖到输入圆点连线 · Esc 返回选择':'拖动节点移动 · 拖动空白平移 · 滚轮缩放 · Shift 点选多个'
  }
- function canvasZoom(factor){if(!canvas)return;canvas.ds.changeScale(canvas.ds.scale*factor);canvas.setDirty(true,true);updateZoom()}
+ function splitPoint(event){const rect=$('workflowCanvas').getBoundingClientRect();return[(event.clientX-rect.left)/canvas.ds.scale-canvas.ds.offset[0],(event.clientY-rect.top)/canvas.ds.scale-canvas.ds.offset[1]]}
+ function drawSplitGuide(ctx){
+  if(canvasMode!=='split'||!splitGuide||!canvas)return
+  const scale=canvas.ds.scale,left=-canvas.ds.offset[0],top=-canvas.ds.offset[1],width=canvas.canvas.width/scale,height=canvas.canvas.height/scale,value=splitGuide[splitAxis==='x'?0:1]
+  ctx.save();ctx.strokeStyle=cardTheme.selected;ctx.lineWidth=1.5/scale;ctx.setLineDash([6/scale,5/scale]);ctx.beginPath();if(splitAxis==='x'){ctx.moveTo(value,top);ctx.lineTo(value,top+height)}else{ctx.moveTo(left,value);ctx.lineTo(left+width,value)}ctx.stroke();ctx.restore()
+ }
+ function finishSplit(cancel){
+  if(!splitGesture)return
+  const gesture=splitGesture;splitGesture=null
+  if(cancel){for(const item of gesture.nodes){item.node.pos[0]=item.pos[0];item.node.pos[1]=item.pos[1]}}
+  else if(gesture.moved){dirty=true;if(graph)graph.change()}
+  splitGuide=null;if(canvas)canvas.setDirty(true,true)
+ }
+ function moveSplit(event){
+  if(!canvas)return
+  splitGuide=splitPoint(event)
+  if(splitGesture){const axis=splitGesture.axis,index=axis==='x'?0:1,delta=splitGuide[index]-splitGesture.start[index];for(const item of splitGesture.nodes)item.node.pos[index]=item.pos[index]+item.side*delta/2;splitGesture.moved=Math.abs(delta)>.01}
+  canvas.setDirty(true,true)
+ }
+ let canvasMenu=null
+ function closeCanvasMenu(restore){if(!canvasMenu)return;canvasMenu.remove();canvasMenu=null;if(restore)$('workflowCanvas').focus()}
+ function showCanvasMenu(x,y){
+  closeCanvasMenu(false);const menu=node('div',undefined,'workflow-canvas-menu');canvasMenu=menu;menu.setAttribute('role','menu');menu.setAttribute('aria-label','画布视图');menu.style.left=Math.max(8,Math.min(x,innerWidth-180))+'px';menu.style.top=Math.max(8,Math.min(y,innerHeight-60))+'px'
+  const reset=button('恢复100%',()=>{canvas.ds.changeScale(1);canvas.setDirty(true,true);updateZoom();closeCanvasMenu(true)});reset.setAttribute('role','menuitem');menu.append(reset);page.append(menu);reset.focus()
+  menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeCanvasMenu(true)}else if(event.key==='Tab')closeCanvasMenu(true)})
+ }
  function fitGraph(){
   if(!canvas)return
   if(!graph._nodes.length){canvas.ds.scale=1;canvas.ds.offset[0]=0;canvas.ds.offset[1]=0}
@@ -567,17 +707,33 @@
  }
  function setupCanvasTools(){
   const host=$('workflowCanvasTools');host.textContent=''
-  const entries=[['select','wf-select','选择与移动节点',()=>canvasModeSet('select')],['pan','wf-pan','拖拽平移画布',()=>canvasModeSet('pan')],['connect','wf-link','连接节点端口',()=>canvasModeSet('connect')],['in','wf-zoom-in','放大',()=>canvasZoom(1.2)],['out','wf-zoom-out','缩小',()=>canvasZoom(1/1.2)],['fit','wf-fit','适应全部节点',fitGraph],['reset','refresh','重置为100%',()=>{canvas.ds.changeScale(1);canvas.setDirty(true,true);updateZoom()}]]
-  for(const [key,iconName,title,action] of entries){const b=button('',action,title),icon=node('span',undefined,'icon');icon.setAttribute('data-icon',iconName);icon.setAttribute('aria-hidden','true');b.append(icon);b.dataset.canvasAction=key;if(['select','pan','connect'].includes(key)){b.dataset.canvasMode=key;b.setAttribute('aria-pressed','false')}host.append(b)}
+  const entries=[['select','wf-select','选择与移动节点',()=>canvasModeSet('select')],['connect','wf-link','连接节点端口',()=>canvasModeSet('connect')],['box','wf-marquee','框选多个节点',()=>canvasModeSet('box')],['split','wf-split','分割移动两侧所有节点',()=>canvasModeSet('split')]]
+  for(const [key,iconName,title,action] of entries){const b=button('',action,title),icon=node('span',undefined,'icon');icon.setAttribute('data-icon',iconName);icon.setAttribute('aria-hidden','true');b.append(icon);b.dataset.canvasAction=key;b.dataset.canvasMode=key;b.setAttribute('aria-pressed','false');host.append(b)}
+  const axis=button('左右',()=>{splitAxis=splitAxis==='x'?'y':'x';canvasModeSet('split')});axis.id='workflowSplitAxis';axis.className='workflow-split-axis';host.append(axis)
   const zoom=node('span','100%','workflow-zoom');zoom.id='workflowZoom';zoom.setAttribute('aria-label','画布缩放比例');host.append(zoom)
   if(window.applyIcons)window.applyIcons(host);canvasModeSet('select');updateZoom()
  }
  const pointer=typeof LiteGraph!=='undefined'?LiteGraph.pointerevents_method:'pointer'
- $('workflowCanvas').addEventListener(pointer+'down',event=>{if(mode!=='editor'||canvasMode!=='pan'||event.button!==0)return;event.preventDefault();event.stopImmediatePropagation();panDrag={x:event.clientX,y:event.clientY};$('workflowCanvas').style.cursor='grabbing'},true)
- document.addEventListener(pointer+'move',event=>{if(!panDrag||!canvas)return;event.preventDefault();event.stopImmediatePropagation();canvas.ds.offset[0]+=(event.clientX-panDrag.x)/canvas.ds.scale;canvas.ds.offset[1]+=(event.clientY-panDrag.y)/canvas.ds.scale;panDrag={x:event.clientX,y:event.clientY};canvas.setDirty(true,true)},true)
- document.addEventListener(pointer+'up',event=>{if(!panDrag)return;event.preventDefault();event.stopImmediatePropagation();panDrag=null;$('workflowCanvas').style.cursor='grab'},true)
- $('workflowCanvas').addEventListener('wheel',()=>requestAnimationFrame(updateZoom),{passive:true})
- window.addEventListener('blur',()=>{panDrag=null})
+ document.addEventListener(pointer+'down',event=>{
+  if(canvasMenu&&!canvasMenu.contains(event.target))closeCanvasMenu(false)
+  if(mode!=='editor'||canvasMode!=='split'||event.target!==$('workflowCanvas')||event.button!==0)return
+  const start=splitPoint(event),index=splitAxis==='x'?0:1
+  splitGesture={axis:splitAxis,start,nodes:graph._nodes.map(n=>({node:n,pos:Array.from(n.pos),side:n.pos[index]+(index===0?n.size[0]:(n.size[1]-LiteGraph.NODE_TITLE_HEIGHT))/2<start[index]?-1:1})),moved:false}
+  splitGuide=start;canvas.canvas.focus();canvas.setDirty(true,true);event.preventDefault();event.stopImmediatePropagation()
+ },true)
+ document.addEventListener(pointer+'move',event=>{
+  if(mode!=='editor'||canvasMode!=='split'||!canvas||!splitGesture&&event.target!==$('workflowCanvas'))return
+  moveSplit(event);if(splitGesture){event.preventDefault();event.stopImmediatePropagation()}
+ },true)
+ document.addEventListener(pointer+'up',event=>{
+  if(splitGesture){moveSplit(event);finishSplit(false);event.preventDefault();event.stopImmediatePropagation();return}
+  if(mode==='editor'&&canvasMode==='box')Promise.resolve().then(()=>{if(canvas&&canvasMode==='box')canvasModeSet('select')})
+ },true)
+ document.addEventListener('pointercancel',()=>finishSplit(true),true)
+ $('workflowCanvas').addEventListener('mouseleave',()=>{if(!splitGesture){splitGuide=null;if(canvas)canvas.setDirty(true,true)}})
+ $('workflowCanvas').addEventListener('keydown',event=>{if(event.key==='Escape'){finishSplit(true);closeCanvasMenu(false);canvasModeSet('select');if(canvas){canvas.deselectAllNodes();canvas.dragging_rectangle=null;canvas.setDirty(true,true)}event.preventDefault()}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();const box=$('workflowCanvas').getBoundingClientRect();showCanvasMenu(box.left+40,box.top+40)}},true)
+ $('workflowCanvas').addEventListener('wheel',event=>{if(!canvas||mode!=='editor')return;event.preventDefault();event.stopImmediatePropagation();if(splitGesture||!event.deltaY)return;const rect=canvas.canvas.getBoundingClientRect();canvas.ds.changeScale(canvas.ds.scale*(event.deltaY<0?1.1:1/1.1),[event.clientX-rect.left,event.clientY-rect.top]);canvas.setDirty(true,true);updateZoom()},{passive:false,capture:true})
+ window.addEventListener('blur',()=>{finishSplit(true);closeCanvasMenu(false)})
  function resize(){
   if(canvas&&mode==='editor'&&!page.classList.contains('hidden')){
    const rect=$('workflowCanvasHost').getBoundingClientRect()
@@ -628,7 +784,7 @@
   const b=controls.save;b.disabled=true
   try{
    if(graph._nodes.some(n=>Object.keys(n.properties.schemaErrors||{}).length))throw Error('请先修正节点 Schema 或输入映射 JSON')
-   const nodes=graph._nodes.map(n=>({...Object.fromEntries(['inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing'].filter(k=>n.properties[k]!==undefined).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:(n.inputs||[]).map(p=>({name:p.name,type:'text'})),outputs:(n.outputs||[]).map(p=>({name:p.name,type:'text'})),pos:Array.from(n.pos)}))
+   const nodes=graph._nodes.map(n=>({...Object.fromEntries(['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing'].filter(k=>n.properties[k]!==undefined&&!(k==='interaction'&&n.type!=='workflow/human')).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:(n.inputs||[]).map(p=>({name:p.name,type:'text'})),outputs:(n.outputs||[]).map(p=>({name:p.name,type:'text'})),pos:Array.from(n.pos)}))
    const byGraph=new Map(graph._nodes.map((n,i)=>[n.id,nodes[i].id]))
    const edges=Object.values(graph.links).filter(Boolean).map(l=>({from:byGraph.get(l.origin_id),to:byGraph.get(l.target_id),slot:l.target_slot||0,outputSlot:l.origin_slot||0}))
    await api('save',{...editing,editor:stepsMode?'steps':'canvas',name:$('workflowName').value,nodes,edges})
@@ -639,7 +795,19 @@
   }catch(e){notice(e.message)}
   finally{b.disabled=false}
  })
- $('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNode.title=$('workflowNodeTitle').value;if(stepsMode)renderSteps();dirty=true;graph.setDirtyCanvas(true,true)}})
+ $('workflowInteractionType').addEventListener('change',()=>{
+ if(!selectedNode||selectedNode.type!=='workflow/human')return
+ const value=$('workflowInteractionType').value
+ if(value==='legacy')delete selectedNode.properties.interaction
+ else selectedNode.properties.interaction={version:1,type:value,returnTo:selectedNode.properties.interaction&&selectedNode.properties.interaction.returnTo||'previous-human'}
+ // 交互类型决定提交语义，旧的必填结论不再适用。
+ if(value!=='legacy'&&selectedNode.properties.processing){
+  selectedNode.properties.processing.blocks=(selectedNode.properties.processing.blocks||[]).filter(b=>b.type!=='conclusion')
+  if(!selectedNode.properties.processing.blocks.length)delete selectedNode.properties.processing
+ }
+ dirty=true;parameter(selectedNode)
+})
+$('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNode.title=$('workflowNodeTitle').value;if(stepsMode)renderSteps();dirty=true;graph.setDirtyCanvas(true,true)}})
  $('workflowNodeText').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.text=$('workflowNodeText').value;dirty=true;graph.setDirtyCanvas(true,true)}})
  $('workflowNodeDescription').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.description=$('workflowNodeDescription').value;dirty=true}})
  for(const checkbox of document.querySelectorAll('[name=workflowHumanKind]'))checkbox.addEventListener('change',()=>{if(selectedNode){const modes=Array.from(document.querySelectorAll('[name=workflowHumanKind]:checked')).map(el=>el.value);selectedNode.properties.humanModes=modes;selectedNode.properties.humanKind=modes[0]||'review';dirty=true}})

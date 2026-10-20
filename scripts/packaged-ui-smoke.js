@@ -34,7 +34,8 @@ async function run() {
   const log = fs.openSync(path.join(dir, 'app.log'), 'w')
   const env = Object.assign({}, process.env)
   delete env.ELECTRON_RUN_AS_NODE
-  const child = spawn(path.join(bundle, 'Contents/MacOS/Electron'), ['--user-data-dir=' + dir, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=' + debug], { env, stdio: ['ignore', log, log] })
+  const flags = process.env.SMOKE_NO_SANDBOX === '1' ? ['--no-sandbox'] : []
+  const child = spawn(path.join(bundle, 'Contents/MacOS/Electron'), flags.concat(['--user-data-dir=' + dir, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=' + debug]), { env, stdio: ['ignore', log, log] })
   let ws
   try {
     let target

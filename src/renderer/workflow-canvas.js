@@ -5,6 +5,19 @@
  function create(element,graph){
   element.classList.remove('lgraphcanvas')
   const canvas=new LGraphCanvas(element,graph,{skip_render:true})
+  element.tabIndex=0
+  // The application owns the standard wheel event; avoid legacy double zoom.
+  element.removeEventListener('mousewheel',canvas._mousewheel_callback,false)
+  element.removeEventListener('DOMMouseScroll',canvas._mousewheel_callback,false)
+  // A selected group moves together; the upstream click handler otherwise
+  // reduces it to one node before starting the drag.
+  const selectNode=canvas.processNodeSelected
+  canvas.processNodeSelected=function(node,event){
+   if(node.is_selected&&Object.keys(this.selected_nodes).length>1&&!(event&&(event.shiftKey||event.ctrlKey||event.metaKey)))return
+   return selectNode.call(this,node,event)
+  }
+  const deselectNode=canvas.deselectNode
+  canvas.deselectNode=function(node){deselectNode.call(this,node);delete this.selected_nodes[node.id];if(this.onSelectionChange)this.onSelectionChange(this.selected_nodes)}
   let frame=null,disposed=false
   canvas.startRendering=function(){
    if(disposed||this.is_rendering)return

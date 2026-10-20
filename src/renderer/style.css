@@ -6848,3 +6848,83 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-processing-editor-actions {display:flex;gap:6px;flex-wrap:wrap;}
 .workflow-processing-editor-actions button {min-height:28px;padding:4px 8px;font-size:11px;}
 .workflow-draft-note {padding:10px 12px;margin:0 0 16px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);color:var(--muted);font-size:12px;}
+
+.workflow-canvas-menu {position:fixed;z-index:300;min-width:160px;padding:5px;border:1px solid var(--border);border-radius:8px;background:var(--panel);box-shadow:var(--shadow);}
+.workflow-canvas-menu button {display:block;width:100%;min-height:32px;padding:6px 10px;border:0;background:transparent;text-align:left;}
+.workflow-canvas-menu button:hover {background:var(--selection-bg);}
+
+/* 人工节点编辑收口：默认只有名称、处理描述、交互类型；补充内容与高级设置折叠。 */
+#workflowNodeAdvanced,#workflowHumanExtras {margin-top:12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);}
+#workflowNodeAdvanced > summary,#workflowHumanExtras > summary {display:flex;align-items:center;justify-content:space-between;padding:9px 11px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;list-style:none;}
+#workflowNodeAdvanced > summary::-webkit-details-marker,#workflowHumanExtras > summary::-webkit-details-marker {display:none;}
+#workflowNodeAdvanced > summary::after,#workflowHumanExtras > summary::after {content:'＋';font-size:13px;}
+#workflowNodeAdvanced[open] > summary::after,#workflowHumanExtras[open] > summary::after {content:'－';}
+#workflowNodeAdvanced > *:not(summary),#workflowHumanExtras > *:not(summary) {padding:0 11px;}
+#workflowNodeAdvanced > *:last-child,#workflowHumanExtras > *:last-child {padding-bottom:11px;}
+/* Chromium keeps flex children of a collapsed <details> painted, so hide them explicitly. */
+#workflowNodeAdvanced:not([open]) > *:not(summary),#workflowHumanExtras:not([open]) > *:not(summary) {display:none !important;}
+#workflowHumanInteractionOptions label {margin-bottom:6px;}
+#workflowInteractionHint {margin:0 0 4px;font-size:11px;line-height:1.6;color:var(--muted);}
+.workflow-simple-fields {margin:12px 0 0;padding:0;border:0;}
+.workflow-simple-field {display:flex;align-items:flex-end;gap:6px;margin:8px 0;}
+.workflow-simple-field > label {flex:1;min-width:0;margin:0;}
+.workflow-simple-field > button {flex:none;min-height:30px;padding:4px 8px;font-size:11px;}
+.workflow-simple-fields > button {margin-top:4px;}
+#workflowSimpleExtras > .workflow-radio:first-child {margin-top:2px;}
+
+/* 审批驳回：原因与结论不抢占单行，未选择驳回时隐藏。 */
+.workflow-current-task .workflow-decision {flex:1 1 100%;row-gap:2px;}
+.workflow-current-task .workflow-decision > legend {flex:1 1 100%;margin-bottom:0;}
+.workflow-current-task .workflow-decision > p {flex:1 1 100%;margin:2px 0 0;font-size:11px;line-height:1.6;color:var(--muted);}
+.workflow-current-task .workflow-decision .workflow-conclusion-field {flex:1 1 100%;margin:10px 0 0;}
+.workflow-current-task .workflow-decision .workflow-conclusion-field[hidden] {display:none !important;}
+.workflow-current-task .workflow-decision input[value=reject] + span,
+.workflow-current-task .workflow-radio:has(input[value=reject]) {color:var(--warning-text);}
+
+/* 业务驳回与技术失败分开表达：退回用警示色，不占用错误样式。 */
+.workflow-return-banner {display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;padding:11px 13px;border:1px solid var(--border);border-left:3px solid var(--warning-text);border-radius:8px;background:var(--panel-2);}
+.workflow-return-banner > .icon {flex:none;display:grid;place-items:center;width:18px;height:18px;color:var(--warning-text);}
+.workflow-return-banner > .icon svg {width:16px;height:16px;}
+.workflow-return-banner strong {display:block;font-size:12px;font-weight:600;color:var(--text);}
+.workflow-return-banner p {margin:4px 0 0;font-size:12px;line-height:1.6;overflow-wrap:anywhere;}
+.workflow-checkpoint-note {margin:0 0 12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);font-size:12px;line-height:1.6;color:var(--muted);}
+.workflow-current-task .workflow-decision .workflow-radio.is-disabled {opacity:.55;cursor:not-allowed;}
+/* 人工节点：处理描述不再撑满面板，交互类型保持首屏可见。 */
+#workflowNodeTextField.is-human #workflowNodeText {height:88px;min-height:88px;max-height:160px;}
+#workflowNodeTextField.is-human {margin-bottom:8px;}
+
+/* 窄窗口下流程图让位给待办：地图压到 240px，待办表单尽早在首屏出现。 */
+@media(max-width:1000px){
+ .workflow-execution-map {height:240px;min-height:240px;flex:0 0 240px;}
+ .workflow-map-header {padding:8px 12px;}
+ .workflow-state-legend {padding:8px 12px;gap:10px;font-size:11px;}
+}
+
+/* 执行路径可折叠：窄窗口里把首屏让给待办，宽窗口默认并排。 */
+.workflow-map-side {display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.workflow-map-toggle {flex:none;min-height:26px;padding:3px 9px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--muted);font-size:11px;}
+.workflow-map-toggle:hover {background:var(--hover-bg);color:var(--text);}
+.workflow-execution-map.is-collapsed {flex:0 0 auto;height:auto;min-height:0;}
+.workflow-execution-map.is-collapsed .workflow-map-scroll {display:none;}
+.workflow-execution-map.is-collapsed .workflow-map-header {border-bottom:0;}
+
+/* 步骤视图：一行放得下序号、标题、类型和排序，6 步以内不用滚动。 */
+.workflow-step-list {padding:10px;}
+.workflow-step-item {grid-template-columns:minmax(0,1fr) auto auto;gap:10px;min-height:0;padding:10px 12px;margin-bottom:8px;}
+.workflow-step-item>button {font-size:13px;font-weight:600;line-height:1.4;}
+.workflow-step-item>small {grid-column:2;grid-row:1;white-space:nowrap;font-size:11px;color:var(--muted);}
+.workflow-step-item>div {grid-column:3;grid-row:1;justify-content:flex-end;gap:4px;}
+.workflow-step-item>div button {min-height:26px;padding:3px 8px;font-size:11px;}
+.workflow-step-item>button {justify-content:flex-start;text-align:left;}
+/* 未选中节点时属性面板只留一句提示，不显示空表单。 */
+.workflow-parameters.is-empty .workflow-property-content,
+.workflow-parameters.is-empty .workflow-property-footer {display:none;}
+
+.workflow-canvas-tools button.workflow-split-axis{font-size:10px;padding:2px;min-width:32px;}
+.workflow-canvas-tools button[hidden]{display:none;}
+
+.workflow-current-task .workflow-decision[hidden]{display:none;}
+.workflow-workbench .workflow-task-actions .workflow-review-reject{background:var(--panel);color:var(--text);border-color:var(--border);font-weight:500;}
+.workflow-workbench .workflow-task-actions .workflow-review-reject:hover:not(:disabled){background:var(--hover-bg);}
+.workflow-reused-files{margin-bottom:10px;}
+.workflow-reused-files .workflow-radio{overflow-wrap:anywhere;}

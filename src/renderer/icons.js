@@ -8,6 +8,8 @@
     'wf-rest': '<svg ' + base + '><path d="m8 5-6 7 6 7M16 5l6 7-6 7M14 3l-4 18"/></svg>',
     'wf-evaluate': '<svg ' + base + '><path d="M4 3v18h17M8 16v-4M13 16V8M18 16V5"/></svg>',
     'wf-select': '<svg ' + base + '><path d="m5 3 14 10-7 1-3 7z"/></svg>',
+    'wf-split': '<svg ' + base + '><path d="M12 2v20" stroke-dasharray="3 3"/><path d="M9 12H2m0 0 3-3m-3 3 3 3m10-3h7m0 0-3-3m3 3-3 3"/></svg>',
+    'wf-marquee': '<svg ' + base + '><rect x="4" y="4" width="16" height="16" rx="1" stroke-dasharray="3 3"/><path d="m12 11 8 6-4 1-2 4z"/></svg>',
     'wf-pan': '<svg ' + base + '><path d="M8 12V6a2 2 0 0 1 4 0v5-7a2 2 0 0 1 4 0v7-5a2 2 0 0 1 4 0v9c0 5-3 7-7 7-3 0-5-2-7-5l-3-4a2 2 0 0 1 3-3l2 2"/></svg>',
     'wf-link': '<svg ' + base + '><circle cx="5" cy="6" r="3"/><circle cx="19" cy="18" r="3"/><path d="M8 6h4a3 3 0 0 1 3 3v6h1"/></svg>',
     'wf-zoom-in': '<svg ' + base + '><circle cx="10" cy="10" r="7"/><path d="m15 15 6 6M7 10h6M10 7v6"/></svg>',
