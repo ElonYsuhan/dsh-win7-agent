@@ -26,6 +26,7 @@
  const taskForms=new Map()
  const humanModes=n=>Array.isArray(n.humanModes)?n.humanModes:[n.humanKind||'review']
  let stepsMode=false
+ let cardTheme=null
  const api=(action,payload)=>window.dsh.workflowRequest(action,payload)
  const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e}
  function notice(text){const el=$('workflowNotice');if(el)el.textContent=text||''}
@@ -41,26 +42,38 @@
   if(navigator.clipboard&&typeof navigator.clipboard.writeText==='function'){await navigator.clipboard.writeText(text);return}
   const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove()
  }
- function isLightTheme(){return document.documentElement.getAttribute('data-theme')==='light'}
+ function readCardTheme(){
+  const style=getComputedStyle(page),value=name=>style.getPropertyValue('--workflow-node-'+name).trim()
+  return{width:parseFloat(value('width')),height:parseFloat(value('height')),radius:parseFloat(value('radius')),background:value('background'),border:value('border'),selected:value('selected'),text:value('text'),muted:value('muted'),hover:value('hover'),hoverBorder:style.getPropertyValue('--hover-border').trim(),font:style.fontFamily,canvas:style.getPropertyValue('--bg').trim()}
+ }
+ function fitNodeText(ctx,text,width){let result=String(text||'');if(ctx.measureText(result).width<=width)return result;while(result&&ctx.measureText(result+'…').width>width)result=result.slice(0,-1);return result+'…'}
+ function drawNodeCard(n,ctx,size,selected,hovered){
+  const theme=cardTheme,top=-LiteGraph.NODE_TITLE_HEIGHT,height=size[1]-top,width=size[0]
+  ctx.save();ctx.shadowColor='transparent';ctx.globalAlpha=1
+  ctx.beginPath();ctx.roundRect(.5,top+.5,width-1,height-1,[theme.radius]);ctx.fillStyle=hovered&&!selected?theme.hover:theme.background;ctx.fill();ctx.strokeStyle=selected?theme.selected:hovered?theme.hoverBorder:theme.border;ctx.lineWidth=selected?2:1;ctx.stroke()
+  ctx.beginPath();ctx.roundRect(0,top+15,3,height-30,[0,2,2,0]);ctx.fillStyle=theme.muted;ctx.fill()
+  ctx.beginPath();ctx.rect(12,top+8,width-24,height-16);ctx.clip();ctx.textAlign='left';ctx.font='600 14px '+theme.font;ctx.fillStyle=theme.text;ctx.fillText(fitNodeText(ctx,n.title,width-36),18,top+27)
+  ctx.font='10px '+theme.font;ctx.fillStyle=theme.muted;ctx.fillText(fitNodeText(ctx,n.constructor.title,width-36),18,size[1]-12);ctx.restore()
+ }
  function applyNodeTheme(n){
   if(!n)return
-  const light=isLightTheme()
-  n.color=light?'#e4e4e4':'#2f2f2f'
-  n.bgcolor=light?'#ffffff':'#262626'
-  n.boxcolor=light?'#888888':'#888888'
+  n.color=cardTheme.border;n.bgcolor=cardTheme.background;n.boxcolor=cardTheme.muted
  }
  function syncCanvasTheme(){
   if(typeof LiteGraph==='undefined')return
-  const light=isLightTheme()
-  LiteGraph.NODE_DEFAULT_COLOR=light?'#e4e4e4':'#2f2f2f'
-  LiteGraph.NODE_DEFAULT_BGCOLOR=light?'#ffffff':'#262626'
-  LiteGraph.NODE_DEFAULT_BOXCOLOR='#888888'
-  LiteGraph.NODE_TEXT_COLOR=light?'#252525':'#eeeeee'
-  LiteGraph.NODE_TITLE_COLOR=light?'#252525':'#eeeeee'
-  LiteGraph.WIDGET_TEXT_COLOR=light?'#252525':'#eeeeee'
+  cardTheme=readCardTheme()
+  LiteGraph.NODE_DEFAULT_COLOR=cardTheme.border
+  LiteGraph.NODE_DEFAULT_BGCOLOR=cardTheme.background
+  LiteGraph.NODE_DEFAULT_BOXCOLOR=cardTheme.muted
+  LiteGraph.NODE_TEXT_COLOR=cardTheme.muted
+  LiteGraph.NODE_TITLE_COLOR=cardTheme.text
+  LiteGraph.WIDGET_TEXT_COLOR=cardTheme.text
   if(canvas){
-   canvas.clear_background_color=light?'#f5f5f5':'#1e1e1e'
-   canvas.default_link_color=light?'#666666':'#aaaaaa'
+   canvas.clear_background_color=cardTheme.canvas
+   canvas.default_link_color=cardTheme.muted
+   canvas.inner_text_font='11px '+cardTheme.font
+   canvas.default_connection_color_byType.text=cardTheme.selected
+   canvas.default_connection_color_byTypeOff.text=cardTheme.muted
   }
   if(graph&&Array.isArray(graph._nodes)){
    for(const n of graph._nodes)applyNodeTheme(n)
@@ -222,7 +235,7 @@
   // Include unconnected nodes as pending; the actual dependency edges remain visible.
   for(const entry of result.workflow.nodes)if(!depth.has(entry.id))depth.set(entry.id,Math.max(0,...depth.values())+1)
   const ranks=new Map();for(const entry of result.workflow.nodes){const rank=depth.get(entry.id);if(!ranks.has(rank))ranks.set(rank,[]);ranks.get(rank).push(entry)}
-  const NODE_W=280,NODE_H=96,GAP_X=24,GAP_Y=148
+  const {width:NODE_W,height:NODE_H}=readCardTheme(),GAP_X=24,GAP_Y=NODE_H+52
   const columns=Math.max(1,...[...ranks.values()].map(items=>items.length)),width=Math.max(360,columns*(NODE_W+GAP_X)+48),height=(Math.max(...depth.values())+1)*GAP_Y+48
   stage.style.width=width+'px';stage.style.height=height+'px'
   for(const [rank,entries] of ranks)entries.forEach((entry,index)=>positions.set(entry.id,{x:(width-entries.length*(NODE_W+GAP_X)+GAP_X)/2+index*(NODE_W+GAP_X),y:rank*GAP_Y+24}))
@@ -327,6 +340,7 @@
  }
  function register(){
   if(typeof LiteGraph==='undefined')return
+  cardTheme=readCardTheme()
   LiteGraph.registered_node_types={}
   const defs=(data.nodes&&data.nodes.length)?data.nodes:FALLBACK_NODES
   for(const def of defs){
@@ -334,26 +348,13 @@
     this.addProperty('text','')
     if(!['input','start'].includes(def.type)){this.addInput('输入1','text');this.addInput('输入2','text')}
     if(!['output','end'].includes(def.type))this.addOutput('文本','text')
-    this.size=[190,86]
+    this.size=this.computeSize();this.resizable=false
     applyNodeTheme(this)
    }
    N.title=def.name
-   N.prototype.getTitle=function(){
-    const context=$('workflowCanvas').getContext('2d');context.save();context.font=$('workflowCanvas').data&&$('workflowCanvas').data.title_text_font||'14px Arial';let title=String(this.title||'');const width=Math.max(20,this.size[0]-40);let clipped=false;while(title.length&&context.measureText(title).width>width){title=title.slice(0,-1);clipped=true}context.restore();return clipped?title.slice(0,-1)+'…':title
-   }
+   N.collapsable=false
+   N.prototype.computeSize=function(out){const size=out||[0,0];size[0]=cardTheme.width;size[1]=Math.max(cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,Math.max((this.inputs||[]).length,(this.outputs||[]).length)*LiteGraph.NODE_SLOT_HEIGHT+26);return size}
    N.prototype.onConnectionsChange=function(){dirty=true}
-   N.prototype.onDrawForeground=function(ctx){
-    if(this.flags&&this.flags.collapsed)return
-    const raw=String((this.properties&&this.properties.text)||'').replace(/\s+/g,' ').trim()
-    const summary=raw?(raw.length>22?raw.slice(0,22)+'…':raw):(def.type==='output'?'输出产物':'点击右侧配置参数')
-    ctx.save()
-    ctx.font='11px "Segoe UI","Microsoft YaHei",sans-serif'
-    ctx.fillStyle=isLightTheme()?'#666666':'#aaaaaa'
-    ctx.beginPath();ctx.rect(8,0,Math.max(0,this.size[0]-16),this.size[1]);ctx.clip()
-    let fitted=summary;const width=Math.max(0,this.size[0]-24);while(fitted.length&&ctx.measureText(fitted).width>width)fitted=fitted.slice(0,-1);if(fitted!==summary){fitted=fitted.slice(0,-1)+'…'}
-    ctx.fillText(fitted,12,this.size[1]-12)
-    ctx.restore()
-   }
    LiteGraph.registerNodeType('workflow/'+def.type,N)
    LiteGraph.registered_node_types['workflow/'+def.type].title=def.name
   }
@@ -395,10 +396,12 @@
   if(agents.length&&!await window.appDialogs.confirm('确认执行“'+flow.name+'”？\n\n'+agents.map(n=>n.title+'：'+(n.type==='tool'?n.tool.name:((n.agent&&n.agent.tools)||[]).join('、')||'无工具')+(n.type==='tool'?'；固定调用一次':'；最多'+(n.agent&&n.agent.maxSteps||6)+'轮、'+(n.agent&&n.agent.maxRequests||6)+'次模型请求、'+(n.agent&&n.agent.maxToolCalls||8)+'次工具调用')+'；超时'+Math.round((n.agent&&n.agent.timeoutMs||120000)/1000)+'秒；'+((n.type==='tool'?n.tool.permission:n.agent&&n.agent.permission)==='workspace'?'允许工作目录内修改':'只读')).join('\n')+'\n\n人工步骤会等待确认，Agent 内部不会请求人工授权。'))return null
   return api('run',{id:flow.id,confirmed:true})
  }
- function rechain(){if(!graph)return;graph._nodes.forEach((n,i)=>{n.pos=[40+(i%4)*240,80+Math.floor(i/4)*160]});for(const link of Object.values(graph.links).filter(Boolean))graph.removeLink(link.id);for(let i=1;i<graph._nodes.length;i++){const a=graph._nodes[i-1],b=graph._nodes[i];if(a.outputs&&a.outputs.length&&b.inputs&&b.inputs.length)a.connect(0,b,0)}dirty=true;renderSteps()}
+ function positionSteps(){let y=80;for(let index=0;index<graph._nodes.length;index+=4){const row=graph._nodes.slice(index,index+4);row.forEach((n,column)=>{n.pos=[40+column*(cardTheme.width+40),y]});y+=Math.max(...row.map(n=>n.size[1]))+LiteGraph.NODE_TITLE_HEIGHT+48}}
+ function rechain(){if(!graph)return;positionSteps();for(const link of Object.values(graph.links).filter(Boolean))graph.removeLink(link.id);for(let i=1;i<graph._nodes.length;i++){const a=graph._nodes[i-1],b=graph._nodes[i];if(a.outputs&&a.outputs.length&&b.inputs&&b.inputs.length)a.connect(0,b,0)}dirty=true;renderSteps()}
  function setSteps(value){
   if(value&&graph&&graph._nodes.length&&(Object.values(graph.links).filter(Boolean).length!==graph._nodes.length-1||graph._nodes.some(n=>(n.inputs||[]).filter(p=>p.link!==null&&p.link!==undefined).length>1||(n.outputs||[]).some(p=>p.links&&p.links.length>1)))){notice('当前流程不是完整顺序链，请继续使用画布编辑。');return setSteps(false)}
   if(value&&graph&&graph._nodes.length){const links=Object.values(graph.links).filter(Boolean),targets=new Set(links.map(l=>l.target_id)),ordered=[];let current=graph._nodes.find(n=>!targets.has(n.id));while(current&&!ordered.includes(current)){ordered.push(current);const link=links.find(l=>l.origin_id===current.id);current=link?graph.getNodeById(link.target_id):null}if(ordered.length!==graph._nodes.length){notice('当前流程无法表示为顺序步骤，请使用画布编辑。');return setSteps(false)}graph._nodes=ordered}
+  if(stepsMode&&!value&&graph)positionSteps()
   stepsMode=value;$('workflowStepList').classList.toggle('hidden',!value);$('workflowCanvasHost').classList.toggle('hidden',value);$('workflowStepsToggle').textContent=value?'画布视图':'步骤视图';$('workflowStepsToggle').setAttribute('aria-pressed',String(value));if(value){if(canvas)canvas.stopRendering();renderSteps()}else if(canvas){canvas.startRendering();requestAnimationFrame(()=>{resize();fitGraph()})}
  }
  function renderSteps(){const host=$('workflowStepList');host.textContent='';if(!graph)return
@@ -465,9 +468,9 @@
    list.forEach((port,index)=>{
     const row=node('div',undefined,'workflow-port-row'),label=node('label'),input=node('input');input.value=port.name;input.maxLength=40;input.setAttribute('aria-label',title+'端口'+(index+1)+'名称');label.append(input)
     input.addEventListener('input',()=>{port.name=input.value;dirty=true;graph.setDirtyCanvas(true,true)})
-    row.append(label,button('×',()=>{if(kind==='inputs')n.removeInput(index);else n.removeOutput(index);n.size=n.computeSize();n.size[1]=Math.max(n.size[1]+24,86);dirty=true;renderPorts(n);graph.setDirtyCanvas(true,true)},'删除'+title+'端口 '+port.name));group.append(row)
+    row.append(label,button('×',()=>{if(kind==='inputs')n.removeInput(index);else n.removeOutput(index);n.size=n.computeSize();dirty=true;renderPorts(n);graph.setDirtyCanvas(true,true)},'删除'+title+'端口 '+port.name));group.append(row)
    })
-   if(!blocked){const add=button('＋ 添加'+title,()=>{if(list.length>=32)return;let index=list.length+1;while(list.some(p=>p.name===title+index))index++;if(kind==='inputs')n.addInput(title+index,'text');else n.addOutput(title+index,'text');n.size=n.computeSize();n.size[1]=Math.max(n.size[1]+24,86);dirty=true;renderPorts(n);graph.setDirtyCanvas(true,true)});add.disabled=list.length>=32;group.append(add)}
+   if(!blocked){const add=button('＋ 添加'+title,()=>{if(list.length>=32)return;let index=list.length+1;while(list.some(p=>p.name===title+index))index++;if(kind==='inputs')n.addInput(title+index,'text');else n.addOutput(title+index,'text');n.size=n.computeSize();dirty=true;renderPorts(n);graph.setDirtyCanvas(true,true)});add.disabled=list.length>=32;group.append(add)}
    else group.append(node('p',kind==='inputs'?'起始输入节点不接收上游连线。':'保存结果节点为终点。','muted'))
    host.append(group)
   }
@@ -486,7 +489,9 @@
   canvas.render_canvas_border=false
   canvas.show_info=false
   const drawNode=canvas.drawNode
-  canvas.drawNode=function(n,ctx){ctx.save();ctx.beginPath();ctx.rect(-8,-LiteGraph.NODE_TITLE_HEIGHT-8,n.size[0]+16,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+16);ctx.clip();try{return drawNode.call(this,n,ctx)}finally{ctx.restore()}}
+  canvas.render_shadows=false
+  canvas.drawNodeShape=function(n,ctx,size,color,background,selected,hovered){drawNodeCard(n,ctx,size,selected,hovered)}
+  canvas.drawNode=function(n,ctx){ctx.save();ctx.beginPath();ctx.rect(-8,-LiteGraph.NODE_TITLE_HEIGHT-8,n.size[0]+16,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+16);ctx.clip();ctx.font=this.inner_text_font;for(const ports of [n.inputs||[],n.outputs||[]])for(const port of ports)port.label=fitNodeText(ctx,port.name,n.size[0]/2-28);try{return drawNode.call(this,n,ctx)}finally{ctx.restore()}}
   canvas.allow_searchbox=false
   canvas.processContextMenu=(n,e)=>{if(e&&typeof e.preventDefault==='function')e.preventDefault();if(n){canvas.selectNode(n);parameter(n)}return false}
   canvas.onShowNodePanel=n=>{canvas.selectNode(n);parameter(n);if(!$('workflowNodeText').disabled)$('workflowNodeText').focus();return false}
@@ -509,7 +514,6 @@
    if(Array.isArray(entry.inputs)){n.inputs=[];for(const port of entry.inputs)n.addInput(port.name,'text')}
    if(Array.isArray(entry.outputs)){n.outputs=[];for(const port of entry.outputs)n.addOutput(port.name,'text')}
    n.size=n.computeSize()
-   n.size[1]=Math.max(n.size[1]+24,86)
    n.properties.workflowId=entry.id
    n.pos=Array.isArray(entry.pos)?entry.pos.slice(0,2):[40,100]
    applyNodeTheme(n)
@@ -532,7 +536,7 @@
    for(const type of items){
     const add=button('',()=>{
      const n=LiteGraph.createNode('workflow/'+type.type);n.title=type.name;n.properties.workflowId=nextNodeId(type.type)
-     n.pos=[canvas.canvas.width/(2*canvas.ds.scale)-canvas.ds.offset[0]-95+(graph._nodes.length%3)*24,canvas.canvas.height/(2*canvas.ds.scale)-canvas.ds.offset[1]-40+(graph._nodes.length%3)*24]
+     n.pos=[canvas.canvas.width/(2*canvas.ds.scale)-canvas.ds.offset[0]-n.size[0]/2+(graph._nodes.length%3)*24,canvas.canvas.height/(2*canvas.ds.scale)-canvas.ds.offset[1]-n.size[1]/2+(graph._nodes.length%3)*24]
      applyNodeTheme(n);graph.add(n);if(stepsMode){const end=graph._nodes.find(v=>v.type==='workflow/end');if(end&&end!==n){graph._nodes.splice(graph._nodes.indexOf(n),1);graph._nodes.splice(graph._nodes.indexOf(end),0,n)}rechain()}canvas.selectNode(n);parameter(n);dirty=true;graph.setDirtyCanvas(true,true)
     },'添加'+type.name)
     const icon=node('span',undefined,'icon');icon.setAttribute('data-icon',iconNames[type.type]||'workflow');icon.setAttribute('aria-hidden','true');add.dataset.nodeType=type.type;add.append(icon,node('span',type.name));group.append(add)
