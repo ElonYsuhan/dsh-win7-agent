@@ -23,4 +23,41 @@ assert.strictEqual(Routing.create([start,end,rect('cover',70,0,100,80)]).route(o
 for(let i=0;i<5;i++)verify([start,end,block],{...options,start:[110,12+i*12],end:[490,12+i*12]})
 const many=Array.from({length:100},(_,i)=>rect(String(i),i%10*200,Math.floor(i/10)*160)),router=Routing.create(many),began=Date.now()
 for(let i=0;i<90;i++){if(i%10===9)continue;const from=many[i],to=many[i+1];assert(router.route({start:[from.right-10,from.top+30],end:[to.left+10,to.top+30],source:from.id,target:to.id}))}
-assert(Date.now()-began<4000,'100-card graph routing remains bounded');console.log('Workflow routing: clear orthogonal detours, backward/vertical/multiple-slot edges, live geometry, narrow gaps, maze, overlap refusal and bounded 100-card layout passed')
+assert(Date.now()-began<4000,'100-card graph routing remains bounded')
+// The displaced fourth card reproduces two wraps fighting over the same right-side lane.
+const wrapped=[[0,100],[240,100],[480,100],[680,20],[0,260],[240,260],[480,260],[720,260],[0,420]].map(([left,top],id)=>rect(id,left,top,220,92))
+const cables=wrapped.slice(1).map((b,id)=>({id,source:id,target:id+1,start:[wrapped[id].right-8,wrapped[id].top+44],end:[b.left+8,b.top+44]}))
+function conflictCount(paths){
+ let shared=0,crossings=0
+ for(let i=0;i<paths.length;i++)for(let j=0;j<i;j++)for(let a=1;a<paths[i].length;a++)for(let b=1;b<paths[j].length;b++){
+  const p=paths[i][a-1],q=paths[i][a],x=paths[j][b-1],y=paths[j][b],h=p[1]===q[1],v=x[1]===y[1],overlap=(a,b,c,d)=>Math.min(Math.max(a,b),Math.max(c,d))-Math.max(Math.min(a,b),Math.min(c,d))
+  if(h===v){if(p[h?1:0]===x[h?1:0])shared+=Math.max(0,overlap(p[h?0:1],q[h?0:1],x[h?0:1],y[h?0:1]))}
+  else{const horizontal=h?[p,q]:[x,y],vertical=h?[x,y]:[p,q],cx=vertical[0][0],cy=horizontal[0][1];if(cx>Math.min(horizontal[0][0],horizontal[1][0])&&cx<Math.max(horizontal[0][0],horizontal[1][0])&&cy>Math.min(vertical[0][1],vertical[1][1])&&cy<Math.max(vertical[0][1],vertical[1][1]))crossings++}
+ }
+ return{shared,crossings}
+}
+const independent=cables.map(e=>Routing.create(wrapped).route(e)),planned=Routing.create(wrapped).routeAll(cables)
+assert(conflictCount(independent).shared>0,'Fixture exposes the former shared lane')
+assert.deepStrictEqual(conflictCount(cables.map(e=>planned.get(e.id))),{shared:0,crossings:0},'Batch planning separates unrelated wires and negotiates away the wrap crossing')
+assert.deepStrictEqual([...planned],[...Routing.create(wrapped.slice().reverse()).routeAll(cables.slice().reverse())],'Card/edge iteration order does not change lane assignments')
+const movedWrapped=wrapped.map(r=>r.id===3?{...r,left:720,right:940,top:100,bottom:192}:r),movedCables=cables.map(e=>({...e,start:e.source===3?[932,144]:e.start,end:e.target===3?[728,144]:e.end}))
+assert(Routing.length(Routing.create(movedWrapped).routeAll(movedCables).get(2))<Routing.length(planned.get(2)),'Moving the raised card restores a short direct connection')
+for(const edge of cables){
+ const points=planned.get(edge.id);verify(wrapped,edge)
+ for(let i=1;i<points.length;i++)for(const r of wrapped){if(i===1&&r.id===edge.source||i===points.length-1&&r.id===edge.target)continue;assert(!Routing.hits(points[i-1],points[i],r),'Planned lane clears card '+r.id)}
+ const path=Routing.commands(points,wrapped);assert.deepStrictEqual(path[0].values,edge.start);assert.deepStrictEqual(path[path.length-1].values,edge.end)
+ let previous=path[0].values
+ for(const cmd of path.slice(1)){
+  if(cmd.type==='C')for(let step=0;step<=40;step++){const t=step/40,u=1-t,p=[0,1].map(i=>u*u*u*previous[i]+3*u*u*t*cmd.values[i]+3*u*t*t*cmd.values[i+2]+t*t*t*cmd.values[i+4]);for(const r of wrapped)assert(!(p[0]>r.left+.001&&p[0]<r.right-.001&&p[1]>r.top+.001&&p[1]<r.bottom-.001),'Bezier corner never clips a card')}
+  previous=cmd.values.slice(-2)
+ }
+ if(points.length>2){assert(path.some(c=>c.type==='C'),'Every clear wrap has cubic Bezier corners');assert(Routing.svgPath(path).includes('C '),'SVG uses the same cubic geometry')}
+ const calls=[];Routing.trace({moveTo:(...v)=>calls.push({type:'M',values:v}),lineTo:(...v)=>calls.push({type:'L',values:v}),bezierCurveTo:(...v)=>calls.push({type:'C',values:v})},path);assert.deepStrictEqual(calls,path,'Canvas and SVG consume one geometry contract')
+}
+const batchEdges=many.slice(1).filter((to,i)=>i%10!==9).map(to=>{const from=many[Number(to.id)-1];return{id:from.id,source:from.id,target:to.id,start:[from.right-10,from.top+30],end:[to.left+10,to.top+30]}}),batchBegan=Date.now()
+assert.strictEqual([...Routing.create(many).routeAll(batchEdges).values()].filter(Boolean).length,batchEdges.length);assert(Date.now()-batchBegan<4000,'100-card batch routing remains bounded')
+const dense=[]
+for(let from=0;from<100;from++)for(let gap=1;gap<=3&&from+gap<100;gap++){const a=many[from],b=many[from+gap];dense.push({id:dense.length,source:a.id,target:b.id,start:[a.right-8,a.top+24],end:[b.left+8,b.top+12+gap*16]})}
+const denseBegan=Date.now(),denseRoutes=Routing.create(many).routeAll(dense)
+assert.strictEqual([...denseRoutes.values()].filter(Boolean).length,294,'Near-limit fanout keeps all routes');assert(Date.now()-denseBegan<3000,'Indexed cable queries and a shared search budget bound near-limit planning')
+console.log('Workflow routing: obstacle avoidance, negotiated separate lanes, no wrap crossings, deterministic batch ordering, cubic Bezier clearance, shared Canvas/SVG geometry and bounded 100-card layout passed')

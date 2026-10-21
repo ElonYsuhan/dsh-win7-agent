@@ -293,8 +293,10 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   stage.style.width=width+'px';stage.style.height=height+'px'
   for(const [rank,entries] of ranks)entries.forEach((entry,index)=>positions.set(entry.id,{x:(width-entries.length*(NODE_W+GAP_X)+GAP_X)/2+index*(NODE_W+GAP_X),y:rank*GAP_Y+24}))
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',height);svg.setAttribute('aria-hidden','true')
-  const executionRouter=window.workflowLinkRouting.create([...positions].map(([id,p])=>({id,left:p.x,top:p.y,right:p.x+NODE_W,bottom:p.y+NODE_H})))
-  for(const edge of result.workflow.edges){const from=positions.get(edge.from),to=positions.get(edge.to);if(!from||!to)continue;const points=executionRouter.route({start:[from.x+NODE_W/2,from.y+NODE_H],end:[to.x+NODE_W/2,to.y],source:edge.from,target:edge.to,startDirection:'down',endDirection:'up'});if(!points)continue;const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',points.map((p,i)=>(i?'L ':'M ')+p.join(' ')).join(' '));svg.append(path)}
+  const executionRectangles=[...positions].map(([id,p])=>({id,left:p.x,top:p.y,right:p.x+NODE_W,bottom:p.y+NODE_H})),executionEdges=[]
+  result.workflow.edges.forEach((edge,id)=>{const from=positions.get(edge.from),to=positions.get(edge.to);if(from&&to)executionEdges.push({id,start:[from.x+NODE_W/2,from.y+NODE_H],end:[to.x+NODE_W/2,to.y],source:edge.from,target:edge.to,startDirection:'down',endDirection:'up'})})
+  const executionRoutes=window.workflowLinkRouting.create(executionRectangles).routeAll(executionEdges)
+  for(const edge of executionEdges){const points=executionRoutes.get(edge.id);if(!points)continue;const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',window.workflowLinkRouting.svgPath(window.workflowLinkRouting.commands(points,executionRectangles)));svg.append(path)}
   stage.append(svg)
   for(const entry of result.workflow.nodes){const step=result.steps.find(s=>s.id===entry.id),pos=positions.get(entry.id),state=executionState(step),isWaiting=step&&step.status==='waiting';const card=button('',()=>{runSelection=entry.id;pinnedSelection=true;detailSignature='';renderDetail()},entry.title+' · '+executionLabel(step));card.className='workflow-map-node workflow-state-'+state+(isWaiting?' is-waiting':'')+(runSelection===entry.id?' selected':'');card.setAttribute('aria-pressed',String(runSelection===entry.id));card.style.left=pos.x+'px';card.style.top=pos.y+'px';card.style.width=NODE_W+'px';card.style.height=NODE_H+'px';card.append(node('span',result.plan.includes(entry.id)?String(result.plan.indexOf(entry.id)+1).padStart(2,'0'):'—','workflow-map-index'),nodeTitle(entry),node('span',executionLabel(step),'workflow-map-state'),node('small',((data.nodes.find(n=>n.type===entry.type)||{}).name||entry.type)+(interactionName(entry.interaction)?' · '+interactionName(entry.interaction):''),'workflow-map-type'));stage.append(card)}
   left.append(scroll);layout.append(left,right);host.append(layout)
@@ -695,20 +697,26 @@ function edit(flow){
   canvas.render_shadows=false
   canvas.connections_width=1.5;canvas.render_connections_border=false;canvas.render_connections_shadows=false
   const renderLink=canvas.renderLink,directions={[LiteGraph.RIGHT]:'right',[LiteGraph.LEFT]:'left',[LiteGraph.UP]:'up',[LiteGraph.DOWN]:'down'}
-  let geometry='',router=null,previousRectangles=new Map();const routes=new Map()
+  let geometry='',router=null,routingSignature='';const routes=new Map()
   canvas.drawConnections=function(ctx){
    const rectangles=graph._nodes.map(n=>({id:n.id,left:n.pos[0],top:n.pos[1]-LiteGraph.NODE_TITLE_HEIGHT,right:n.pos[0]+n.size[0],bottom:n.pos[1]+n.size[1]})).sort((a,b)=>a.id-b.id),signature=rectangles.map(r=>[r.id,r.left,r.top,r.right,r.bottom].join(',')).join(';')
-   const changed=[];if(signature!==geometry){const next=new Map(rectangles.map(r=>[r.id,r]));for(const r of rectangles){const old=previousRectangles.get(r.id);if(!old||['left','right','top','bottom'].some(k=>old[k]!==r[k])){if(old)changed.push(old);changed.push(r)}}for(const[id,r]of previousRectangles)if(!next.has(id))changed.push(r);previousRectangles=next;geometry=signature;router=window.workflowLinkRouting.create(rectangles)}
-   const live=new Set();let blocked=0
+   if(!router||signature!==geometry){geometry=signature;router=window.workflowLinkRouting.create(rectangles)}
+   const edges=[]
    for(const link of Object.values(graph.links).filter(Boolean)){
     const from=graph.getNodeById(link.origin_id),to=graph.getNodeById(link.target_id);if(!from||!to||!from.outputs[link.origin_slot]||!to.inputs[link.target_slot])continue
-    live.add(link.id);const a=from.getConnectionPos(false,link.origin_slot),b=to.getConnectionPos(true,link.target_slot),startDir=from.outputs[link.origin_slot].dir||LiteGraph.RIGHT,endDir=to.inputs[link.target_slot].dir||LiteGraph.LEFT,key=[...a,...b,startDir,endDir].join(',')
-    let cached=routes.get(link.id);const affected=changed.length&&(!cached||!cached.points||changed.some(r=>r.id===link.origin_id||r.id===link.target_id||cached.points.slice(1).some((p,i)=>window.workflowLinkRouting.hits(cached.points[i],p,{left:r.left-14,right:r.right+14,top:r.top-14,bottom:r.bottom+14}))));if(!cached||cached.key!==key||affected){cached={key,points:router.route({start:a,end:b,source:from.id,target:to.id,startDirection:directions[startDir],endDirection:directions[endDir]})};routes.set(link.id,cached)}
+    const a=from.getConnectionPos(false,link.origin_slot),b=to.getConnectionPos(true,link.target_slot),startDir=from.outputs[link.origin_slot].dir||LiteGraph.RIGHT,endDir=to.inputs[link.target_slot].dir||LiteGraph.LEFT
+    edges.push({id:link.id,link,start:Array.from(a),end:Array.from(b),source:from.id,target:to.id,startDir,endDir,startDirection:directions[startDir],endDirection:directions[endDir]})
+   }
+   const nextSignature=geometry+'|'+edges.map(e=>[e.id,e.source,e.target,...e.start,...e.end,e.startDir,e.endDir].join(',')).join(';')
+   if(nextSignature!==routingSignature){routingSignature=nextSignature;routes.clear();const planned=router.routeAll(edges);for(const edge of edges){const points=planned.get(edge.id);routes.set(edge.id,{points,commands:window.workflowLinkRouting.commands(points,rectangles)})}}
+   let blocked=0
+   for(const edge of edges){
+    const {link,start:a,end:b,startDir,endDir}=edge,cached=routes.get(edge.id)
     link._workflowRoute=cached.points||[];link._workflowRouteBlocked=!cached.points
+    link._workflowRouteCommands=cached.commands
     if(!cached.points){blocked++;if(link._pos){link._pos[0]=-1e9;link._pos[1]=-1e9}continue}
     this.renderLink(ctx,a,b,link,false,0,null,startDir,endDir)
    }
-   for(const id of routes.keys())if(!live.has(id))routes.delete(id)
    const host=$('workflowCanvasHost');if(host.dataset.blockedLinks!==String(blocked))host.dataset.blockedLinks=String(blocked)
    const warning=$('workflowRoutingWarning');if(warning){warning.hidden=!blocked;const text=blocked?'有 '+blocked+' 条连线的端口被卡片挡住，请移开重叠卡片。':'';if(warning.textContent!==text)warning.textContent=text}
   }
@@ -716,7 +724,7 @@ function edit(flow){
    if(!link)return renderLink.call(this,ctx,a,b,link,true,flow,color,startDir,endDir,count)
    const points=link._workflowRoute;if(!points||!points.length)return
    this.visible_links.push(link);const middle=window.workflowLinkRouting.pointAt(points,.5);if(link._pos){link._pos[0]=middle[0];link._pos[1]=middle[1]}
-   ctx.save();ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.lineCap='round';ctx.globalAlpha=this.editor_alpha;ctx.strokeStyle=this.highlighted_links[link.id]||marqueeHasLink(a,b,startDir,endDir,points)?cardTheme.selected:color||link.color||this.default_link_color;ctx.beginPath();ctx.moveTo(...points[0]);for(const point of points.slice(1))ctx.lineTo(...point);ctx.stroke();ctx.restore()
+   ctx.save();ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.lineCap='round';ctx.globalAlpha=this.editor_alpha;ctx.strokeStyle=this.highlighted_links[link.id]||marqueeHasLink(a,b,startDir,endDir,points)?cardTheme.selected:color||link.color||this.default_link_color;ctx.beginPath();window.workflowLinkRouting.trace(ctx,link._workflowRouteCommands);ctx.stroke();ctx.restore()
   }
   canvas.drawNodeShape=function(n,ctx,size,color,background,selected,hovered){drawNodeCard(n,ctx,size,selected,hovered)}
   canvas.drawNode=function(n,ctx){ctx.save();ctx.beginPath();ctx.rect(-8,-LiteGraph.NODE_TITLE_HEIGHT-8,n.size[0]+16,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+16);ctx.clip();ctx.font=this.inner_text_font;for(const ports of [n.inputs||[],n.outputs||[]])for(const port of ports)port.label=fitNodeText(ctx,port.name,n.size[0]/2-28);try{return drawNode.call(this,n,ctx)}finally{ctx.restore()}}
