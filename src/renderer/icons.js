@@ -17,6 +17,7 @@
     'wf-steps': '<svg ' + base + '><path d="M9 5h12M9 12h12M9 19h12"/><rect x="2" y="3" width="3" height="4" rx=".5"/><rect x="2" y="10" width="3" height="4" rx=".5"/><rect x="2" y="17" width="3" height="4" rx=".5"/></svg>',
     'wf-canvas': '<svg ' + base + '><rect x="2" y="4" width="6" height="5" rx="1"/><rect x="16" y="15" width="6" height="5" rx="1"/><path d="M8 6.5h5a3 3 0 0 1 3 3v8"/></svg>',
     'wf-marquee': '<svg ' + base + '><rect x="4" y="4" width="16" height="16" rx="1" stroke-dasharray="3 3"/><path d="m12 11 8 6-4 1-2 4z"/></svg>',
+    'wf-card-resize': '<svg ' + base + '><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 12V7h5M7 7l4 4m1 6h5v-5m0 5-4-4"/></svg>',
     'wf-pan': '<svg ' + base + '><path d="M8 12V6a2 2 0 0 1 4 0v5-7a2 2 0 0 1 4 0v7-5a2 2 0 0 1 4 0v9c0 5-3 7-7 7-3 0-5-2-7-5l-3-4a2 2 0 0 1 3-3l2 2"/></svg>',
     'wf-link': '<svg ' + base + '><circle cx="5" cy="6" r="3"/><circle cx="19" cy="18" r="3"/><path d="M8 6h4a3 3 0 0 1 3 3v6h1"/></svg>',
     'wf-zoom-in': '<svg ' + base + '><circle cx="10" cy="10" r="7"/><path d="m15 15 6 6M7 10h6M10 7v6"/></svg>',

@@ -80,7 +80,7 @@ async function main() {
     await wait(() => driver.evaluate('!!document.getElementById("workflowCanvas").data&&document.getElementById("workflowCanvas").data.graph._nodes.length===4'), 'canvas')
     await sleep(100)
     await driver.evaluate(`(()=>{const toggle=document.getElementById('workflowStepsToggle');if(toggle&&toggle.textContent.includes('画布'))toggle.click();const c=document.getElementById('workflowCanvas').data;for(const [id,pos]of Object.entries({s:[150,110],h:[510,110],a:[150,360],e:[510,360]}))c.graph._nodes.find(n=>n.properties.workflowId===id).pos=pos;c.ds.scale=.65;c.ds.offset[0]=0;c.ds.offset[1]=0;c.setDirty(true,true);return true})()`)
-    assert.deepStrictEqual(await driver.evaluate(`Array.from(document.querySelectorAll('#workflowCanvasTools [data-canvas-action]')).map(b=>b.dataset.canvasAction)`), ['select','connect','box','split','zoom'])
+    assert.deepStrictEqual(await driver.evaluate(`Array.from(document.querySelectorAll('#workflowCanvasTools [data-canvas-action]')).map(b=>b.dataset.canvasAction)`), ['select','connect','box','split','resize','zoom'])
     const point=async(x,y)=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,r=c.canvas.getBoundingClientRect();return{x:r.left+(${x}+c.ds.offset[0])*c.ds.scale,y:r.top+(${y}+c.ds.offset[1])*c.ds.scale}})()`)
     const mouse=async(type,p,buttons=0,modifiers=0)=>driver.cdp.send('Input.dispatchMouseEvent',{type,button:'left',buttons,clickCount:1,modifiers,...p})
     const drag=async(from,to)=>{await mouse('mousePressed',from,1);await mouse('mouseMoved',to,1);await mouse('mouseReleased',to)}
@@ -97,7 +97,7 @@ async function main() {
     }
     // Scrolling must work before the canvas has received a click or keyboard focus.
     await editorWheelBothDirections(await point(480,260),'editor before first click')
-    for(const mode of ['select','connect','box','split','zoom']){
+    for(const mode of ['select','connect','box','split','resize','zoom']){
       await driver.click('[data-canvas-action='+mode+']')
       await editorWheelBothDirections(await point(480,260),'editor '+mode+' mode')
     }
@@ -126,10 +126,33 @@ async function main() {
     assert.strictEqual(await driver.evaluate(`Object.keys(document.getElementById('workflowCanvas').data.selected_nodes).length`),2,'Shift-click adds to the group')
     const p=await titlePoint('h');await mouse('mousePressed',p,1,8);await mouse('mouseReleased',p,0,8)
     assert.strictEqual(await driver.evaluate(`Object.keys(document.getElementById('workflowCanvas').data.selected_nodes).length`),1,'Shift-click removes from the group')
-    // Editor chrome: no 编辑流程 header row, the flow name floats inside the canvas, tool strip is centred.
+    // Editor chrome: no 编辑流程 header row, flow properties are on the right, tool strip is centred.
     assert(await driver.evaluate(`(()=>{const h=document.querySelector('#workflowPage > .workflow-header');return !h||getComputedStyle(h).display==='none'})()`),'Editor drops the 编辑流程 header row')
     assert(await driver.evaluate(`!!document.querySelector('#workflowFlowProperties #workflowNameField')`),'Flow name belongs to the right-hand workflow properties')
     assert(await driver.evaluate(`(()=>{const t=document.getElementById('workflowCanvasTools').getBoundingClientRect(),h=document.getElementById('workflowCanvasHost').getBoundingClientRect();return Math.abs(t.top+t.height/2-(h.top+h.height/2))<=2})()`),'Canvas tool strip is vertically centred')
+    // The explicit card-size mode works before a card is selected, independently of viewport zoom.
+    await driver.click('[data-canvas-action=resize]')
+    assert(await driver.evaluate(`(()=>{const b=document.querySelector('[data-canvas-action=resize]');return b.getAttribute('aria-label')==='卡片缩放'&&b.getAttribute('aria-pressed')==='true'&&!!b.querySelector('svg')&&document.activeElement.id==='workflowCanvas'&&!document.getElementById('workflowCanvas').data.allow_dragnodes})()`),'Card resize has a named icon, active state and keyboard focus')
+    const resizeSnapshot=()=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(v=>v.properties.workflowId==='h');return{pos:Array.from(n.pos),size:Array.from(n.size),scale:c.ds.scale}})()`)
+    await driver.evaluate(`document.getElementById('workflowCanvas').data.deselectAllNodes();true`)
+    const initialSize=await resizeSnapshot(),topLeft=await point(initialSize.pos[0]+1,initialSize.pos[1]-30+1)
+    await mouse('mouseMoved',topLeft);await wait(()=>driver.evaluate(`document.getElementById('workflowCanvas').style.cursor==='nwse-resize'`),'unselected card resize cursor')
+    await drag(topLeft,{x:topLeft.x-26*initialSize.scale,y:topLeft.y-20*initialSize.scale})
+    const resized=await resizeSnapshot()
+    assert(Math.abs(resized.size[0]-initialSize.size[0]-26)<2&&Math.abs(resized.size[1]-initialSize.size[1]-20)<2,'Card resize mode enlarges an unselected card from its top-left corner')
+    assert(Math.abs(resized.pos[0]+resized.size[0]-initialSize.pos[0]-initialSize.size[0])<2&&Math.abs(resized.pos[1]+resized.size[1]-initialSize.pos[1]-initialSize.size[1])<2,'The opposite corner stays fixed')
+    assert.strictEqual(resized.scale,initialSize.scale,'Card resizing leaves viewport scale unchanged')
+    assert(await driver.evaluate(`document.getElementById('workflowNodeTitle').value==='登记需求'`),'Resizing selects the target and opens its properties')
+    const body=await point(resized.pos[0]+90,resized.pos[1]+30);await drag(body,{x:body.x+25,y:body.y+15})
+    assert.deepStrictEqual(await resizeSnapshot(),resized,'Dragging the body in resize mode does not move or resize the card')
+    await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39})
+    await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39})
+    await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,modifiers:8})
+    await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40})
+    const keyed=await resizeSnapshot();assert.strictEqual(keyed.size[0],resized.size[0]+2);assert.strictEqual(keyed.size[1],resized.size[1]+10)
+    for(const theme of ['light','dark']){await driver.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);await sleep(80);shot('workflow-card-resize-'+theme+'.png',Buffer.from(await driver.screenshot(),'base64'))}
+    await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
+    assert(await driver.evaluate(`document.querySelector('[data-canvas-action=select]').getAttribute('aria-pressed')==='true'&&document.querySelector('[data-canvas-action=resize]').getAttribute('aria-pressed')==='false'`),'Escape exits card resizing')
     // Card edges resize directly at the actual pointer location; Escape restores the gesture.
     await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(v=>v.properties.workflowId==='h');c.selectNode(n);c.setDirty(true,true);return true})()`)
     const cardSize=()=>driver.evaluate(`Array.from(document.getElementById('workflowCanvas').data.graph._nodes.find(n=>n.properties.workflowId==='h').size)`)
@@ -145,7 +168,7 @@ async function main() {
     await driver.evaluate('document.getElementById("workflowCanvas").data.ds.scale='+zoomBefore+';document.getElementById("workflowCanvas").data.setDirty(true,true);true')
     // Vertical divider moves all left/right nodes by equal and opposite distances.
     await driver.click('[data-canvas-action=split]')
-    assert(await driver.evaluate(`!document.querySelector('#workflowSplitAxis')&&!document.querySelectorAll('[data-split-axis]').length&&document.querySelectorAll('#workflowCanvasTools [data-canvas-action]').length===5`),'Split no longer ships 左右/上下 buttons: the axis is decided while dragging')
+    assert(await driver.evaluate(`!document.querySelector('#workflowSplitAxis')&&!document.querySelectorAll('[data-split-axis]').length&&document.querySelectorAll('#workflowCanvasTools [data-canvas-action]').length===6`),'Split no longer ships 左右/上下 buttons: the axis is decided while dragging')
     before=await positions();await drag(await point(480,260),await point(560,260));after=await positions()
     for(const id of ['s','a'])assert(Math.abs(after[id][0]-before[id][0]+40)<2,'Left side moves together: '+id)
     for(const id of ['h','e'])assert(Math.abs(after[id][0]-before[id][0]-40)<2,'Right side moves together: '+id)
@@ -202,6 +225,7 @@ async function main() {
     await driver.evaluate('workflowUI.openDraft(' + JSON.stringify(flow.id) + ')', { awaitPromise: true })
     await wait(()=>driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.length===4`),'reopened')
     assert.deepStrictEqual(await positions(),before,'Group/split positions survive reopening')
+    assert.deepStrictEqual(await cardSize(),sizeAfter,'Card dimensions survive reopening')
     await sleep(100)
     const reopenedPoint=await driver.evaluate(`(()=>{const r=document.getElementById('workflowCanvas').getBoundingClientRect();return{x:r.left+r.width*.7,y:r.top+r.height*.6}})()`)
     await editorWheelBothDirections(reopenedPoint,'editor reopened without canvas click')

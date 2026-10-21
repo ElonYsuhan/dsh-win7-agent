@@ -63,12 +63,12 @@ function drawNodeCard(n,ctx,size,selected,hovered){
  // 名称在上：标题独占首行，字号与字重都高于正文。
  ctx.font='650 14px '+theme.font;ctx.fillStyle=theme.text;ctx.strokeStyle=theme.text;window.workflowNodeIcons.draw(ctx,n.type,18,top+14,17);ctx.fillText(fitNodeText(ctx,n.title,width-60),42,top+29)
  ctx.beginPath();ctx.moveTo(16,top+40);ctx.lineTo(width-16,top+40);ctx.globalAlpha=.55;ctx.strokeStyle=theme.border;ctx.lineWidth=1;ctx.stroke();ctx.globalAlpha=1
- // 文字在下：贴在卡片底部一行，选中时给缩放按钮让出右侧空间。
+ // 文字在下：贴在卡片底部一行，按卡片宽度省略。
  const body=String((n.properties&&(n.properties.text||n.properties.description))||'').replace(/\s+/g,' ').trim()
  if(body){ctx.font='11px '+theme.font;ctx.fillStyle=theme.muted;ctx.fillText(fitNodeText(ctx,body,width-36),18,size[1]-9)}
- // A small corner grip indicates direct edge resizing; no +/- card buttons.
- if(selected){ctx.strokeStyle=theme.selected;ctx.lineWidth=1;for(const offset of [6,11]){ctx.beginPath();ctx.moveTo(width-offset,size[1]-4);ctx.lineTo(width-4,size[1]-offset);ctx.stroke()}}
  ctx.restore()
+ // Draw outside the text clip so the edge grip stays visible in resize mode.
+ if(selected||canvasMode==='resize'){ctx.save();ctx.strokeStyle=selected?theme.selected:theme.muted;ctx.lineWidth=1;for(const offset of [7,12]){ctx.beginPath();ctx.moveTo(width-offset,size[1]-5);ctx.lineTo(width-5,size[1]-offset);ctx.stroke()}ctx.restore()}
 }
  function applyNodeTheme(n){
   if(!n)return
@@ -806,10 +806,10 @@ function edit(flow){
  let splitGesture=null,splitGuide=null
  function canvasModeSet(mode){
   finishSplit(true);finishCardResize(true);canvasMode=mode;splitGuide=null
-  if(canvas){canvas.allow_dragnodes=mode==='select';canvas.allow_interaction=!['box','split'].includes(mode);canvas.dragging_canvas=false;canvas.connecting_node=null;canvas.setDirty(true,true)}
+  if(canvas){canvas.allow_dragnodes=mode==='select';canvas.allow_interaction=!['box','split','resize'].includes(mode);canvas.dragging_canvas=false;canvas.connecting_node=null;canvas.setDirty(true,true)}
   $('workflowCanvas').style.cursor=mode==='split'||mode==='box'||mode==='connect'?'crosshair':'default'
   for(const b of document.querySelectorAll('[data-canvas-mode]'))b.setAttribute('aria-pressed',String(b.dataset.canvasMode===mode))
-  $('workflowCanvasHint').textContent=mode==='split'?'十字分割：拖动时按主方向自动判断左右或上下，另一条线随即消失 · Esc 取消本次移动':mode==='box'?'拖动框选多个节点 · 松开后拖动任一卡片整体移动':mode==='connect'?'从输出圆点拖到输入圆点连线 · Esc 返回选择':'拖动节点移动 · 拖动空白平移 · 滚轮缩放 · Shift 点选多个'
+  $('workflowCanvasHint').textContent=mode==='resize'?'拖动卡片边缘或边角调整大小 · 选中后方向键微调，Shift 加速 · Esc 返回选择':mode==='split'?'十字分割：拖动时按主方向自动判断左右或上下，另一条线随即消失 · Esc 取消本次移动':mode==='box'?'拖动框选多个节点 · 松开后拖动任一卡片整体移动':mode==='connect'?'从输出圆点拖到输入圆点连线 · Esc 返回选择':'拖动节点移动 · 拖动空白平移 · 滚轮缩放 · Shift 点选多个'
  }
  function splitPoint(event){const rect=$('workflowCanvas').getBoundingClientRect();return[(event.clientX-rect.left)/canvas.ds.scale-canvas.ds.offset[0],(event.clientY-rect.top)/canvas.ds.scale-canvas.ds.offset[1]]}
  function marqueeBounds(){const rect=canvas&&canvas.dragging_rectangle;if(!rect)return null;return[Math.min(rect[0],rect[0]+rect[2]),Math.min(rect[1],rect[1]+rect[3]),Math.abs(rect[2]),Math.abs(rect[3])]}
@@ -866,7 +866,7 @@ function edit(flow){
  }
  function setupCanvasTools(){
   const host=$('workflowCanvasTools');host.textContent=''
-  const entries=[['select','wf-select','选择与移动节点',()=>canvasModeSet('select')],['connect','wf-link','连接节点端口',()=>canvasModeSet('connect')],['box','wf-marquee','框选多个节点',()=>canvasModeSet('box')],['split','wf-split','分割移动两侧所有节点',()=>canvasModeSet('split')]]
+  const entries=[['select','wf-select','选择与移动节点',()=>canvasModeSet('select')],['connect','wf-link','连接节点端口',()=>canvasModeSet('connect')],['box','wf-marquee','框选多个节点',()=>canvasModeSet('box')],['split','wf-split','分割移动两侧所有节点',()=>canvasModeSet('split')],['resize','wf-card-resize','卡片缩放',()=>{canvasModeSet('resize');canvas.canvas.focus({preventScroll:true})}]]
   for(const [key,iconName,title,action] of entries){const b=button('',action,title),icon=node('span',undefined,'icon');icon.setAttribute('data-icon',iconName);icon.setAttribute('aria-hidden','true');b.append(icon);b.dataset.canvasAction=key;b.dataset.canvasMode=key;b.setAttribute('aria-pressed','false');host.append(b)}
   const zoomButton=button('',()=>showZoomMenu(zoomButton),'画布缩放');zoomButton.id='workflowCanvasZoomButton';zoomButton.dataset.canvasAction='zoom';zoomButton.setAttribute('aria-expanded','false');zoomButton.setAttribute('aria-controls','workflowZoomMenu');zoomButton.append(glyph('wf-zoom-in'));host.append(zoomButton)
   let warning=$('workflowRoutingWarning');if(!warning){warning=node('div',undefined,'workflow-routing-warning');warning.id='workflowRoutingWarning';warning.hidden=true;warning.setAttribute('role','status');$('workflowCanvasHost').append(warning)}
@@ -875,14 +875,14 @@ function edit(flow){
  }
  let cardResizeGesture=null
  function cardResizeHit(event){
-  if(!canvas||canvasMode!=='select'||event.target!==canvas.canvas||canvas.node_dragged||canvas.dragging_canvas||canvas.connecting_node)return null
+  if(!canvas||!['select','resize'].includes(canvasMode)||event.target!==canvas.canvas||canvas.node_dragged||canvas.dragging_canvas||canvas.connecting_node)return null
   const point=splitPoint(event),tolerance=6/canvas.ds.scale
   for(const n of graph._nodes.slice().reverse()){
-   if(!canvas.selected_nodes[n.id])continue
+   if(canvasMode!=='resize'&&!canvas.selected_nodes[n.id])continue
    const left=n.pos[0],right=left+n.size[0],top=n.pos[1]-LiteGraph.NODE_TITLE_HEIGHT,bottom=n.pos[1]+n.size[1]
    if(point[0]<left-tolerance||point[0]>right+tolerance||point[1]<top-tolerance||point[1]>bottom+tolerance)continue
-   // Ports retain their normal connection hit area.
-   if([...(n.inputs||[]).map((_,i)=>n.getConnectionPos(true,i)),...(n.outputs||[]).map((_,i)=>n.getConnectionPos(false,i))].some(p=>Math.hypot(point[0]-p[0],point[1]-p[1])<10/canvas.ds.scale))continue
+   // Selection mode keeps port connections; explicit resizing owns the entire edge.
+   if(canvasMode!=='resize'&&[...(n.inputs||[]).map((_,i)=>n.getConnectionPos(true,i)),...(n.outputs||[]).map((_,i)=>n.getConnectionPos(false,i))].some(p=>Math.hypot(point[0]-p[0],point[1]-p[1])<10/canvas.ds.scale))continue
    const x=Math.abs(point[0]-left)<=tolerance?-1:Math.abs(point[0]-right)<=tolerance?1:0,y=Math.abs(point[1]-top)<=tolerance?-1:Math.abs(point[1]-bottom)<=tolerance?1:0
    if(x||y)return{node:n,x,y,cursor:x&&y?(x===y?'nwse-resize':'nesw-resize'):x?'ew-resize':'ns-resize'}
   }
@@ -900,6 +900,14 @@ function edit(flow){
   else if(g.node.size[0]!==g.size[0]||g.node.size[1]!==g.size[1]){dirty=true;if(graph)graph.change()}
   if(canvas){canvas.canvas.style.cursor='';canvas.setDirty(true,true)}
  }
+ function resizeCardByKey(event){
+  if(mode!=='editor'||canvasMode!=='resize'||!canvas||cardResizeGesture||event.target!==canvas.canvas||event.isComposing||event.ctrlKey||event.metaKey||event.altKey)return false
+  const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[event.key],nodes=Object.values(canvas.selected_nodes)
+  if(!delta||nodes.length!==1)return false
+  const n=nodes[0],step=event.shiftKey?10:2,ports=Math.max((n.inputs||[]).length,(n.outputs||[]).length),minHeight=Math.max(cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,ports*LiteGraph.NODE_SLOT_HEIGHT+22)
+  n.size=[Math.max(200,Math.min(520,n.size[0]+delta[0]*step)),Math.max(minHeight,Math.min(Math.max(360,minHeight),n.size[1]+delta[1]*step))];n.properties.cardSize=Array.from(n.size)
+  dirty=true;graph.change();canvas.setDirty(true,true);event.preventDefault();event.stopImmediatePropagation();return true
+ }
  function showZoomMenu(control){
   if(canvasMenu&&canvasMenu.id==='workflowZoomMenu'){closeCanvasMenu(true);return}
   closeCanvasMenu(false);const bounds=control.getBoundingClientRect(),menu=node('div',undefined,'workflow-canvas-menu workflow-zoom-menu'),label=node('label','画布缩放'),range=node('input'),row=node('div',undefined,'workflow-zoom-actions')
@@ -913,7 +921,8 @@ function edit(flow){
  const pointer=typeof LiteGraph!=='undefined'?LiteGraph.pointerevents_method:'pointer'
  document.addEventListener(pointer+'down',event=>{
   if(canvasMenu&&!canvasMenu.contains(event.target)&&!event.target.closest('[data-canvas-action=zoom]'))closeCanvasMenu(false)
-  if(mode==='editor'&&event.button===0){const hit=cardResizeHit(event);if(hit){cardResizeGesture={...hit,start:splitPoint(event),pos:Array.from(hit.node.pos),size:Array.from(hit.node.size),custom:hit.node.properties.cardSize&&Array.from(hit.node.properties.cardSize)};canvas.canvas.focus();event.preventDefault();event.stopImmediatePropagation();return}}
+  if(mode==='editor'&&event.button===0){const hit=cardResizeHit(event);if(hit){if(canvasMode==='resize')canvas.selectNode(hit.node);cardResizeGesture={...hit,start:splitPoint(event),pos:Array.from(hit.node.pos),size:Array.from(hit.node.size),custom:hit.node.properties.cardSize&&Array.from(hit.node.properties.cardSize)};canvas.canvas.focus();event.preventDefault();event.stopImmediatePropagation();return}}
+  if(mode==='editor'&&canvasMode==='resize'&&canvas&&event.target===canvas.canvas&&event.button===0){const point=splitPoint(event),n=graph.getNodeOnPos(point[0],point[1],canvas.visible_nodes);if(n){canvas.selectNode(n);canvas.canvas.focus();event.preventDefault();event.stopImmediatePropagation();return}}
   if(mode!=='editor'||canvasMode!=='split'||event.target!==$('workflowCanvas')||event.button!==0)return
   const start=splitPoint(event)
   splitGesture={axis:null,start,nodes:graph._nodes.map(n=>({node:n,pos:Array.from(n.pos),sideX:n.pos[0]+n.size[0]/2<start[0]?-1:1,sideY:n.pos[1]+(n.size[1]-LiteGraph.NODE_TITLE_HEIGHT)/2<start[1]?-1:1})),moved:false}
@@ -921,7 +930,7 @@ function edit(flow){
  },true)
  document.addEventListener(pointer+'move',event=>{
   if(cardResizeGesture){moveCardResize(event);event.preventDefault();event.stopImmediatePropagation();return}
-  if(mode==='editor'&&canvasMode==='select'&&canvas&&event.target===canvas.canvas){const hit=cardResizeHit(event);if(hit)queueMicrotask(()=>{if(canvas&&event.target===canvas.canvas)canvas.canvas.style.cursor=hit.cursor})}
+  if(mode==='editor'&&['select','resize'].includes(canvasMode)&&canvas&&event.target===canvas.canvas){const hit=cardResizeHit(event);queueMicrotask(()=>{if(canvas&&event.target===canvas.canvas&&['select','resize'].includes(canvasMode))canvas.canvas.style.cursor=hit?hit.cursor:'default'})}
   if(canvas&&mode==='editor'&&canvas.dragging_rectangle)canvas.setDirty(true,true)
   if(mode!=='editor'||canvasMode!=='split'||!canvas||!splitGesture&&event.target!==$('workflowCanvas'))return
   moveSplit(event);if(splitGesture){event.preventDefault();event.stopImmediatePropagation()}
@@ -933,7 +942,7 @@ function edit(flow){
  },true)
  document.addEventListener('pointercancel',()=>{finishSplit(true);finishCardResize(true)},true)
  $('workflowCanvas').addEventListener('mouseleave',()=>{if(!splitGesture){splitGuide=null;if(canvas)canvas.setDirty(true,true)}})
- $('workflowCanvas').addEventListener('keydown',event=>{if(event.key==='Escape'){finishCardResize(true);finishSplit(true);closeCanvasMenu(false);canvasModeSet('select');if(canvas){canvas.deselectAllNodes();canvas.dragging_rectangle=null;canvas.setDirty(true,true)}event.preventDefault()}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();const box=$('workflowCanvas').getBoundingClientRect();showCanvasMenu(box.left+40,box.top+40)}},true)
+ $('workflowCanvas').addEventListener('keydown',event=>{if(resizeCardByKey(event))return;if(event.key==='Escape'){finishCardResize(true);finishSplit(true);closeCanvasMenu(false);canvasModeSet('select');if(canvas){canvas.deselectAllNodes();canvas.dragging_rectangle=null;canvas.setDirty(true,true)}event.preventDefault()}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();const box=$('workflowCanvas').getBoundingClientRect();showCanvasMenu(box.left+40,box.top+40)}},true)
  $('workflowCanvasHost').addEventListener('wheel',event=>{if(!canvas||mode!=='editor')return;event.preventDefault();event.stopImmediatePropagation();if(splitGesture||cardResizeGesture||!event.deltaY)return;const rect=canvas.canvas.getBoundingClientRect();canvas.ds.changeScale(canvas.ds.scale*(event.deltaY<0?1.1:1/1.1),[event.clientX-rect.left,event.clientY-rect.top]);canvas.setDirty(true,true);updateZoom()},{passive:false,capture:true})
  window.addEventListener('blur',()=>{finishSplit(true);finishCardResize(true);closeCanvasMenu(false)})
  function resize(){
