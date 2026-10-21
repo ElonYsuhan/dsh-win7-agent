@@ -1,6 +1,6 @@
 'use strict'
-/* 真实窗口验收：人工节点的交互类型（办理 / 审阅 / 审批）、折叠的“补充内容”、
-   一键完成，以及审批驳回后真实退回上游人工环节并保留历史。
+/* Chromium108 真实窗口验收：编辑图与执行图的滚轮缩放、鼠标锚点、视图保持，
+   以及选择/连线/框选/双轴分割移动和保存恢复。
    只在临时 AGENT_HOME 与随机端口上运行，不触碰常驻实例。 */
 const assert = require('assert')
 const fs = require('fs')
@@ -46,7 +46,7 @@ const graph = {
   nodes: [
     { id: 's', type: 'start', text: '原始需求' },
     { id: 'h', type: 'human', title: '登记需求', text: '登记需求要点后继续。', interaction: { version: 1, type: 'handle', returnTo: 'previous-human' } },
-    { id: 'a', type: 'human', title: '审批方案', text: '确认方案是否可以执行。', interaction: { version: 1, type: 'approve', returnTo: 'previous-human' } },
+    { id: 'a', type: 'human', title: '审批方案', text: '确认方案是否可以执行。', inputSchema:{type:'object',properties:Object.fromEntries(Array.from({length:14},(_,i)=>['check_'+i,{type:'string',title:'审阅依据 '+(i+1),maxLength:2000}]))}, interaction: { version: 1, type: 'approve', returnTo: 'previous-human' } },
     { id: 'e', type: 'end', title: '结果' }
   ],
   edges: [{ from: 's', to: 'h' }, { from: 'h', to: 'a' }, { from: 'a', to: 'e' }]
@@ -86,6 +86,22 @@ async function main() {
     const drag=async(from,to)=>{await mouse('mousePressed',from,1);await mouse('mouseMoved',to,1);await mouse('mouseReleased',to)}
     const positions=()=>driver.evaluate(`Object.fromEntries(document.getElementById('workflowCanvas').data.graph._nodes.map(n=>[n.properties.workflowId,Array.from(n.pos)]))`)
     const links=await driver.evaluate(`JSON.stringify(document.getElementById('workflowCanvas').data.graph.serialize().links)`)
+    const wheel=async(p,deltaY)=>driver.cdp.send('Input.dispatchMouseEvent',{type:'mouseWheel',x:p.x,y:p.y,deltaX:0,deltaY})
+    const editorView=async p=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,r=c.canvas.getBoundingClientRect();return {scale:c.ds.scale,x:(${p.x}-r.left)/c.ds.scale-c.ds.offset[0],y:(${p.y}-r.top)/c.ds.scale-c.ds.offset[1]}})()`)
+    async function editorWheelBothDirections(p,label){
+      const before=await editorView(p)
+      await wheel(p,-120);await wait(async()=>(await editorView(p)).scale>before.scale,label+' zoom in')
+      const larger=await editorView(p);assert(Math.abs(larger.x-before.x)*larger.scale<2&&Math.abs(larger.y-before.y)*larger.scale<2,label+' zoom-in graph anchor')
+      await wheel(p,120);await wait(async()=>(await editorView(p)).scale<larger.scale,label+' zoom out')
+      const restored=await editorView(p);assert(Math.abs(restored.scale-before.scale)<.001,label+' bidirectional scale');assert(Math.abs(restored.x-before.x)*restored.scale<2&&Math.abs(restored.y-before.y)*restored.scale<2,label+' zoom-out graph anchor')
+    }
+    // Scrolling must work before the canvas has received a click or keyboard focus.
+    await editorWheelBothDirections(await point(480,260),'editor before first click')
+    for(const mode of ['select','connect','box','split']){
+      await driver.click('[data-canvas-action='+mode+']')
+      await editorWheelBothDirections(await point(480,260),'editor '+mode+' mode')
+    }
+    await driver.click('[data-canvas-action=select]')
     // Box-select the top pair and then move the complete selected group.
     await driver.click('[data-canvas-action=box]')
     await drag(await point(135,65),await point(805,185))
@@ -145,10 +161,63 @@ async function main() {
     await driver.evaluate('workflowUI.openDraft(' + JSON.stringify(flow.id) + ')', { awaitPromise: true })
     await wait(()=>driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.length===4`),'reopened')
     assert.deepStrictEqual(await positions(),before,'Group/split positions survive reopening')
-    console.log('Workflow canvas: select/move, Shift multiselect, marquee group drag, vertical/horizontal split both sides, Esc rollback, wheel anchor, keyboard menu, real port connection and save/reopen passed')
+    await sleep(100)
+    const reopenedPoint=await driver.evaluate(`(()=>{const r=document.getElementById('workflowCanvas').getBoundingClientRect();return{x:r.left+r.width*.7,y:r.top+r.height*.6}})()`)
+    await editorWheelBothDirections(reopenedPoint,'editor reopened without canvas click')
+    // Execution uses DOM nodes rather than LiteGraph: verify the actual displayed diagram too.
+    const run=await req('POST',base+'/api/workflows/run',{id:flow.id})
+    await wait(async()=>(await req('POST',base+'/api/workflows/detail',{id:run.id})).status==='waiting','execution waiting')
+    await driver.evaluate('workflowUI.openReference('+JSON.stringify({runId:run.id,workflowId:flow.id,nodeId:'h'})+')',{awaitPromise:true})
+    await wait(()=>driver.evaluate(`!!document.querySelector('.workflow-map-scroll')`),'execution diagram')
+    await sleep(100)
+    const mapPoint=async onNode=>driver.evaluate(`(()=>{const viewport=document.querySelector('.workflow-map-scroll'),bounds=viewport.getBoundingClientRect();if(${onNode}){const visible=Array.from(viewport.querySelectorAll('.workflow-map-node')).map(card=>card.getBoundingClientRect()).find(r=>r.top>=bounds.top+4&&r.bottom<=bounds.bottom-4&&r.left>=bounds.left+4&&r.right<=bounds.right-4);if(visible)return{x:visible.left+visible.width/2,y:visible.top+visible.height/2}}for(const dx of [12,28,bounds.width-12])for(const dy of [18,bounds.height/2,bounds.height-18]){const x=bounds.left+dx,y=bounds.top+dy,hit=document.elementFromPoint(x,y);if(hit&&hit.closest('.workflow-map-scroll')===viewport&&!hit.closest('.workflow-map-node'))return{x,y}}throw Error('No execution map target')})()`)
+    const executionView=async p=>driver.evaluate(`(()=>{const stage=document.querySelector('.workflow-map-stage'),r=stage.getBoundingClientRect(),scale=new DOMMatrix(getComputedStyle(stage).transform).a;return{scale,x:(${p.x}-r.left)/scale,y:(${p.y}-r.top)/scale,width:document.querySelector('.workflow-map-node').getBoundingClientRect().width}})()`)
+    async function executionWheelBothDirections(p,label){
+      const before=await executionView(p)
+      await wheel(p,-120);await wait(async()=>(await executionView(p)).scale>before.scale,label+' zoom in',35)
+      const larger=await executionView(p);assert(larger.width>before.width+1,label+' visibly enlarges cards');assert(Math.abs(larger.x-before.x)*larger.scale<2&&Math.abs(larger.y-before.y)*larger.scale<2,label+' zoom-in graph anchor')
+      await wheel(p,120);await wait(async()=>(await executionView(p)).scale<larger.scale,label+' zoom out',35)
+      const restored=await executionView(p);assert(Math.abs(restored.scale-before.scale)<.001,label+' restores scale');assert(Math.abs(restored.x-before.x)*restored.scale<2&&Math.abs(restored.y-before.y)*restored.scale<2,label+' zoom-out graph anchor')
+    }
+    await executionWheelBothDirections(await mapPoint(false),'execution blank background')
+    await executionWheelBothDirections(await mapPoint(true),'execution node card')
+    const rememberedPoint=await mapPoint(false);await wheel(rememberedPoint,-120)
+    await wait(async()=>(await executionView(rememberedPoint)).scale>1,'execution remembered zoom')
+    const rememberedScale=(await executionView(rememberedPoint)).scale
+    await driver.evaluate(`window.__oldWorkflowStage=document.querySelector('.workflow-map-stage');true`)
+    const currentCard=await driver.evaluate(`(()=>{const viewport=document.querySelector('.workflow-map-scroll'),v=viewport.getBoundingClientRect(),cards=Array.from(viewport.querySelectorAll('.workflow-map-node'));const card=cards.find(c=>{const r=c.getBoundingClientRect();return r.top>=v.top+4&&r.bottom<=v.bottom-4&&r.left>=v.left+4&&r.right<=v.right-4})||cards.find(c=>c.getAttribute('aria-pressed')==='true');const r=card.getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`)
+    await mouse('mousePressed',currentCard,1);await mouse('mouseReleased',currentCard)
+    await wait(()=>driver.evaluate(`window.__oldWorkflowStage!==document.querySelector('.workflow-map-stage')`),'execution node selection redraw')
+    assert(Math.abs((await executionView(await mapPoint(false))).scale-rememberedScale)<.001,'Selecting a node preserves execution zoom')
+    let execution=await req('POST',base+'/api/workflows/detail',{id:run.id}),task=execution.steps.find(step=>step.id==='h')
+    await req('POST',base+'/api/workflows/submit',{id:run.id,nodeId:'h',taskId:task.taskId,decision:'confirm'})
+    await wait(async()=>{execution=await req('POST',base+'/api/workflows/detail',{id:run.id});return execution.steps.find(step=>step.id==='a').status==='waiting'},'execution next task')
+    task=execution.steps.find(step=>step.id==='a')
+    await driver.evaluate('workflowUI.refresh()',{awaitPromise:true})
+    await wait(()=>driver.evaluate(`!!document.querySelector('.workflow-current-task form[id$="${task.taskId}"]')`),'execution refreshed task')
+    assert(Math.abs((await executionView(await mapPoint(false))).scale-rememberedScale)<.001,'Instance state refresh preserves execution zoom')
+    // The adjacent form retains ordinary scroll semantics and never zooms the map.
+    const formViewport=await driver.evaluate(`(()=>{const body=document.querySelector('.workflow-workbench-body'),r=body.getBoundingClientRect();body.scrollTop=0;return{x:r.right-6,y:r.top+r.height*.6,scrollable:body.scrollHeight>body.clientHeight+50,scrollTop:body.scrollTop}})()`)
+    assert(formViewport.scrollable,'Fixture must provide an actual scrolling workbench form')
+    await wheel(formViewport,360)
+    await wait(()=>driver.evaluate(`document.querySelector('.workflow-workbench-body').scrollTop>${formViewport.scrollTop+1}`),'right form scroll')
+    assert(Math.abs((await executionView(await mapPoint(false))).scale-rememberedScale)<.001,'Right form scrolling does not change map zoom')
+    // Ordinary sidebar reopening must rebind a viewport cleaned up while hidden,
+    // even when the instance has not emitted any new facts since the last render.
+    const unchangedSequence=(await req('POST',base+'/api/workflows/detail',{id:run.id})).sequence
+    await driver.click('#workflowClose')
+    await wait(()=>driver.evaluate(`document.getElementById('workflowPage').classList.contains('hidden')`),'hide execution to chat')
+    await driver.click('#openWorkflows')
+    await wait(()=>driver.evaluate(`!document.getElementById('workflowPage').classList.contains('hidden')&&!!document.querySelector('.workflow-map-scroll')`),'sidebar reopen execution')
+    await sleep(100)
+    assert.strictEqual((await req('POST',base+'/api/workflows/detail',{id:run.id})).sequence,unchangedSequence,'Reopen fixture has no new instance facts')
+    assert(Math.abs((await executionView(await mapPoint(false))).scale-rememberedScale)<.001,'Sidebar reopening preserves scale')
+    await executionWheelBothDirections(await mapPoint(false),'execution reopened from sidebar without new facts')
+    shot('workflow-execution-wheel.png',Buffer.from(await driver.screenshot(),'base64'))
+    console.log('Workflow canvas: select/move, Shift multiselect, marquee group drag, vertical/horizontal split both sides, Esc rollback, wheel anchor, keyboard menu, real port connection/save/reopen, wheel zoom in both diagrams before focus and after redraw, anchored scaling, isolated form scrolling and sidebar reopen without new facts passed')
   } catch (error) {
     console.error(logs.slice(-1200))
-    try { console.error(await driver.evaluate('document.getElementById("workflowNotice").textContent')) } catch (_) {}
+    try { console.error(await driver.evaluate('document.getElementById("workflowNotice").textContent'));shot('workflow-canvas-failure.png',Buffer.from(await driver.screenshot(),'base64')) } catch (_) {}
     throw error
   } finally {
     await driver.close()

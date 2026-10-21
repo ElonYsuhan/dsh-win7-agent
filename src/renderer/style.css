@@ -6928,3 +6928,11 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-workbench .workflow-task-actions .workflow-review-reject:hover:not(:disabled){background:var(--hover-bg);}
 .workflow-reused-files{margin-bottom:10px;}
 .workflow-reused-files .workflow-radio{overflow-wrap:anywhere;}
+
+/* Execution uses a DOM graph; own its zoom/pan independently of editor canvas. */
+.workflow-map-extent{position:relative;min-width:100%;min-height:100%;}
+.workflow-map-extent>.workflow-map-stage{position:absolute;margin:0;transform-origin:0 0;}
+.workflow-map-scroll{touch-action:none;overscroll-behavior:contain;}
+.workflow-map-scroll.is-panning{cursor:grabbing;user-select:none;}
+
+.workflow-map-scroll::-webkit-scrollbar-corner{background:var(--bg);}

@@ -2,7 +2,7 @@
 ;(function(){
  const $=id=>document.getElementById(id),page=$('workflowPage');if(!page)return
  const controls={back:$('workflowBack'),save:$('workflowSave'),close:$('workflowClose')},pageHeader=page.querySelector('.workflow-header')
- let mapCollapsed=false
+ let mapCollapsed=false,executionViewport=null,executionMapCleanup=()=>{}
  const labels={paused:'已暂停',pending:'等待执行',running:'执行中',waiting:'待人工处理',succeeded:'已结束',failed:'失败',cancelled:'已停止',interrupted:'已中断',skipped:'未执行'}
  const FALLBACK_NODES=[
   {type:'input',name:'文本输入',description:'提供初始文本'},
@@ -86,7 +86,7 @@
   if(mode!=='editor'||!dirty)return true
   return Boolean(await window.appDialogs.confirm('当前流程有未保存的修改，确定放弃修改吗？'))
  }
- function hide(){closeArtifact();if(artifactDownload)artifactDownload.abort();
+ function hide(){executionMapCleanup();detailSignature='';closeArtifact();if(artifactDownload)artifactDownload.abort();
   finishSplit(true);closeCanvasMenu(false)
   dirty=false
   page.classList.add('hidden')
@@ -126,6 +126,7 @@
   }
  }
  function view(next){
+  executionMapCleanup()
   finishSplit(true);closeCanvasMenu(false)
   mode=next
   page.classList.remove('workflow-detail-ready');page.setAttribute('aria-labelledby','workflowHeading');pageHeader.append(controls.close)
@@ -223,7 +224,38 @@
  }
  function executionState(step){return step&&step.status==='succeeded'?'done':step&&['running','waiting'].includes(step.status)?'active':step&&['failed','interrupted','cancelled'].includes(step.status)?'error':'pending'}
  function executionLabel(step){return step&&step.status==='waiting'?'执行中 · 待人工处理':step&&step.status==='succeeded'?'已结束':step&&['interrupted','cancelled'].includes(step.status)?labels[step.status]:step&&step.status==='skipped'?'待执行 · 已跳过':step&&step.status==='pending'?'待执行':labels[step&&step.status]||'待执行'}
+ // Execution cards are DOM elements, so they need their own viewport rather
+ // than the editor's LiteGraph wheel handler. Keep only the current run's view.
+ function attachExecutionViewport(scroll,stage,width,height,result,positions,nodeWidth){
+  executionMapCleanup()
+  const fresh=!executionViewport||executionViewport.id!==result.id
+  if(fresh)executionViewport={id:result.id,scale:1,x:0,y:0,selection:'',initialized:false}
+  const view=executionViewport,extent=node('div',undefined,'workflow-map-extent')
+  extent.append(stage);scroll.append(extent);scroll.tabIndex=0;scroll.setAttribute('aria-label','执行流程图，滚轮缩放，拖动空白平移')
+  let stopped=false,drag=null,padX=0,padY=0,frame=null
+  const remember=()=>{if(!stopped&&padX&&padY){view.x=(scroll.scrollLeft-padX)/view.scale;view.y=(scroll.scrollTop-padY)/view.scale}}
+  const layout=()=>{
+   if(stopped||!scroll.isConnected||!scroll.clientWidth||!scroll.clientHeight)return
+   padX=scroll.clientWidth;padY=scroll.clientHeight
+   extent.style.width=(width*view.scale+2*padX)+'px';extent.style.height=(height*view.scale+2*padY)+'px'
+   stage.style.left=padX+'px';stage.style.top=padY+'px';stage.style.transform='scale('+view.scale+')'
+   scroll.scrollLeft=padX+view.x*view.scale;scroll.scrollTop=padY+view.y*view.scale
+   scroll.setAttribute('aria-label','执行流程图，缩放 '+Math.round(view.scale*100)+'%，滚轮缩放，拖动空白平移')
+  }
+  const zoom=(scale,x,y)=>{remember();const previous=view.scale;view.scale=Math.max(.1,Math.min(3,scale));view.x+=x/previous-x/view.scale;view.y+=y/previous-y/view.scale;layout()}
+  const wheel=event=>{event.preventDefault();event.stopPropagation();if(drag||!event.deltaY)return;const rect=scroll.getBoundingClientRect();zoom(view.scale*(event.deltaY<0?1.1:1/1.1),event.clientX-rect.left,event.clientY-rect.top)}
+  const down=event=>{if(event.button!==0||event.target.closest('.workflow-map-node'))return;remember();drag={id:event.pointerId,x:event.clientX,y:event.clientY,left:scroll.scrollLeft,top:scroll.scrollTop};scroll.setPointerCapture(event.pointerId);scroll.classList.add('is-panning');scroll.focus();event.preventDefault()}
+  const move=event=>{if(!drag||event.pointerId!==drag.id)return;scroll.scrollLeft=drag.left-(event.clientX-drag.x);scroll.scrollTop=drag.top-(event.clientY-drag.y);remember()}
+  const up=()=>{if(drag&&scroll.hasPointerCapture(drag.id))scroll.releasePointerCapture(drag.id);drag=null;scroll.classList.remove('is-panning')}
+  const key=event=>{if(event.target!==scroll)return;if(['+','=','-','0'].includes(event.key)){event.preventDefault();zoom(event.key==='0'?1:view.scale*(event.key==='-'?1/1.1:1.1),scroll.clientWidth/2,scroll.clientHeight/2)}}
+  const initial=()=>{if(stopped||!scroll.isConnected||!scroll.clientWidth||!scroll.clientHeight)return;const selected=positions.get(runSelection);if(!view.initialized){view.x=(width-scroll.clientWidth)/2;view.initialized=true}if(pinnedSelection&&selected&&view.selection!==runSelection){view.x=selected.x+nodeWidth/2-scroll.clientWidth/(2*view.scale);view.y=Math.max(0,selected.y-scroll.clientHeight/(3*view.scale))}view.selection=runSelection;layout()}
+  scroll.addEventListener('wheel',wheel,{passive:false});scroll.addEventListener('scroll',remember);scroll.addEventListener('pointerdown',down);scroll.addEventListener('pointermove',move);scroll.addEventListener('pointerup',up);scroll.addEventListener('pointercancel',up);scroll.addEventListener('lostpointercapture',up);scroll.addEventListener('keydown',key);window.addEventListener('blur',up)
+  const observer=new ResizeObserver(()=>layout());observer.observe(scroll)
+  frame=requestAnimationFrame(initial)
+  executionMapCleanup=()=>{if(stopped)return;remember();stopped=true;cancelAnimationFrame(frame);observer.disconnect();up();window.removeEventListener('blur',up);for(const [name,handler]of [['wheel',wheel],['scroll',remember],['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',up],['lostpointercapture',up],['keydown',key]])scroll.removeEventListener(name,handler);executionMapCleanup=()=>{}}
+ }
  function drawExecution(result,host){
+  executionMapCleanup()
   const layout=node('div',undefined,'workflow-execution-layout'),left=node('section',undefined,'workflow-execution-map'),right=node('section',undefined,'workflow-workbench')
   left.setAttribute('aria-label','执行流程图');right.setAttribute('aria-label','节点执行工作台')
   const mapHeader=node('div',undefined,'workflow-map-header')
@@ -250,8 +282,8 @@
   for(const edge of result.workflow.edges){const from=positions.get(edge.from),to=positions.get(edge.to);if(!from||!to)continue;const path=document.createElementNS(svg.namespaceURI,'path'),x=from.x+NODE_W/2,y=from.y+NODE_H,tx=to.x+NODE_W/2,ty=to.y;path.setAttribute('d',`M ${x} ${y} C ${x} ${y+28}, ${tx} ${ty-28}, ${tx} ${ty}`);svg.append(path)}
   stage.append(svg)
   for(const entry of result.workflow.nodes){const step=result.steps.find(s=>s.id===entry.id),pos=positions.get(entry.id),state=executionState(step),isWaiting=step&&step.status==='waiting';const card=button('',()=>{runSelection=entry.id;pinnedSelection=true;detailSignature='';renderDetail()},entry.title+' · '+executionLabel(step));card.className='workflow-map-node workflow-state-'+state+(isWaiting?' is-waiting':'')+(runSelection===entry.id?' selected':'');card.setAttribute('aria-pressed',String(runSelection===entry.id));card.style.left=pos.x+'px';card.style.top=pos.y+'px';card.style.width=NODE_W+'px';card.style.height=NODE_H+'px';card.append(node('span',result.plan.includes(entry.id)?String(result.plan.indexOf(entry.id)+1).padStart(2,'0'):'—','workflow-map-index'),node('strong',entry.title),node('span',executionLabel(step),'workflow-map-state'),node('small',((data.nodes.find(n=>n.type===entry.type)||{}).name||entry.type)+(interactionName(entry.interaction)?' · '+interactionName(entry.interaction):''),'workflow-map-type'));stage.append(card)}
-  scroll.append(stage);left.append(scroll);layout.append(left,right);host.append(layout)
-  if(pinnedSelection)requestAnimationFrame(()=>{const selected=positions.get(runSelection);if(selected&&scroll.isConnected){scroll.scrollTop=Math.max(0,selected.y-scroll.clientHeight/3);scroll.scrollLeft=Math.max(0,selected.x-scroll.clientWidth/2+NODE_W/2)}})
+  left.append(scroll);layout.append(left,right);host.append(layout)
+  attachExecutionViewport(scroll,stage,width,height,result,positions,NODE_W)
   const entry=result.workflow.nodes.find(n=>n.id===runSelection),step=result.steps.find(s=>s.id===runSelection)
   if(!entry){right.append(node('p','选择左侧节点查看执行过程。'));return}
   const propertyHeader=node('header',undefined,'workflow-property-header'),context=node('div',undefined,'workflow-workbench-context'),propertyTitle=node('div',undefined,'workflow-node-title'),index=result.plan.indexOf(entry.id)
@@ -356,7 +388,7 @@
   const result=await api('detail',{id});if(mode!=='detail'||id!==activeRun)return
   const signature=JSON.stringify(result);if(signature===detailSignature)return;detailSignature=signature;runDetail=result
   if(!pinnedSelection||!result.workflow.nodes.some(n=>n.id===runSelection))runSelection=(result.steps.find(s=>['running','waiting','failed'].includes(s.status))||result.steps.find(s=>s.status==='pending')||result.steps[0]||{}).id
-  const host=$('workflowRunDetail');host.textContent=''
+  const host=$('workflowRunDetail');executionMapCleanup();host.textContent=''
   const runState=result.status==='succeeded'?'done':result.status==='failed'?'error':['running','waiting','paused'].includes(result.status)?'active':'pending'
   const head=node('header',undefined,'workflow-detail-heading')
   const titleWrap=node('div',undefined,'workflow-detail-title')
@@ -732,7 +764,7 @@ function nextNodeId(type){
  document.addEventListener('pointercancel',()=>finishSplit(true),true)
  $('workflowCanvas').addEventListener('mouseleave',()=>{if(!splitGesture){splitGuide=null;if(canvas)canvas.setDirty(true,true)}})
  $('workflowCanvas').addEventListener('keydown',event=>{if(event.key==='Escape'){finishSplit(true);closeCanvasMenu(false);canvasModeSet('select');if(canvas){canvas.deselectAllNodes();canvas.dragging_rectangle=null;canvas.setDirty(true,true)}event.preventDefault()}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();const box=$('workflowCanvas').getBoundingClientRect();showCanvasMenu(box.left+40,box.top+40)}},true)
- $('workflowCanvas').addEventListener('wheel',event=>{if(!canvas||mode!=='editor')return;event.preventDefault();event.stopImmediatePropagation();if(splitGesture||!event.deltaY)return;const rect=canvas.canvas.getBoundingClientRect();canvas.ds.changeScale(canvas.ds.scale*(event.deltaY<0?1.1:1/1.1),[event.clientX-rect.left,event.clientY-rect.top]);canvas.setDirty(true,true);updateZoom()},{passive:false,capture:true})
+ $('workflowCanvasHost').addEventListener('wheel',event=>{if(!canvas||mode!=='editor')return;event.preventDefault();event.stopImmediatePropagation();if(splitGesture||!event.deltaY)return;const rect=canvas.canvas.getBoundingClientRect();canvas.ds.changeScale(canvas.ds.scale*(event.deltaY<0?1.1:1/1.1),[event.clientX-rect.left,event.clientY-rect.top]);canvas.setDirty(true,true);updateZoom()},{passive:false,capture:true})
  window.addEventListener('blur',()=>{finishSplit(true);closeCanvasMenu(false)})
  function resize(){
   if(canvas&&mode==='editor'&&!page.classList.contains('hidden')){
@@ -831,7 +863,7 @@ $('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNo
  }).catch(()=>{})
  const timer=setInterval(()=>{if(!document.hidden&&mode!=='editor')refresh()},1500)
  window.addEventListener('resize',resize)
- window.addEventListener('beforeunload',()=>{disposed=true;clearInterval(timer);if(canvas)canvas.dispose()})
+ window.addEventListener('beforeunload',()=>{executionMapCleanup();disposed=true;clearInterval(timer);if(canvas)canvas.dispose()})
  async function openDraft(id){
   if(!await confirmLeaveEditor())return
   open();const latest=await api('list');data=latest;const flow=latest.workflows.find(w=>w.id===id);if(!flow)throw Error('流程不存在');edit(flow)
