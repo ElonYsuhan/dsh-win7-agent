@@ -1,0 +1,67 @@
+/* Share the application dialog shell, surfaces and focus tokens. */
+.task-dialog .workflow-design-card{display:flex;flex-direction:column;width:1100px;height:min(820px,calc(100vh - 48px));max-width:100%;overflow:hidden;}
+.workflow-design-heading{flex:none;margin-bottom:2px;gap:12px;}
+.workflow-design-heading h2{margin-bottom:0;}
+.workflow-design-close{flex:none;}
+.workflow-design-workspace{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(380px,1.2fr);flex:1;min-height:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.workflow-design-chat,.workflow-design-preview-pane{display:flex;flex-direction:column;min-width:0;min-height:0;}
+.workflow-design-chat{border-right:1px solid var(--border);background:var(--panel-2);}
+.workflow-design-messages{flex:1;min-height:80px;overflow:auto;padding:16px;}
+.workflow-design-message{margin-bottom:16px;font-size:12px;line-height:1.7;}
+.workflow-design-message strong{font-size:11px;color:var(--muted);}
+.workflow-design-message p{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;}
+.workflow-design-message.is-user{padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);}
+.workflow-design-suggestions{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px;}
+.workflow-design-suggestions button{font-size:11px;min-height:28px;padding:4px 8px;}
+.workflow-design-composer{flex:none;padding:12px 16px;border-top:1px solid var(--border);background:var(--panel);}
+.workflow-design-composer label{display:block;font-size:12px;margin-bottom:8px;}
+.workflow-design-composer textarea{display:block;width:100%;min-height:76px;max-height:160px;resize:vertical;}
+.workflow-design-composer-actions{display:flex;gap:8px;justify-content:flex-end;}
+.workflow-design-composer-actions button{min-height:34px;padding:6px 12px;font-size:12px;}
+.workflow-design-composer-actions .primary{background:var(--send-bg);color:var(--send-text);border-color:transparent;}
+.workflow-design-request-state{margin:7px 0;font-size:11px;min-height:16px;}
+/* 更多设置：附件 / 填写项 / 步骤说明与数据协议，折叠在左栏底部。 */
+.workflow-design-more{flex:none;max-height:38%;overflow:auto;border-top:1px solid var(--border);background:var(--panel);}
+.workflow-design-more[hidden]{display:none;}
+.workflow-design-more>summary{padding:9px 16px;font-size:11px;color:var(--muted);cursor:pointer;list-style:none;}
+.workflow-design-more>summary::-webkit-details-marker{display:none;}
+.workflow-design-more>summary::after{content:'＋';float:right;}
+.workflow-design-more[open]>summary::after{content:'－';}
+.workflow-design-more>*:not(summary){padding:0 16px;}
+.workflow-design-more>*:last-child{padding-bottom:12px;}
+.workflow-design-config-section{margin:12px 0 6px;font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.02em;}
+.workflow-design-more details{margin:8px 0;border:1px solid var(--border);border-radius:7px;background:var(--panel-2);}
+.workflow-design-more details>summary{padding:7px 9px;font-size:11px;cursor:pointer;}
+.workflow-design-more label{display:block;font-size:11px;margin:8px 0;}
+.workflow-design-more input,.workflow-design-more select,.workflow-design-more textarea{display:block;width:100%;margin-top:5px;box-sizing:border-box;}
+.workflow-design-more textarea{min-height:64px;resize:vertical;font-size:11px;}
+.workflow-design-preview-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);}
+.workflow-design-preview-header h3{font-size:13px;margin:0;}
+.workflow-design-tabs{display:flex;gap:4px;}
+.workflow-design-tabs button{font-size:11px;min-height:28px;padding:4px 8px;background:transparent;}
+.workflow-design-tabs button[aria-pressed=true]{background:var(--selection-bg);border-color:var(--border);}
+/* 交互类型与驳回退回：设置条放在预览上方，不再单独开页签。 */
+.workflow-design-settings{flex:none;display:flex;flex-wrap:wrap;gap:10px 18px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel-2);}
+.workflow-design-settings[hidden]{display:none;}
+.workflow-design-settings label{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;margin:0;font-size:11px;color:var(--muted);white-space:nowrap;}
+.workflow-design-settings label[hidden]{display:none;}
+.workflow-design-settings select{min-height:30px;font-size:12px;min-width:180px;max-width:260px;}
+.workflow-design-preview,.workflow-design-protocol{flex:1;min-height:0;overflow:auto;padding:16px;}
+.workflow-design-preview[hidden],.workflow-design-protocol[hidden],.workflow-design-composer button[hidden]{display:none;}
+.workflow-design-instructions{font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 16px;}
+.workflow-design-preview>details{font-size:12px;margin-top:16px;}
+.workflow-design-preview>pre,.workflow-design-preview details pre{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;}
+/* 预览用运行时的任务面板结构，样式与执行页一致。 */
+.workflow-design-workbench{flex:none;min-height:0;padding:0;border:0;border-radius:0;background:transparent;overflow:visible;}
+.workflow-design-workbench .workflow-workbench-body{padding:0;gap:0;overflow:visible;}
+.workflow-design-workbench.is-preview{pointer-events:none;}
+.workflow-design-workbench .workflow-task-actions{margin-top:14px;}
+.workflow-design-protocol label{display:block;font-size:12px;margin-bottom:8px;}
+.workflow-design-protocol textarea{width:100%;min-height:230px;height:calc(100% - 115px);resize:vertical;font-family:monospace;font-size:11px;line-height:1.6;box-sizing:border-box;}
+.workflow-design-protocol>button{margin-top:8px;min-height:32px;font-size:12px;}
+.workflow-design-protocol>p{font-size:11px;line-height:1.6;}
+.workflow-design-feedback{flex:none;min-height:0;margin:0;padding:0 16px;color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere;}
+.workflow-design-feedback:not(:empty){padding:8px 16px;border-top:1px solid var(--border);}
+.workflow-design-actions{flex:none;gap:8px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--border);margin-top:0;}
+.workflow-design-actions .muted{flex:1;min-width:140px;margin:0;font-size:11px;line-height:1.6;}
+@media(max-width:760px){.task-dialog .workflow-design-card{height:calc(100vh - 24px);padding:16px;}.workflow-design-workspace{grid-template-columns:1fr;overflow:auto;}.workflow-design-chat{min-height:340px;border-right:0;border-bottom:1px solid var(--border);}.workflow-design-preview-pane{min-height:430px;}.workflow-design-preview-header{flex-wrap:wrap;}.workflow-design-actions .muted{flex-basis:100%;}}

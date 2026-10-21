@@ -74,25 +74,26 @@ async function main() {
     await wait(() => driver.evaluate('!!window.workflowUI'), 'renderer')
     const flow = await req('POST', base + '/api/workflows/save', graph)
 
-    /* 编辑器：默认只露名称、处理描述、交互类型 */
+    /* 编辑器：属性面板只露节点名称、处理描述与执行操作；交互类型和补充内容收进「节点执行设计 → 节点配置」 */
     await driver.evaluate('workflowUI.openDraft(' + JSON.stringify(flow.id) + ')', { awaitPromise: true })
     await wait(() => driver.evaluate('!document.getElementById("workflowEditor").classList.contains("hidden")'), 'editor open')
     await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(x=>x.properties.workflowId==='a');c.selectNode(n);c.onNodeSelected(n);return true})()`)
     await wait(() => driver.evaluate('document.getElementById("workflowNodeTitle").value==="审批方案"'), 'approve node selected')
     const editor = await driver.evaluate(`(()=>{
-      const interaction=document.getElementById('workflowHumanInteractionOptions'),extras=document.getElementById('workflowHumanExtras'),advanced=document.getElementById('workflowNodeAdvanced')
-      const attachment=extras.querySelector('input[type=checkbox]'),target=Array.from(document.querySelectorAll('#workflowStructuredOptions select')).find(s=>s.getAttribute('aria-label')==='驳回退回节点')
-      return {type:document.getElementById('workflowInteractionType').value,hint:document.getElementById('workflowInteractionHint').textContent,
-        interactionVisible:!interaction.classList.contains('hidden'),extrasCollapsed:extras.open===false,advancedCollapsed:advanced.open===false,
-        attachmentEnabled:attachment.checked,targets:target?Array.from(target.options).map(o=>o.textContent):null,mode:document.getElementById('workflowNodeMode').textContent,
+      const extras=document.getElementById('workflowHumanExtras'),advanced=document.getElementById('workflowNodeAdvanced')
+      const attachment=extras.querySelector('input[type=checkbox]'),node=document.getElementById('workflowCanvas').data.graph._nodes.find(n=>n.properties.workflowId==='a')
+      return {type:node&&node.properties.interaction?node.properties.interaction.type:null,
+        interactionBlock:!!document.getElementById('workflowHumanInteractionOptions'),
+        extrasCollapsed:extras.open===false,extrasHidden:extras.classList.contains('hidden')&&!extras.getClientRects().length,
+        advancedGone:!!advanced&&advanced.hidden===true,advancedLabelGone:!document.querySelector('.workflow-property-content').textContent.includes('高级设置'),
+        attachmentEnabled:attachment.checked,mode:document.getElementById('workflowNodeMode').textContent,
         textLabel:document.getElementById('workflowNodeTextLabel').textContent}
     })()`)
     assert.strictEqual(editor.type, 'approve', 'Interaction type must load from the definition')
-    assert(editor.interactionVisible && editor.textLabel === '处理描述', 'Default editor shows only description and interaction type')
-    assert(editor.extrasCollapsed, 'Attachments and forms stay inside a collapsed 补充内容 section')
-    assert(editor.advancedCollapsed, 'Advanced settings stay collapsed by default')
+    assert(!editor.interactionBlock && editor.extrasHidden && editor.textLabel === '处理描述', 'Property panel keeps only title, description and execution design; interaction and extras move into 节点执行设计')
+    assert(editor.extrasCollapsed, 'Attachments and forms stay inside a collapsed 补充内容 section until the designer adopts it')
+    assert(editor.advancedGone && editor.advancedLabelGone, '高级设置已取消，节点配置整体收进「节点执行设计」')
     assert.strictEqual(editor.attachmentEnabled, false, 'Attachment box is off unless the node asks for it')
-    assert(editor.targets.some(text => text.includes('登记需求')), 'Return target lists upstream human handling step')
     assert(editor.mode.includes('人工审批'), 'Mode line names the interaction preset')
     shot('workflow-interaction-editor.png', Buffer.from(await driver.screenshot(), 'base64'))
 

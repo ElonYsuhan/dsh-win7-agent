@@ -1,0 +1,22 @@
+.task-dialog .workflow-simulation-card{width:1040px;max-width:100%;height:min(760px,calc(100vh - 48px));display:flex;flex-direction:column;overflow:hidden;}
+.workflow-simulation-card .task-dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;}
+.workflow-simulation-card h2{margin:0;}
+.workflow-simulation-card>.muted{font-size:12px;line-height:1.6;margin:8px 0;}
+.workflow-simulation-status{font-size:12px;line-height:1.6;margin:0 0 12px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--bg);}
+.workflow-simulation-status.is-passed{color:var(--workflow-status-done,var(--text));}
+.workflow-simulation-body{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:0;flex:1;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.workflow-simulation-list{overflow:auto;padding:10px;border-right:1px solid var(--border);background:var(--bg);}
+.workflow-simulation-step{display:flex;flex-direction:column;gap:6px;align-items:flex-start;width:100%;min-width:0;padding:10px;text-align:left;margin-bottom:8px;border-radius:8px;}
+.workflow-simulation-step strong{font-size:12px;overflow-wrap:anywhere;}
+.workflow-simulation-step small{font-size:11px;color:var(--muted);}
+.workflow-simulation-step.selected{border-color:var(--focus);background:var(--selection-bg);}
+.workflow-simulation-detail{padding:16px;overflow:auto;min-width:0;}
+.workflow-simulation-detail h3{font-size:14px;margin:0 0 12px;}
+.workflow-simulation-detail details{padding:10px 0;border-top:1px solid var(--border);font-size:12px;}
+.workflow-simulation-detail pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:250px;overflow:auto;font-size:11px;}
+.workflow-simulation-detail .workflow-schema-field{display:flex;flex-direction:column;gap:5px;margin-bottom:10px;font-size:12px;}
+.workflow-simulation-detail fieldset{margin:0;padding:10px;border:1px solid var(--border);border-radius:8px;}
+.workflow-simulation-detail input,.workflow-simulation-detail textarea,.workflow-simulation-detail select{width:100%;box-sizing:border-box;}
+.workflow-simulation-issue{font-size:12px;padding:8px 10px;background:var(--bg);border-radius:6px;color:var(--muted);}
+.workflow-simulation-issue.is-error{color:var(--error-text);}
+@media(max-width:760px){.workflow-simulation-body{grid-template-columns:150px minmax(0,1fr);}.workflow-simulation-detail{padding:10px;}}

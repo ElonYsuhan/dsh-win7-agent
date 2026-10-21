@@ -403,3 +403,20 @@ Cordis 的 workflows 插件继续承担调用、持久化与资源生命周期�
 人工交互契约与持久事实保持独立。验证包括 Node24 与内嵌 Node16 全量检查、
 服务层真实退回/逐节点重放/附件复用/重启恢复，以及 Chromium108 的鼠标和表单回归；
 这些验证不代替 Win7 SP1 x64 真机测试。
+
+### AI 辅助节点执行设计（2026-10-21）
+
+为让默认的备注与审阅操作按业务扩展，`core/workflow-designer` 作为原生 Cordis 插件，
+inject llm/skillLibrary/workflowNodes/agentConfig。它只读取专用 Skill、生成有界声明式
+提案，不进入通用 Agent 循环；工具列表为空，支持取消及60秒时限，生命周期由 effect
+追踪。编辑器预览并应用后，继续走原有 workflows.save；不启动实例、不代替人工批准。
+
+`contracts/workflow-node-design` 定义 ExecutionDesign V1 和派生的 NodeDataEnvelope V1，
+设计映射到现有 Schema、processing、interaction、bindings，避免第二份节点配置。
+纯 `flow/workflow-simulation` 以明确标记的样例验证拓扑、表单和上下游字段，不访问模型、
+工具、REST、文件或事实仓储。真实运行仍使用原工作流状态机和执行器。
+
+实现使用固定 Node16/Chromium108 能力与随包 Skill，无新增生产依赖。Ribbon、画布
+反馈和受限设计弹窗属于可替换的 UI 适配层；数据协议不绑定旧宿主。服务契约、真实
+模型替身、取消、无副作用仿真及 Chromium108 编辑交互由自动化回归验证；这些检查
+不替代 Win7 SP1 x64 真机验收。详见 [节点执行设计协议](WORKFLOW-NODE-DESIGN.md)。

@@ -1,6 +1,6 @@
 'use strict'
 /* Chromium108 真实窗口验收：编辑图与执行图的滚轮缩放、鼠标锚点、视图保持，
-   以及选择/连线/框选/双轴分割移动和保存恢复。
+   以及 Ribbon、拖拽创建、实时框选反馈、双轴分割移动和保存恢复。
    只在临时 AGENT_HOME 与随机端口上运行，不触碰常驻实例。 */
 const assert = require('assert')
 const fs = require('fs')
@@ -80,7 +80,7 @@ async function main() {
     await wait(() => driver.evaluate('!!document.getElementById("workflowCanvas").data&&document.getElementById("workflowCanvas").data.graph._nodes.length===4'), 'canvas')
     await sleep(100)
     await driver.evaluate(`(()=>{const toggle=document.getElementById('workflowStepsToggle');if(toggle&&toggle.textContent.includes('画布'))toggle.click();const c=document.getElementById('workflowCanvas').data;for(const [id,pos]of Object.entries({s:[150,110],h:[510,110],a:[150,360],e:[510,360]}))c.graph._nodes.find(n=>n.properties.workflowId===id).pos=pos;c.ds.scale=.65;c.ds.offset[0]=0;c.ds.offset[1]=0;c.setDirty(true,true);return true})()`)
-    assert.deepStrictEqual(await driver.evaluate(`Array.from(document.querySelectorAll('#workflowCanvasTools [data-canvas-action]')).map(b=>b.dataset.canvasAction)`), ['select','connect','box','split'])
+    assert.deepStrictEqual(await driver.evaluate(`Array.from(document.querySelectorAll('#workflowCanvasTools [data-canvas-action]')).map(b=>b.dataset.canvasAction)`), ['select','connect','box','split','zoom'])
     const point=async(x,y)=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,r=c.canvas.getBoundingClientRect();return{x:r.left+(${x}+c.ds.offset[0])*c.ds.scale,y:r.top+(${y}+c.ds.offset[1])*c.ds.scale}})()`)
     const mouse=async(type,p,buttons=0,modifiers=0)=>driver.cdp.send('Input.dispatchMouseEvent',{type,button:'left',buttons,clickCount:1,modifiers,...p})
     const drag=async(from,to)=>{await mouse('mousePressed',from,1);await mouse('mouseMoved',to,1);await mouse('mouseReleased',to)}
@@ -97,14 +97,20 @@ async function main() {
     }
     // Scrolling must work before the canvas has received a click or keyboard focus.
     await editorWheelBothDirections(await point(480,260),'editor before first click')
-    for(const mode of ['select','connect','box','split']){
+    for(const mode of ['select','connect','box','split','zoom']){
       await driver.click('[data-canvas-action='+mode+']')
       await editorWheelBothDirections(await point(480,260),'editor '+mode+' mode')
     }
     await driver.click('[data-canvas-action=select]')
     // Box-select the top pair and then move the complete selected group.
     await driver.click('[data-canvas-action=box]')
-    await drag(await point(135,65),await point(805,185))
+    const marqueeFrom=await point(135,100),marqueeTo=await point(805,185)
+    await mouse('mousePressed',marqueeFrom,1);await mouse('mouseMoved',marqueeTo,1);await sleep(100)
+    const preview=await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(n=>n.properties.workflowId==='s'),sample=document.createElement('canvas');sample.width=n.size[0]+16;sample.height=n.size[1]+46;const ctx=sample.getContext('2d');ctx.translate(8,38);c.drawNode(n,ctx);const border=Array.from(ctx.getImageData(n.size[0]/2+8,8,1,1).data);ctx.fillStyle=getComputedStyle(document.getElementById('workflowPage')).getPropertyValue('--workflow-node-selected');ctx.fillRect(-8,-38,1,1);return{rect:Array.from(c.dragging_rectangle),selected:!!n.is_selected,border,expected:Array.from(ctx.getImageData(0,0,1,1).data)}})()`)
+    assert(preview.rect[2]>100&&!preview.selected,'Marquee preview is live before actual selection')
+    assert.deepStrictEqual(preview.border,preview.expected,'Candidate card renders the blue border while dragging')
+    shot('workflow-marquee-live.png',Buffer.from(await driver.screenshot(),'base64'))
+    await mouse('mouseReleased',marqueeTo)
     assert.strictEqual(await driver.evaluate(`Object.keys(document.getElementById('workflowCanvas').data.selected_nodes).length`),2,'Marquee selects both top cards')
     assert.strictEqual(await driver.evaluate(`document.querySelector('[data-canvas-action=select]').getAttribute('aria-pressed')`),'true','Box selection returns to move mode')
     let before=await positions()
@@ -120,13 +126,30 @@ async function main() {
     assert.strictEqual(await driver.evaluate(`Object.keys(document.getElementById('workflowCanvas').data.selected_nodes).length`),2,'Shift-click adds to the group')
     const p=await titlePoint('h');await mouse('mousePressed',p,1,8);await mouse('mouseReleased',p,0,8)
     assert.strictEqual(await driver.evaluate(`Object.keys(document.getElementById('workflowCanvas').data.selected_nodes).length`),1,'Shift-click removes from the group')
+    // Editor chrome: no 编辑流程 header row, the flow name floats inside the canvas, tool strip is centred.
+    assert(await driver.evaluate(`(()=>{const h=document.querySelector('#workflowPage > .workflow-header');return !h||getComputedStyle(h).display==='none'})()`),'Editor drops the 编辑流程 header row')
+    assert(await driver.evaluate(`!!document.querySelector('#workflowCanvasHost > #workflowNameField')`),'Flow name floats inside the canvas instead of a separate row')
+    assert(await driver.evaluate(`(()=>{const t=document.getElementById('workflowCanvasTools').getBoundingClientRect(),h=document.getElementById('workflowCanvasHost').getBoundingClientRect();return Math.abs(t.top+t.height/2-(h.top+h.height/2))<=2})()`),'Canvas tool strip is vertically centred')
+    // Card edges resize directly at the actual pointer location; Escape restores the gesture.
+    await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(v=>v.properties.workflowId==='h');c.selectNode(n);c.setDirty(true,true);return true})()`)
+    const cardSize=()=>driver.evaluate(`Array.from(document.getElementById('workflowCanvas').data.graph._nodes.find(n=>n.properties.workflowId==='h').size)`)
+    const sizeBefore=await cardSize(),resizeCorner=()=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,r=c.canvas.getBoundingClientRect(),n=c.graph._nodes.find(v=>v.properties.workflowId==='h');return{x:r.left+(n.pos[0]+n.size[0]-1+c.ds.offset[0])*c.ds.scale,y:r.top+(n.pos[1]+n.size[1]-1+c.ds.offset[1])*c.ds.scale,scale:c.ds.scale}})()`)
+    let corner=await resizeCorner();await drag(corner,{x:corner.x+35*corner.scale,y:corner.y+24*corner.scale});await sleep(100)
+    const sizeAfter=await cardSize();assert(Math.abs(sizeAfter[0]-sizeBefore[0]-35)<2&&Math.abs(sizeAfter[1]-sizeBefore[1]-24)<2,'Edge dragging resizes the card at the pointer')
+    corner=await resizeCorner();await mouse('mousePressed',corner,1);await mouse('mouseMoved',{x:corner.x+30,y:corner.y+20},1)
+    await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await mouse('mouseReleased',corner);assert.deepStrictEqual(await cardSize(),sizeAfter,'Escape restores the card size')
+    // A dedicated zoom entry opens controls and restores focus on dismissal.
+    const zoomBefore=await driver.evaluate('document.getElementById("workflowCanvas").data.ds.scale');await driver.click('[data-canvas-action=zoom]');await wait(()=>driver.evaluate('!!document.getElementById("workflowZoomMenu")'),'zoom controls')
+    await driver.click('#workflowZoomMenu [aria-label="放大画布"]');assert(await driver.evaluate('document.getElementById("workflowCanvas").data.ds.scale>'+zoomBefore),'Zoom controls enlarge the canvas')
+    await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});assert(await driver.evaluate('!document.getElementById("workflowZoomMenu")&&document.activeElement.id==="workflowCanvasZoomButton"'),'Zoom menu restores focus')
+    await driver.evaluate('document.getElementById("workflowCanvas").data.ds.scale='+zoomBefore+';document.getElementById("workflowCanvas").data.setDirty(true,true);true')
     // Vertical divider moves all left/right nodes by equal and opposite distances.
     await driver.click('[data-canvas-action=split]')
+    assert(await driver.evaluate(`!document.querySelector('#workflowSplitAxis')&&!document.querySelectorAll('[data-split-axis]').length&&document.querySelectorAll('#workflowCanvasTools [data-canvas-action]').length===5`),'Split no longer ships 左右/上下 buttons: the axis is decided while dragging')
     before=await positions();await drag(await point(480,260),await point(560,260));after=await positions()
     for(const id of ['s','a'])assert(Math.abs(after[id][0]-before[id][0]+40)<2,'Left side moves together: '+id)
     for(const id of ['h','e'])assert(Math.abs(after[id][0]-before[id][0]-40)<2,'Right side moves together: '+id)
-    // Horizontal divider moves all upper/lower nodes, no edge changes.
-    await driver.click('#workflowSplitAxis');assert.strictEqual(await driver.evaluate(`document.getElementById('workflowSplitAxis').textContent`),'上下')
+    // Same tool, vertical drag: the main direction decides 上下, the other guide disappears.
     before=await positions();await drag(await point(480,260),await point(480,320));after=await positions()
     for(const id of ['s','h'])assert(Math.abs(after[id][1]-before[id][1]+30)<2,'Upper side moves together: '+id)
     for(const id of ['a','e'])assert(Math.abs(after[id][1]-before[id][1]-30)<2,'Lower side moves together: '+id)
@@ -153,11 +176,29 @@ async function main() {
     const ports=await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,a=c.graph._nodes.find(n=>n.properties.workflowId==='s'),b=c.graph._nodes.find(n=>n.properties.workflowId==='h'),r=c.canvas.getBoundingClientRect();b.disconnectInput(0);c.ds.scale=.65;c.ds.offset[0]=0;c.ds.offset[1]=0;c.setDirty(true,true);const p=v=>({x:r.left+(v[0]+c.ds.offset[0])*c.ds.scale,y:r.top+(v[1]+c.ds.offset[1])*c.ds.scale});return{a:p(a.getConnectionPos(false,0)),b:p(b.getConnectionPos(true,0))}})()`)
     await sleep(100);await drag(ports.a,ports.b)
     assert(await driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.find(n=>n.properties.workflowId==='h').inputs[0].link!==null`),'Connect mode links actual ports')
+    // Native HTML5 drag/drop must retain graph coordinates under zoom and panning.
+    const ribbon=await driver.evaluate(`(()=>{const buttons=Array.from(document.querySelectorAll('.workflow-editor-topbar .workflow-ribbon-button'));return{vertical:buttons.every(b=>{const i=b.querySelector('.icon').getBoundingClientRect(),t=b.querySelector('.workflow-ribbon-label').getBoundingClientRect();return i.bottom<=t.top+1}),drag:document.querySelector('#workflowNodeTypes [data-node-type=human]').draggable,groups:Array.from(document.querySelectorAll('#workflowNodeTypes [data-ribbon-group]')).map(g=>g.dataset.ribbonGroup)}})()`)
+    assert(ribbon.vertical&&ribbon.drag,'Ribbon uses icon-over-text buttons and supports drag sources')
+    assert.deepStrictEqual(ribbon.groups,['边界节点','处理节点','结束节点'])
+    const dropPoint=await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,r=c.canvas.getBoundingClientRect();return{x:r.left+r.width*.7,y:r.top+r.height*.62,worldX:r.width*.7/c.ds.scale-c.ds.offset[0],worldY:r.height*.62/c.ds.scale-c.ds.offset[1]}})()`)
+    const dragData={items:[{mimeType:'application/x-workflow-node',data:'human'}],dragOperationsMask:1}
+    for(const type of ['dragEnter','dragOver','drop'])await driver.cdp.send('Input.dispatchDragEvent',{type,x:dropPoint.x,y:dropPoint.y,data:dragData})
+    await wait(()=>driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.length===5`),'drop creates human node')
+    const dropped=await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(n=>!['s','h','a','e'].includes(n.properties.workflowId));const result={x:n.pos[0]+n.size[0]/2,y:n.pos[1]+(n.size[1]-LiteGraph.NODE_TITLE_HEIGHT)/2,mode:n.properties.interaction.type,blocks:n.properties.processing.blocks};c.graph.remove(n);return result})()`)
+    assert(Math.abs(dropped.x-dropPoint.worldX)<2&&Math.abs(dropped.y-dropPoint.worldY)<2,'Drop lands at the pointer in graph coordinates')
+    assert.strictEqual(dropped.mode,'review');assert.deepStrictEqual(dropped.blocks,[{type:'instructions',title:'处理描述'},{type:'conclusion',title:'备注',required:false}])
+    // A real card blocks an established edge. Rendered geometry must go around it and update after dragging.
+    await driver.click('[data-canvas-action=select]');const restoredPositions=await positions()
+    await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;for(const[id,pos]of Object.entries({s:[100,160],h:[800,160],a:[460,130],e:[800,460]}))c.graph._nodes.find(n=>n.properties.workflowId===id).pos=pos;c.ds.scale=.65;c.ds.offset[0]=0;c.ds.offset[1]=0;c.setDirty(true,true);return true})()`)
+    const routeState=()=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;let checked=0;for(const link of Object.values(c.graph.links)){const points=link._workflowRoute;if(!points||points.length<2)throw Error('Route not rendered');for(let i=1;i<points.length;i++)for(const n of c.graph._nodes){if(i===1&&n.id===link.origin_id||i===points.length-1&&n.id===link.target_id)continue;if(workflowLinkRouting.hits(points[i-1],points[i],{left:n.pos[0],right:n.pos[0]+n.size[0],top:n.pos[1]-LiteGraph.NODE_TITLE_HEIGHT,bottom:n.pos[1]+n.size[1]}))throw Error('Route crosses '+n.title)}checked++}const source=c.graph._nodes.find(n=>n.properties.workflowId==='s'),link=Object.values(c.graph.links).find(l=>l.origin_id===source.id);return{checked,points:link._workflowRoute,length:workflowLinkRouting.length(link._workflowRoute)}})()`)
+    await wait(async()=>(await routeState()).checked===3,'obstacle-free rendered paths');const obstructed=await routeState();assert(obstructed.points.length>2,'Blocked edge takes a detour');shot('workflow-routing-detour.png',Buffer.from(await driver.screenshot(),'base64'))
+    const obstacleTitle=await titlePoint('a');await drag(obstacleTitle,{x:obstacleTitle.x,y:obstacleTitle.y+280*.65});await wait(async()=>(await routeState()).length<obstructed.length,'live rerouting after obstacle drag')
+    await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;for(const[id,pos]of Object.entries(${JSON.stringify(restoredPositions)}))c.graph._nodes.find(n=>n.properties.workflowId===id).pos=pos;c.setDirty(true,true);return true})()`)
     before=await positions()
     for(const theme of ['light','dark']){await driver.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);await sleep(80);shot('workflow-canvas-'+theme+'.png',Buffer.from(await driver.screenshot(),'base64'))}
     await driver.click('#workflowSave');await wait(()=>driver.evaluate(`!document.getElementById('workflowCards').classList.contains('hidden')`),'saved')
     const saved=(await req('GET',base+'/api/workflows')).workflows.find(w=>w.id===flow.id)
-    for(const n of saved.nodes)assert.deepStrictEqual(n.pos,before[n.id],'Position persisted for '+n.id)
+    for(const n of saved.nodes){assert.deepStrictEqual(n.pos,before[n.id],'Position persisted for '+n.id);if(n.id==='h')assert.deepStrictEqual(n.size,sizeAfter,'Card size persisted for '+n.id)}
     await driver.evaluate('workflowUI.openDraft(' + JSON.stringify(flow.id) + ')', { awaitPromise: true })
     await wait(()=>driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.length===4`),'reopened')
     assert.deepStrictEqual(await positions(),before,'Group/split positions survive reopening')
@@ -214,7 +255,7 @@ async function main() {
     assert(Math.abs((await executionView(await mapPoint(false))).scale-rememberedScale)<.001,'Sidebar reopening preserves scale')
     await executionWheelBothDirections(await mapPoint(false),'execution reopened from sidebar without new facts')
     shot('workflow-execution-wheel.png',Buffer.from(await driver.screenshot(),'base64'))
-    console.log('Workflow canvas: select/move, Shift multiselect, marquee group drag, vertical/horizontal split both sides, Esc rollback, wheel anchor, keyboard menu, real port connection/save/reopen, wheel zoom in both diagrams before focus and after redraw, anchored scaling, isolated form scrolling and sidebar reopen without new facts passed')
+    console.log('Workflow canvas: Ribbon icon-over-text groups, HTML5 drag/drop coordinates, live marquee blue preview, select/move, Shift multiselect, marquee group drag, vertical/horizontal split both sides, Esc rollback, wheel anchor, keyboard menu, real port connection/save/reopen, wheel zoom in both diagrams before focus and after redraw, anchored scaling, isolated form scrolling and sidebar reopen without new facts passed')
   } catch (error) {
     console.error(logs.slice(-1200))
     try { console.error(await driver.evaluate('document.getElementById("workflowNotice").textContent'));shot('workflow-canvas-failure.png',Buffer.from(await driver.screenshot(),'base64')) } catch (_) {}
