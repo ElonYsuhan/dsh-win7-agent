@@ -41,3 +41,29 @@
 .workflow-execution-mini-preview .workflow-current-task{margin:0;padding:0;border:0;background:transparent;}
 .workflow-execution-mini-preview .workflow-task-actions{gap:6px;}
 .workflow-execution-mini-preview .workflow-task-actions button{max-width:100%;font-size:11px;padding:6px 8px;white-space:normal;}
+
+/* Compact Ribbon without a caption row, and equal outer spacing on every side. */
+.workflow-page.workflow-editor-mode{padding:24px;}
+.workflow-editor-mode .workflow-editor-topbar{padding:4px;margin-bottom:10px;min-height:68px;}
+.workflow-editor-mode .workflow-node-group,.workflow-editor-mode .workflow-ribbon-action-group,.workflow-editor-mode .workflow-editor-actions{padding-bottom:0;}
+.workflow-editor-mode .workflow-node-group::after,.workflow-editor-mode .workflow-ribbon-action-group::after,.workflow-editor-mode .workflow-editor-actions::after{content:none;display:none;}
+.workflow-flow-properties{display:flex;flex:1;flex-direction:column;min-height:0;}
+.workflow-flow-properties[hidden]{display:none;}
+.workflow-flow-properties header{padding:16px;border-bottom:1px solid var(--border);}
+.workflow-flow-properties h2{font-size:15px;margin:0;}
+.workflow-flow-properties header p{font-size:11px;margin:8px 0 0;}
+.workflow-flow-fields{padding:16px;overflow:auto;}
+.workflow-flow-fields .workflow-name-label{display:block;}
+.workflow-flow-fields input,.workflow-flow-fields textarea,.workflow-flow-fields select{box-sizing:border-box;width:100%;max-width:100%;}
+.workflow-flow-fields .workflow-schedule-toggle{display:flex;align-items:center;gap:8px;font-weight:600;}
+.workflow-flow-fields input[type=checkbox]{width:auto;margin:0;}
+.workflow-flow-schedule{border-top:1px solid var(--border);margin-top:18px;padding-top:16px;}
+.workflow-flow-schedule [hidden]{display:none;}
+.workflow-flow-fields textarea{resize:vertical;}
+.workflow-parameters.is-flow>.workflow-property-header,.workflow-parameters.is-flow>.workflow-property-content,.workflow-parameters.is-flow>.workflow-property-footer{display:none;}
+.workflow-typed-title{display:flex;align-items:center;gap:7px;min-width:0;}
+.workflow-typed-title>.icon{flex:none;width:16px;height:16px;}
+.workflow-node-title-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+
+.workflow-step-item>button:first-child{display:flex;align-items:center;gap:8px;}
+.workflow-step-item>button>.icon{flex:none;width:16px;height:16px;}

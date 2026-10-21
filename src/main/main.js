@@ -517,6 +517,7 @@ ipcMain.handle('tasks:request', async (_event, action, data) => {
   const tasks = pluginHost.get('tasks')
   if (action === 'list') return tasks.list()
   if (action === 'save') return { task: tasks.save(data) }
+  if (action === 'saveWorkflow' || action === 'removeWorkflow') return tasks[action](data)
   if (action === 'bind-session' || action === 'delete-session') { if(pool.isRunning(raw.sessionId))throw Error('SESSION_BUSY');return action === 'bind-session' ? knowledge.bindSession(raw) : knowledge.deleteSession(raw) }
   if (action === 'session-tree') return knowledge.sessionTree(raw)
   if (action === 'session-preview') return knowledge.sessionPreview(raw)

@@ -8,6 +8,8 @@ function definition(raw) {
   check(raw && typeof raw === 'object', 'object required')
   const name = String(raw.name || '').trim(), prompt = String(raw.prompt || '').trim()
   check(name.length > 0 && name.length <= 100, 'name'); check(prompt.length > 0 && prompt.length <= 20000, 'prompt')
+  let workflow
+  if(raw.workflow!==undefined){const w=raw.workflow;check(w&&typeof w==='object'&&!Array.isArray(w)&&Object.keys(w).every(k=>['id','revision'].includes(k))&&typeof w.id==='string'&&/^[A-Za-z0-9_-]{1,80}$/.test(w.id)&&Number.isInteger(w.revision)&&w.revision>0,'workflow target');workflow={id:w.id,revision:w.revision}}
   const rule = raw.rule || {}, kind = rule.kind
   check(['daily', 'weekly', 'interval'].includes(kind), 'rule.kind')
   const timezone = String(rule.timezone || 'UTC')
@@ -25,7 +27,7 @@ function definition(raw) {
   const commands = raw.commands || []; check(Array.isArray(commands) && commands.length <= 20 && commands.every(c => typeof c === 'string' && c.trim() && c.length <= 2000), 'commands')
   const origins = raw.origins || []; check(Array.isArray(origins) && origins.length <= 20 && origins.every(x => typeof x === 'string' && /^https?:\/\/[^/]+$/.test(x)), 'origins')
   const normalizedOrigins = origins.map(value=>{let url;try{url=new URL(value)}catch(_){check(false,'origin')};check(['http:','https:'].includes(url.protocol)&&!url.username&&!url.password,'origin');return url.origin})
-  return { name, prompt, projectId: String(raw.projectId || ''), rule: normalized, permission, tools: [...new Set(tools)], commands, origins: [...new Set(normalizedOrigins)],
+  return { name, prompt, ...(workflow?{workflow}:{}), projectId: String(raw.projectId || ''), rule: normalized, permission, tools: [...new Set(tools)], commands, origins: [...new Set(normalizedOrigins)],
     enabled: raw.enabled === true, catchUp: raw.catchUp === true,
     timeoutMs: integer(raw.timeoutMs, 600000, 1000, 3600000), maxSteps: integer(raw.maxSteps, 20, 1, 100),
     tokenBudget: integer(raw.tokenBudget, 100000, 4096, 2000000), maxTokens: integer(raw.maxTokens, 4096, 256, 32768),
@@ -38,6 +40,7 @@ function assertRunRecord(next) {
   check(['pending', 'running'].concat(TERMINAL).includes(next.status), 'run status')
   check(Number.isFinite(next.createdAt) && next.task && typeof next.task === 'object', 'run snapshot')
   definition(next.task)
+  if(next.workflowRunId!==undefined)check(!!next.task.workflow&&typeof next.workflowRunId==='string'&&/^[a-f0-9]{24}$/.test(next.workflowRunId),'workflow instance reference')
   return next
 }
 module.exports = { VERSION, DEFAULT_TOOLS, TOOLS, definition, assertRunRecord, TERMINAL }

@@ -16,6 +16,7 @@
   function notice(message){$('taskNotice').textContent=message;if(!$('taskDialog').classList.contains('hidden'))$('taskEditorError').textContent=message}
   async function request(action,value){try{return await window.dsh.taskRequest(action,value)}catch(e){notice(e.message);throw e}}
   function button(text,action){const b=el('button',text);b.type='button';b.addEventListener('click',()=>{const menu=b.closest('.task-card-menu');if(menu){menu.open=false;menu.querySelector('summary').focus()}Promise.resolve().then(action).catch(()=>{})});return b}
+  const outcome=(task,status)=>task&&task.workflow&&status==='completed'?'已触发':statuses[status]||status
   function describe(rule){
     if(rule.kind==='interval')return rule.minutes%1440===0?'每 '+(rule.minutes/1440)+' 天':(rule.minutes%60===0?'每 '+(rule.minutes/60)+' 小时':'每 '+rule.minutes+' 分钟')
     return (rule.kind==='weekly'?'每周'+WEEKDAYS[rule.weekday]:'每天')+' '+rule.time
@@ -49,7 +50,7 @@
         const row=el('button',undefined,'notice-item'+(item.read?'':' is-unread'))
         row.type='button'
         row.appendChild(el('span',item.title,'notice-item-title'))
-        row.appendChild(el('span',(statuses[item.status]||item.status)+' · '+whenText(item.at),'notice-item-meta'))
+        row.appendChild(el('span',(item.workflowId&&item.status==='completed'?'已触发':statuses[item.status]||item.status)+' · '+whenText(item.at),'notice-item-meta'))
         row.addEventListener('click',()=>openNotice(item))
         items.appendChild(row)
       }}
@@ -58,7 +59,7 @@
   async function openNotice(item){
     markNoticeRead(item.runId)
     closeNotices()
-    try{const value=await request('conversation',{runId:item.runId});await host.open(value)}catch(e){notice(e.message)}
+    try{if(item.workflowRunId){await window.workflowUI.openReference({workflowId:item.workflowId,runId:item.workflowRunId});return}const value=await request('conversation',{runId:item.runId});await host.open(value)}catch(e){notice(e.message)}
   }
   function closeNotices(){const box=$('taskNoticeList');if(box)box.classList.add('hidden');const bell=$('taskNoticeBell');if(bell)bell.setAttribute('aria-expanded','false')}
   async function refresh(){if(!host)return;if(loading){refreshAgain=true;return}loading=true;try{data=await request('list');if(data.error)notice('任务调度已停止：'+data.error+'。请处理存储异常后重启服务。');if(host.sync)host.sync(data);for(const run of data.runs)notifyRun(run);render()}finally{loading=false;if(refreshAgain){refreshAgain=false;refresh().catch(()=>{})}}}
@@ -90,8 +91,8 @@
       const footer=el('div',undefined,'task-card-footer')
       footer.append(el('span',describe(task.rule),'task-card-rule'))
       footer.append(el('span',task.enabled?'下次 '+whenText(task.nextAt,task.rule.timezone):'已暂停','task-card-next'))
-      footer.append(el('span',task.lastRun?'上次 '+statuses[task.lastRun.status]:'尚未运行','task-card-result'));card.appendChild(footer)
-      const bottom=el('div',undefined,'task-card-bottom');bottom.appendChild(el('span',task.lastRun?'上次：'+statuses[task.lastRun.status]:'尚未运行','task-card-result'))
+      footer.append(el('span',task.lastRun?'上次 '+outcome(task,task.lastRun.status):'尚未运行','task-card-result'));card.appendChild(footer)
+      const bottom=el('div',undefined,'task-card-bottom');bottom.appendChild(el('span',task.lastRun?'上次：'+outcome(task,task.lastRun.status):'尚未运行','task-card-result'))
       const more=el('details',undefined,'task-card-menu'),summary=el('summary','•••');summary.setAttribute('aria-label','管理 '+task.name);more.appendChild(summary)
       const actions=el('div',undefined,'task-card-menu-actions');actions.append(button('立即运行',async()=>{await request('run',{id:task.id});notice('任务已进入执行队列');await refresh()}),button('停止本次',async()=>{await request('stop',{id:task.id});await refresh()}),button('编辑',()=>edit(task)),button('运行记录',()=>{view('runs');renderRuns(task.id)}),button('删除',async()=>{if(await host.confirm('删除定时任务“'+task.name+'”？运行记录仍保留。')){await request('delete',{id:task.id});await refresh()}}));more.appendChild(actions);footer.appendChild(more);list.appendChild(card)
     }
@@ -114,6 +115,7 @@
     return sec<60?sec+' 秒':Math.round(sec/60)+' 分 '+sec%60+' 秒'
   }
   async function openRunConversation(run){
+    if(run.workflowRunId){markNoticeRead(run.id);await window.workflowUI.openReference({workflowId:run.task.workflow.id,runId:run.workflowRunId});return}
     if(not(run.sessionId))return
     try{const value=await request('conversation',{runId:run.id});markNoticeRead(run.id);await host.open(value)}catch(e){notice(e.message)}
   }
@@ -130,12 +132,12 @@
       row.appendChild(el('span','','task-run-dot'))
       const main=el('span',undefined,'task-run-main')
       main.appendChild(el('strong',run.task.name))
-      main.appendChild(el('span',(statuses[run.status]||run.status)+' · '+(TRIGGERS[run.trigger]||run.trigger)+' · '+date(run.createdAt),'muted'))
+      main.appendChild(el('span',(run.task.workflow&&run.status==='completed'?'已触发':statuses[run.status]||run.status)+' · '+(TRIGGERS[run.trigger]||run.trigger)+' · '+date(run.createdAt),'muted'))
       if(run.summary)main.appendChild(el('span',String(run.summary).slice(0,80),'task-run-summary'))
       row.appendChild(main)
       const tail=el('span',undefined,'task-run-tail')
       tail.appendChild(el('span',runDuration(run),'muted'))
-      tail.appendChild(el('span',run.sessionId?'打开会话':'无会话','task-run-open'))
+      tail.appendChild(el('span',run.workflowRunId?'打开流程':run.sessionId?'打开会话':'无会话','task-run-open'))
       row.appendChild(tail)
       row.addEventListener('click',()=>openRunConversation(run).catch(()=>{}))
       row.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openRunConversation(run).catch(()=>{})}})
@@ -152,7 +154,7 @@
     syncUnitControlLater()
     for(const [factor,value] of UNITS)if(total%factor===0&&total>=factor){$('taskMinutes').value=String(total/factor);$('taskIntervalUnit').value=value;return}
     $('taskMinutes').value=String(total);$('taskIntervalUnit').value='1'}
-  function rule(){return {kind:$('taskRule').value,time:$('taskTime').value,weekday:Number($('taskWeekday').value),minutes:Math.max(1,Math.round(Number($('taskMinutes').value)*Number($('taskIntervalUnit').value||1))),timezone:HOME_TZ}}
+  function rule(){return {kind:$('taskRule').value,time:$('taskTime').value,weekday:Number($('taskWeekday').value),minutes:Math.max(1,Math.round(Number($('taskMinutes').value)*Number($('taskIntervalUnit').value||1))),timezone:editing&&editing.rule.timezone||HOME_TZ}}
   /* 下次执行时间说人话：今天/明天/周几 + 时刻，别甩一整串带时区的时间戳。 */
   function whenText(ms,timezone){
     if(!ms)return'—'
@@ -203,6 +205,7 @@
     }
   }
   function edit(task){
+    if(task&&task.workflow){window.workflowUI.openDraft(task.workflow.id).catch(e=>notice(e.message));return}
     editing=task||null;const form=$('taskEditor');form.reset();$('taskEditorTitle').textContent=task?'编辑定时任务':'新建定时任务';priorFocus=document.activeElement;$('taskEditorError').textContent='';for(const detail of form.querySelectorAll('details'))detail.open=false
     /* 新建时默认「保存即启用」：多数人建定时任务就是要它跑起来，真要挂着不跑再取消勾选。
        编辑已有任务时按它原本的状态回填。 */
@@ -228,8 +231,8 @@
       const run=event.runId?(data.runs.filter(r=>r.id===event.runId)[0]||null):null
       /* 只有「这条会话当前没打开」才提示 —— 正在看着它就别再弹一次 */
       const open=run&&run.sessionId===window.currentSessionId&&window.currentSessionId
-      notice('任务“'+event.title+'”：'+(statuses[event.status]||event.status))
-      if(event.runId&&!open)pushNotice({runId:event.runId,title:event.title,status:event.status,at:Date.now(),read:false})
+      notice('任务“'+event.title+'”：'+(event.workflowId&&event.status==='completed'?'已触发':statuses[event.status]||event.status))
+      if(event.runId&&!open)pushNotice({runId:event.runId,title:event.title,status:event.status,workflowId:event.workflowId,workflowRunId:event.workflowRunId,at:Date.now(),read:false})
     }
     if(event.type==='tasks:error'){notice(event.message);if(window.shell&&window.shell.taskNotify)window.shell.taskNotify({title:'任务调度异常',status:'failed'}).catch(()=>{})}
     refresh().catch(()=>{})

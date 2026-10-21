@@ -1,0 +1,39 @@
+'use strict'
+const assert=require('assert'),fs=require('fs'),os=require('os'),path=require('path'),{PluginHost}=require('../src/main/plugins/plugin-host'),{Settings}=require('../src/main/agent/settings'),C=require('../src/main/contracts/workflows')
+const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+async function wait(fn){for(let i=0;i<300;i++){if(fn())return;await sleep(10)}throw Error('timeout')}
+async function main(){
+ const home=fs.mkdtempSync(path.join(os.tmpdir(),'workflow-schedule-'));let host,time=Date.parse('2026-10-22T00:00:00Z'),agentCalls=0
+ const pool={runningCount:()=>0,maxConcurrentRuns:4,abort:id=>assert(id,'Workflow trigger must not abort an empty Agent session'),runUnattended:()=>{agentCalls++;throw Error('Workflow must not enter task Agent loop')}}
+ const schedule={enabled:true,rule:{kind:'interval',minutes:1,timezone:'Asia/Shanghai'}},definition={name:'资料审阅',description:'记录流程用途和适用范围',nodes:[{id:'s',type:'start',text:'资料'},{id:'h',type:'human',interaction:{version:1,type:'review'}},{id:'e',type:'end'}],edges:[{from:'s',to:'h'},{from:'h',to:'e'}]}
+ try{
+  const settings=new Settings(home);settings.update({workspacePath:home});host=new PluginHost({workspaceRoot:home,settings});host.loadBuiltins();await host.ready();await host.configure();let tasks=host.get('tasks'),workflows=host.get('workflows');tasks.attach({home,pool,timer:false,clock:()=>time})
+  assert.throws(()=>C.validate({...definition,description:'x'.repeat(4001)}),/4000/)
+  let saved=tasks.saveWorkflow({definition,schedule});assert(!saved.syncError);assert.strictEqual(saved.workflow.description,definition.description);assert.strictEqual(saved.task.workflow.revision,1);assert.strictEqual(tasks.list().tasks.length,1)
+  const firstDue=saved.task.nextAt;time+=10000;const id=saved.task.id,workflowId=saved.workflow.id;schedule.taskId=id;schedule.taskRevision=saved.task.revision
+  saved=tasks.saveWorkflow({definition:{...saved.workflow,name:'新的流程名称',description:'更新的业务说明'},schedule});assert.strictEqual(saved.task.id,id);assert.strictEqual(tasks.list().tasks.length,1);assert.strictEqual(saved.task.workflow.revision,2);assert.strictEqual(saved.task.prompt,'更新的业务说明');assert.strictEqual(saved.task.nextAt,firstDue,'Metadata updates do not postpone the scheduled time');schedule.taskRevision=saved.task.revision
+  const revisionBefore=saved.workflow.revision;assert.throws(()=>tasks.saveWorkflow({definition:saved.workflow,schedule:{...schedule,taskRevision:0}}),/其他窗口/);assert.strictEqual(workflows.list().workflows[0].revision,revisionBefore,'Task conflict is detected before writing a workflow')
+  time=saved.task.nextAt;await tasks.tick();await wait(()=>tasks.list().runs.some(r=>r.workflowRunId));let triggered=tasks.list().runs.find(r=>r.workflowRunId);assert.strictEqual(triggered.status,'completed');assert.strictEqual(triggered.sessionId,'');assert.strictEqual(agentCalls,0)
+  await wait(()=>workflows.detail({id:triggered.workflowRunId}).status==='waiting');let instance=workflows.detail({id:triggered.workflowRunId});assert.strictEqual(instance.trigger.taskRunId,triggered.id);assert.strictEqual(instance.trigger.revision,2);assert.strictEqual(instance.steps.find(s=>s.id==='h').status,'waiting')
+  assert.strictEqual(workflows.runScheduled({workflowId,revision:2,taskId:id,taskRunId:triggered.id}).id,instance.id,'Same occurrence is idempotent and never replays a step')
+  time=tasks.list().tasks[0].nextAt;await tasks.tick();assert(tasks.list().runs.some(r=>r.status==='skipped'));assert.strictEqual(workflows.list().runs.length,1,'Waiting human step prevents another automatic instance')
+  tasks.stop(id);await wait(()=>workflows.detail({id:instance.id}).status==='cancelled')
+  const changed=workflows.save({...saved.workflow,name:'从其他入口修改'});const manual=tasks.run(id);await wait(()=>tasks.list().runs.find(r=>r.id===manual.id).status==='failed');assert(tasks.list().runs.find(r=>r.id===manual.id).summary.includes('重新保存'));assert.strictEqual(workflows.list().runs.length,1,'Stale approved revision never starts')
+  schedule.taskRevision=tasks.list().tasks[0].revision;
+  saved=tasks.saveWorkflow({definition:changed,schedule:{...schedule,enabled:false}});assert.strictEqual(saved.task.enabled,false);const count=tasks.list().runs.length;time+=120000;await tasks.tick();assert.strictEqual(tasks.list().runs.length,count)
+  const beforeCancelled=workflows.list().runs.length,cancelled=tasks.run(id);tasks.stop(id);await wait(()=>tasks.list().runs.find(r=>r.id===cancelled.id).status==='cancelled');assert.strictEqual(workflows.list().runs.length,beforeCancelled,'Stop before handoff does not start a workflow')
+  const off=host.get('workflowNodes').register({type:'capacity_hold',name:'容量验收'},({signal})=>new Promise((_resolve,reject)=>{signal.addEventListener('abort',()=>reject(Error('ABORTED')),{once:true})}))
+  const holding=workflows.save({name:'占用执行槽',nodes:[{id:'s',type:'start'},{id:'hold',type:'capacity_hold'},{id:'e',type:'end'}],edges:[{from:'s',to:'hold'},{from:'hold',to:'e'}]})
+  const holds=[workflows.run({id:holding.id}),workflows.run({id:holding.id})];await wait(()=>holds.every(r=>workflows.detail({id:r.id}).steps.find(s=>s.id==='hold').status==='running'))
+  const deferred=tasks.run(id);await sleep(20);assert.strictEqual(tasks.list().runs.find(r=>r.id===deferred.id).status,'pending','Full workflow capacity keeps the task queued')
+  for(const run of holds)workflows.stop({id:run.id});await wait(()=>workflows.canStart());await tasks.tick();await wait(()=>tasks.list().runs.find(r=>r.id===deferred.id).workflowRunId);const linked=tasks.list().runs.find(r=>r.id===deferred.id).workflowRunId;await wait(()=>workflows.detail({id:linked}).status==='waiting');tasks.stop(id);await wait(()=>workflows.detail({id:linked}).status==='cancelled');await off();workflows.remove({id:holding.id})
+  // A two-store write cannot be atomic; the coordinator reports the saved revision and sync failure.
+  schedule.taskRevision=tasks.list().tasks[0].revision;const rename=fs.renameSync;let partial
+  try{fs.renameSync=function(from,to){if(to===path.join(home,'tasks','tasks.json'))throw Error('simulated task store failure');return rename.apply(fs,arguments)};partial=tasks.saveWorkflow({definition:saved.workflow,schedule:{...schedule,enabled:false}})}finally{fs.renameSync=rename}
+  assert(partial.syncError&&partial.workflow.revision>saved.workflow.revision);assert.strictEqual(tasks.list().tasks[0].workflow.revision,saved.workflow.revision,'Failed synchronization cannot authorize the new workflow revision');saved=tasks.saveWorkflow({definition:partial.workflow,schedule:{...schedule,enabled:false}});assert(!saved.syncError)
+  const shutdownTrigger=tasks.run(id);await tasks.close();await host.dispose();host=new PluginHost({workspaceRoot:home,settings});host.loadBuiltins();await host.ready();await host.configure();tasks=host.get('tasks');workflows=host.get('workflows');tasks.attach({home,pool,timer:false,clock:()=>time});assert.strictEqual(tasks.list().runs.find(r=>r.id===shutdownTrigger.id).status,'cancelled');assert.strictEqual(workflows.list().workflows[0].description,'更新的业务说明');assert.strictEqual(tasks.list().tasks[0].id,id);assert.strictEqual(tasks.list().runs.filter(r=>r.workflowRunId).length,2)
+  tasks.removeWorkflow({id:workflowId});assert.strictEqual(tasks.list().tasks.length,0);assert.strictEqual(workflows.list().workflows.length,0);assert(tasks.list().runs.length>0,'Removing trigger keeps its history')
+  console.log('Workflow schedules: persisted description, one canonical task, revision sync, real due dispatch, human wait, no task Agent loop, idempotency, overlap skip, stop, stale-version refusal, disable, recovery and deletion passed')
+ }finally{if(host)await host.dispose();fs.rmSync(home,{recursive:true,force:true})}
+}
+main().catch(e=>{console.error(e);process.exit(1)})

@@ -8,8 +8,8 @@ class Repository{
  append(id,event){C.id(id);const prior=this.getRun(id),fact={...event,version:1,sequence:prior?prior.sequence+1:1,at:Date.now()},state=S.reduce(prior,fact),fd=fs.openSync(path.join(this.dir,'runs',id+'.jsonl'),'a');try{fs.writeSync(fd,JSON.stringify(fact)+'\n');fs.fsyncSync(fd)}finally{fs.closeSync(fd)}this.dropDetail(id);this.runs.set(id,this.index(state));return state}
  index(state){
   if(['pending','running'].includes(state.status))return state
-  const {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error}=state
-  return {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,deliveryCount:(state.plannedArtifacts||[]).length,artifactCount:Artifacts.current(state).length||state.steps.filter(s=>s.artifact).length,steps:state.steps.map(({id,title,status,startedAt,endedAt})=>({id,title,status,startedAt,endedAt}))}
+  const {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,trigger}=state
+  return {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,...(trigger?{trigger}:{}),deliveryCount:(state.plannedArtifacts||[]).length,artifactCount:Artifacts.current(state).length||state.steps.filter(s=>s.artifact).length,steps:state.steps.map(({id,title,status,startedAt,endedAt})=>({id,title,status,startedAt,endedAt}))}
  }
  readRun(id,repair){
   const file=path.join(this.dir,'runs',C.id(id)+'.jsonl'),bytes=fs.readFileSync(file),end=bytes.lastIndexOf(10)+1

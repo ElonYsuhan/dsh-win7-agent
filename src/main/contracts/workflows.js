@@ -27,6 +27,7 @@ function validate(raw,types=TYPES){
  if(!raw||typeof raw!=='object'||(raw.version!==undefined&&![1,2].includes(raw.version)))throw Error('WORKFLOW_INVALID')
  if(raw.editor!==undefined&&!['steps','canvas'].includes(raw.editor))throw Error('流程编辑模式无效');
  if(JSON.stringify(raw).length>512000)throw Error('流程定义超过512000字');
+ if(raw.description!==undefined&&typeof raw.description!=='string')throw Error('流程备注需要文本');const description=String(raw.description||'');if(description.length>4000)throw Error('流程备注最多4000字');
  const name=String(raw.name||'').trim();if(!name||name.length>120)throw Error('请输入流程名称（最多120字）')
  if(!Array.isArray(raw.nodes)||!raw.nodes.length||raw.nodes.length>100||!Array.isArray(raw.edges)||raw.edges.length>300)throw Error('流程需要1～100个节点，连线最多300条')
  const seen=new Set(),nodes=raw.nodes.map(n=>{
@@ -58,7 +59,7 @@ function validate(raw,types=TYPES){
  if(new Set(edges.map(e=>e.to+':'+e.slot)).size!==edges.length)throw Error('同一输入端口不能连接多条连线')
  for(const n of nodes)for(const file of n.deliverable&&n.deliverable.files||[]){const source=nodes.find(source=>source.id===file.nodeId&&source.id!==n.id);if(!source)throw Error('产物引用的来源节点不存在');if(TYPES.some(t=>t.type===source.type)&&!['agent','tool','human'].includes(source.type))throw Error('文件产物需来自 Agent、工具、人工附件或文件节点扩展；单次 AI 节点请使用文本交付')};
  for(const n of nodes)for(const binding of Object.values(n.bindings))if(!nodes.some(source=>source.id===binding.nodeId)||binding.nodeId===n.id)throw Error('输入映射引用无效节点');
- return {version:raw.version===2||nodes.some(n=>['agent','tool'].includes(n.type)||n.inputSchema||n.outputSchema||n.processing||n.interaction)?2:1,editor:raw.editor==='steps'?'steps':'canvas',id:raw.id?id(raw.id):'',name,nodes,edges}
+ return {version:raw.version===2||nodes.some(n=>['agent','tool'].includes(n.type)||n.inputSchema||n.outputSchema||n.processing||n.interaction)?2:1,editor:raw.editor==='steps'?'steps':'canvas',id:raw.id?id(raw.id):'',name,description,nodes,edges}
 }
 function submission(raw,requireConclusion=true){
  id(raw.id);id(raw.nodeId);id(raw.taskId)
@@ -70,4 +71,8 @@ function submission(raw,requireConclusion=true){
  if(raw.decision&&!['confirm','approve','reject'].includes(raw.decision))throw Error('处理结论类型无效')
  return {conclusion,decision:raw.decision||'confirm',files}
 }
-module.exports={TYPES,id,validate,submission,humanModes}
+function scheduledTrigger(raw){
+ if(!raw||Object.keys(raw).some(k=>!['version','type','taskId','taskRunId','revision'].includes(k))||raw.version!==1||raw.type!=='task'||typeof raw.taskId!=='string'||!/^[A-Za-z0-9_-]{1,80}$/.test(raw.taskId)||typeof raw.taskRunId!=='string'||!/^[A-Za-z0-9_:-]{1,160}$/.test(raw.taskRunId)||!Number.isInteger(raw.revision)||raw.revision<1)throw Error('定时触发来源无效')
+ return{version:1,type:'task',taskId:raw.taskId,taskRunId:raw.taskRunId,revision:raw.revision}
+}
+module.exports={scheduledTrigger,TYPES,id,validate,submission,humanModes}

@@ -128,7 +128,7 @@ async function main() {
     assert.strictEqual(await driver.evaluate(`Object.keys(document.getElementById('workflowCanvas').data.selected_nodes).length`),1,'Shift-click removes from the group')
     // Editor chrome: no 编辑流程 header row, the flow name floats inside the canvas, tool strip is centred.
     assert(await driver.evaluate(`(()=>{const h=document.querySelector('#workflowPage > .workflow-header');return !h||getComputedStyle(h).display==='none'})()`),'Editor drops the 编辑流程 header row')
-    assert(await driver.evaluate(`!!document.querySelector('#workflowCanvasHost > #workflowNameField')`),'Flow name floats inside the canvas instead of a separate row')
+    assert(await driver.evaluate(`!!document.querySelector('#workflowFlowProperties #workflowNameField')`),'Flow name belongs to the right-hand workflow properties')
     assert(await driver.evaluate(`(()=>{const t=document.getElementById('workflowCanvasTools').getBoundingClientRect(),h=document.getElementById('workflowCanvasHost').getBoundingClientRect();return Math.abs(t.top+t.height/2-(h.top+h.height/2))<=2})()`),'Canvas tool strip is vertically centred')
     // Card edges resize directly at the actual pointer location; Escape restores the gesture.
     await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(v=>v.properties.workflowId==='h');c.selectNode(n);c.setDirty(true,true);return true})()`)
