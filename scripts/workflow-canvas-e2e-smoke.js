@@ -42,7 +42,7 @@ function req(method, url, data) {
 const graph = {
   name: '画布交互验收',
   version: 2,
-  editor: 'canvas',
+  editor: 'steps', // Old saved preferences must open directly in the unified canvas.
   nodes: [
     { id: 's', type: 'start', text: '原始需求' },
     { id: 'h', type: 'human', title: '登记需求', text: '登记需求要点后继续。', interaction: { version: 1, type: 'handle', returnTo: 'previous-human' } },
@@ -79,7 +79,8 @@ async function main() {
     await driver.evaluate('workflowUI.openDraft(' + JSON.stringify(flow.id) + ')', { awaitPromise: true })
     await wait(() => driver.evaluate('!!document.getElementById("workflowCanvas").data&&document.getElementById("workflowCanvas").data.graph._nodes.length===4'), 'canvas')
     await sleep(100)
-    await driver.evaluate(`(()=>{const toggle=document.getElementById('workflowStepsToggle');if(toggle&&toggle.textContent.includes('画布'))toggle.click();const c=document.getElementById('workflowCanvas').data;for(const [id,pos]of Object.entries({s:[150,110],h:[510,110],a:[150,360],e:[510,360]}))c.graph._nodes.find(n=>n.properties.workflowId===id).pos=pos;c.ds.scale=.65;c.ds.offset[0]=0;c.ds.offset[1]=0;c.setDirty(true,true);return true})()`)
+    assert(await driver.evaluate(`!document.getElementById('workflowStepsToggle')&&!document.getElementById('workflowStepList')&&getComputedStyle(document.getElementById('workflowCanvasHost')).display!=='none'`),'Legacy step preference opens the canvas without a view switch')
+    await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;for(const [id,pos]of Object.entries({s:[150,110],h:[510,110],a:[150,360],e:[510,360]}))c.graph._nodes.find(n=>n.properties.workflowId===id).pos=pos;c.ds.scale=.65;c.ds.offset[0]=0;c.ds.offset[1]=0;c.setDirty(true,true);return true})()`)
     assert.deepStrictEqual(await driver.evaluate(`Array.from(document.querySelectorAll('#workflowCanvasTools [data-canvas-action]')).map(b=>b.dataset.canvasAction)`), ['select','connect','box','split','resize','zoom'])
     const point=async(x,y)=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,r=c.canvas.getBoundingClientRect();return{x:r.left+(${x}+c.ds.offset[0])*c.ds.scale,y:r.top+(${y}+c.ds.offset[1])*c.ds.scale}})()`)
     const mouse=async(type,p,buttons=0,modifiers=0)=>driver.cdp.send('Input.dispatchMouseEvent',{type,button:'left',buttons,clickCount:1,modifiers,...p})
@@ -221,6 +222,7 @@ async function main() {
     for(const theme of ['light','dark']){await driver.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);await sleep(80);shot('workflow-canvas-'+theme+'.png',Buffer.from(await driver.screenshot(),'base64'))}
     await driver.click('#workflowSave');await wait(()=>driver.evaluate(`!document.getElementById('workflowCards').classList.contains('hidden')`),'saved')
     const saved=(await req('GET',base+'/api/workflows')).workflows.find(w=>w.id===flow.id)
+    assert.strictEqual(saved.editor,'canvas','Legacy view preference saves as the unified canvas')
     for(const n of saved.nodes){assert.deepStrictEqual(n.pos,before[n.id],'Position persisted for '+n.id);if(n.id==='h')assert.deepStrictEqual(n.size,sizeAfter,'Card size persisted for '+n.id)}
     await driver.evaluate('workflowUI.openDraft(' + JSON.stringify(flow.id) + ')', { awaitPromise: true })
     await wait(()=>driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.length===4`),'reopened')

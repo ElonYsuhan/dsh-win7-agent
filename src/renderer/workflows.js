@@ -28,7 +28,6 @@
  const humanModes=n=>Array.isArray(n.humanModes)?n.humanModes:[n.humanKind||'review']
  // 旧节点没有 interaction 时，按已有处理方式归纳成三种预设之一，不再保留「保留原有组合配置」。
  const interactionPreset=props=>{const type=props&&props.interaction&&props.interaction.type;if(type==='handle'||type==='review'||type==='approve')return type;const modes=humanModes(props||{});return modes.includes('approval')?'approve':modes.includes('read')?'review':'handle'}
- let stepsMode=false
  let cardTheme=null
  const api=(action,payload)=>window.dsh.workflowRequest(action,payload)
  const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e}
@@ -118,7 +117,7 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   $('openWorkflows').setAttribute('aria-current','page')
   page.classList.remove('hidden')
   notice('')
-  if(canvas&&mode==='editor'&&!stepsMode){syncCanvasTheme();canvas.startRendering();requestAnimationFrame(resize)}
+  if(canvas&&mode==='editor'){syncCanvasTheme();canvas.startRendering();requestAnimationFrame(resize)}
   refresh()
  }
  async function refresh(){
@@ -166,7 +165,7 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   controls.back.classList.toggle('hidden',next==='flows')
   const filteredFlow=filter&&data.workflows.find(w=>w.id===filter)
   $('workflowHeading').textContent=next==='editor'?'编辑流程':next==='runs'?(filteredFlow?'执行实例 · '+filteredFlow.name:'执行实例'):next==='detail'?'实例详情':'工作流'
-  if(canvas){if(next==='editor'&&!stepsMode)canvas.startRendering();else canvas.stopRendering()}
+  if(canvas){if(next==='editor')canvas.startRendering();else canvas.stopRendering()}
  }
  function renderFlows(){
   const list=$('workflowCards');list.textContent=''
@@ -561,7 +560,6 @@ function nextNodeId(type){
   for(const radio of document.querySelectorAll('[name=workflowRestMethod]'))radio.checked=!!n&&radio.value===(n.properties.rest&&n.properties.rest.method||'GET')
   renderStructured(n)
   renderHumanExtras(n)
-  if(stepsMode)renderSteps()
   $('workflowNodeMode').textContent=n?(human?{handle:'人工办理 · 完成后继续',review:'人工审阅 · 已阅后继续',approve:'人工审批 · 通过或驳回'}[preset]:'自动执行 · 完成后继续'):'选择节点查看配置'
   const hint=$('workflowParamHint')
   if(hint){
@@ -593,7 +591,6 @@ function nextNodeId(type){
   if(agents.length&&!await window.appDialogs.confirm('确认执行“'+flow.name+'”？\n\n'+agents.map(n=>n.title+'：'+(n.type==='tool'?n.tool.name:((n.agent&&n.agent.tools)||[]).join('、')||'无工具')+(n.type==='tool'?'；固定调用一次':'；最多'+(n.agent&&n.agent.maxSteps||6)+'轮、'+(n.agent&&n.agent.maxRequests||6)+'次模型请求、'+(n.agent&&n.agent.maxToolCalls||8)+'次工具调用')+'；超时'+Math.round((n.agent&&n.agent.timeoutMs||120000)/1000)+'秒；'+((n.type==='tool'?n.tool.permission:n.agent&&n.agent.permission)==='workspace'?'允许工作目录内修改':'只读')).join('\n')+'\n\n人工步骤会等待确认，Agent 内部不会请求人工授权。'))return null
   return api('run',{id:flow.id,confirmed:true})
  }
- function positionSteps(){for(const [index,n]of graph._nodes.entries())n.pos=[48+index*(cardTheme.width+72),120]}
  function arrangeGraph(){
   if(!graph||!graph._nodes.length)return
   const nodes=graph._nodes.slice(),degree=new Map(nodes.map(n=>[n.id,0])),children=new Map(nodes.map(n=>[n.id,[]])),rank=new Map(nodes.map(n=>[n.id,0]))
@@ -605,19 +602,8 @@ function nextNodeId(type){
   for(const [depth,list]of columns){let y=100;for(const n of list){n.pos=[48+depth*(cardTheme.width+72),y];y+=n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+56}}
   dirty=true;graph.setDirtyCanvas(true,true);fitGraph()
  }
- function rechain(){if(!graph)return;positionSteps();for(const link of Object.values(graph.links).filter(Boolean))graph.removeLink(link.id);for(let i=1;i<graph._nodes.length;i++){const a=graph._nodes[i-1],b=graph._nodes[i];if(!['end','output'].includes(a.type.split('/')[1])&&!['start','input'].includes(b.type.split('/')[1])){if(!a.outputs||!a.outputs.length)a.addOutput('文本','text');if(!b.inputs||!b.inputs.length)b.addInput('输入1','text');a.connect(0,b,0)}}dirty=true;renderSteps()}
  // 流程元信息在右侧共享属性面板，点击画布空白时展示。
 function placeNameField(){const field=$('workflowNameField'),slot=$('workflowFlowNameSlot');if(field&&slot&&field.parentNode!==slot)slot.append(field)}
-function setSteps(value){
-  if(value&&graph&&graph._nodes.length&&(Object.values(graph.links).filter(Boolean).length!==graph._nodes.length-1||graph._nodes.some(n=>(n.inputs||[]).filter(p=>p.link!==null&&p.link!==undefined).length>1||(n.outputs||[]).some(p=>p.links&&p.links.length>1)))){notice('当前流程不是完整顺序链，请继续使用画布编辑。');return setSteps(false)}
-  if(value&&graph&&graph._nodes.length){const links=Object.values(graph.links).filter(Boolean),targets=new Set(links.map(l=>l.target_id)),ordered=[];let current=graph._nodes.find(n=>!targets.has(n.id));while(current&&!ordered.includes(current)){ordered.push(current);const link=links.find(l=>l.origin_id===current.id);current=link?graph.getNodeById(link.target_id):null}if(ordered.length!==graph._nodes.length){notice('当前流程无法表示为顺序步骤，请使用画布编辑。');return setSteps(false)}graph._nodes=ordered}
-  if(stepsMode&&!value&&graph)positionSteps()
-  stepsMode=value;$('workflowStepList').classList.toggle('hidden',!value);$('workflowCanvasHost').classList.toggle('hidden',value);placeNameField(value);ribbonButton($('workflowStepsToggle'),value?'wf-canvas':'wf-steps',value?'画布视图':'步骤视图');$('workflowStepsToggle').setAttribute('aria-pressed',String(value));if(value){if(canvas)canvas.stopRendering();renderSteps()}else if(canvas){canvas.startRendering();requestAnimationFrame(()=>{resize();fitGraph()})}
- }
- function renderSteps(){const host=$('workflowStepList');host.textContent='';if(!graph)return
-  graph._nodes.forEach((n,index)=>{const row=node('article',undefined,'workflow-step-item'+(selectedNode===n?' selected':'')),select=button((index+1)+'. '+n.title,()=>{canvas.selectNode(n);parameter(n)});select.setAttribute('aria-pressed',String(selectedNode===n));select.prepend(glyph(window.workflowNodeIcons.name(n.type)));const actions=node('div');for(const [offset,label]of [[-1,'上移'],[1,'下移']]){const b=button(label,()=>{const target=index+offset;[graph._nodes[index],graph._nodes[target]]=[graph._nodes[target],graph._nodes[index]];rechain()});const target=graph._nodes[index+offset];b.disabled=['workflow/start','workflow/end'].includes(n.type)||!target||['workflow/start','workflow/end'].includes(target.type);actions.append(b)}row.append(select,node('small',((data.nodes.find(d=>'workflow/'+d.type===n.type)||{}).name||n.type)+(interactionName(n.properties&&n.properties.interaction)?' · '+interactionName(n.properties.interaction):''),'muted'),actions);host.append(row)})
-  if(!graph._nodes.length)host.append(node('p','从上方选择节点，按步骤配置流程。','muted'))
- }
  function renderStructured(n){
   const host=$('workflowStructuredOptions');host.textContent='';if(!n)return
   const props=n.properties,type=n.type.split('/')[1]
@@ -698,7 +684,7 @@ function freePort(n,input){
  const name=input?'输入'+(list.length+1):list.length?'输出'+(list.length+1):'文本';if(input)n.addInput(name,'text');else n.addOutput(name,'text');return list.length-1
 }
 function updatePortHints(event){
- if(!canvas||!graph||mode!=='editor'||stepsMode||!['select','connect'].includes(canvasMode)||canvas.node_dragged||canvas.dragging_canvas||cardResizeGesture||splitGesture){clearPortHints();return}
+ if(!canvas||!graph||mode!=='editor'||!['select','connect'].includes(canvasMode)||canvas.node_dragged||canvas.dragging_canvas||cardResizeGesture||splitGesture){clearPortHints();return}
  const point=splitPoint(event),n=event.target===canvas.canvas?graph.getNodeOnPos(point[0],point[1],canvas.visible_nodes):null,connecting=canvas.connecting_node
  if(!n||n===connecting){clearPortHints();return}
  if(!connecting&&n.is_selected&&point[1]>n.pos[1]+n.size[1]-12/canvas.ds.scale&&Math.min(Math.abs(point[0]-n.pos[0]),Math.abs(point[0]-n.pos[0]-n.size[0]))<12/canvas.ds.scale){clearPortHints();return}
@@ -818,7 +804,8 @@ function edit(flow){
   }
   if(window.applyIcons)window.applyIcons(toolbar)
   setupCanvasTools();setupRibbonActions()
-  stepsMode=flow.editor==='steps';setSteps(stepsMode);parameter(null)
+  // Legacy editor:'steps' definitions use the same canvas without rewriting edges.
+  placeNameField();parameter(null)
   canvas.startRendering()
   resize()
   requestAnimationFrame(()=>{resize();fitGraph()})
@@ -828,15 +815,14 @@ function edit(flow){
   if(type.type==='human'){n.properties.interaction={version:1,type:'review',returnTo:'previous-human'};n.properties.processing={version:1,blocks:[{type:'instructions',title:'处理描述'},{type:'conclusion',title:'备注',required:false}]}}
   n.pos=position?[position[0]-n.size[0]/2,position[1]-(n.size[1]-LiteGraph.NODE_TITLE_HEIGHT)/2]:[canvas.canvas.width/(2*canvas.ds.scale)-canvas.ds.offset[0]-n.size[0]/2+(graph._nodes.length%3)*24,canvas.canvas.height/(2*canvas.ds.scale)-canvas.ds.offset[1]-n.size[1]/2+(graph._nodes.length%3)*24]
   applyNodeTheme(n);graph.add(n)
-  if(stepsMode){const end=graph._nodes.find(v=>v.type==='workflow/end');if(end&&end!==n){graph._nodes.splice(graph._nodes.indexOf(n),1);graph._nodes.splice(graph._nodes.indexOf(end),0,n)}rechain()}
   canvas.selectNode(n);parameter(n);dirty=true;queuePortSync();graph.setDirtyCanvas(true,true);return n
  }
  function ribbonButton(control,iconName,text){if(!control)return;control.classList.add('workflow-ribbon-button');control.textContent='';control.append(glyph(iconName),node('span',text,'workflow-ribbon-label'));control.setAttribute('aria-label',text)}
  function setupRibbonActions(){
-  let arrange=$('workflowArrange');if(!arrange){arrange=button('',()=>{if(stepsMode){positionSteps();dirty=true;renderSteps()}else arrangeGraph()},'整理节点布局');arrange.id='workflowArrange';$('workflowStepsToggle').before(arrange)}
-  for(const [id,title,items]of [['workflowRibbonViews','视图',[arrange,$('workflowStepsToggle')]],['workflowRibbonValidation','验证',[$('workflowSimulate')]]]){let group=$(id);const controls=items.filter(Boolean);if(!group&&controls.length){group=node('div',undefined,'workflow-ribbon-action-group');group.id=id;group.dataset.ribbonGroup=title;group.setAttribute('role','group');group.setAttribute('aria-label',title);controls[0].before(group);group.append(...controls)}}
+  let arrange=$('workflowArrange');if(!arrange){arrange=button('',arrangeGraph,'整理节点布局');arrange.id='workflowArrange';$('workflowSimulate').before(arrange)}
+  for(const [id,title,items]of [['workflowRibbonViews','视图',[arrange]],['workflowRibbonValidation','验证',[$('workflowSimulate')]]]){let group=$(id);const controls=items.filter(Boolean);if(!group&&controls.length){group=node('div',undefined,'workflow-ribbon-action-group');group.id=id;group.dataset.ribbonGroup=title;group.setAttribute('role','group');group.setAttribute('aria-label',title);controls[0].before(group);group.append(...controls)}}
   $('workflowEditorActions').dataset.ribbonGroup='流程'
-  for(const [id,iconName,text]of [['workflowArrange','wf-layout','整理布局'],['workflowStepsToggle',stepsMode?'wf-canvas':'wf-steps',stepsMode?'画布视图':'步骤视图'],['workflowSimulate','wf-test','自测验证'],['workflowBack','wf-back','返回'],['workflowSave','wf-save','保存流程']])ribbonButton($(id),iconName,text)
+  for(const [id,iconName,text]of [['workflowArrange','wf-layout','整理布局'],['workflowSimulate','wf-test','自测验证'],['workflowBack','wf-back','返回'],['workflowSave','wf-save','保存流程']])ribbonButton($(id),iconName,text)
  }
  const canvasHost=$('workflowCanvasHost')
  canvasHost.addEventListener('dragover',event=>{if(mode!=='editor'||!event.dataTransfer||!Array.from(event.dataTransfer.types).includes('application/x-workflow-node'))return;event.preventDefault();event.stopPropagation();event.dataTransfer.dropEffect='copy';canvasHost.classList.add('is-node-drop-target')},true)
@@ -1010,7 +996,6 @@ function edit(flow){
  function removeSelectedNode(){
   if(!selectedNode||!graph)return
   graph.remove(selectedNode)
-  if(stepsMode)rechain()
   parameter(null)
   dirty=true
   graph.setDirtyCanvas(true,true)
@@ -1022,7 +1007,6 @@ function edit(flow){
   $('contentFrame').classList.remove('hidden')
  })
  $('workflowTemplate').addEventListener('click',async()=>{try{const draft=await api('template',{id:'report'});edit(draft);dirty=true;notice('步骤模板已载入，检查表单、Agent 白名单和限额后保存；尚未执行。')}catch(e){notice(e.message)}})
- $('workflowStepsToggle').addEventListener('click',()=>setSteps(!stepsMode))
  $('workflowAI').addEventListener('click',()=>window.workflowChat.open({mode:'create'}).catch(e=>notice(e.message)))
  $('workflowNew').addEventListener('click',()=>create().catch(e=>notice(e.message)))
  controls.back.addEventListener('click',async()=>{
@@ -1047,7 +1031,7 @@ function edit(flow){
    const nodes=graph._nodes.map(n=>({...Object.fromEntries(['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing'].filter(k=>n.properties[k]!==undefined&&!(k==='interaction'&&n.type!=='workflow/human')).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:ports(n,true),outputs:ports(n,false),size:Array.from(n.size||[]),pos:Array.from(n.pos)}))
    const byGraph=new Map(graph._nodes.map((n,i)=>[n.id,nodes[i].id]))
    const edges=Object.values(graph.links).filter(Boolean).map(l=>({from:byGraph.get(l.origin_id),to:byGraph.get(l.target_id),slot:l.target_slot||0,outputSlot:l.origin_slot||0}))
-   return {...editing,editor:stepsMode?'steps':'canvas',name:$('workflowName').value,description:$('workflowDescription').value,nodes,edges}
+   return {...editing,editor:'canvas',name:$('workflowName').value,description:$('workflowDescription').value,nodes,edges}
  }
  controls.save.addEventListener('click',async()=>{
   const b=controls.save;b.disabled=true
@@ -1064,7 +1048,7 @@ function edit(flow){
   }catch(e){notice(e.message)}
   finally{b.disabled=false}
  })
- $('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNode.title=$('workflowNodeTitle').value;if(stepsMode)renderSteps();dirty=true;graph.setDirtyCanvas(true,true)}})
+ $('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNode.title=$('workflowNodeTitle').value;dirty=true;graph.setDirtyCanvas(true,true)}})
  $('workflowNodeText').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.text=$('workflowNodeText').value;dirty=true;graph.setDirtyCanvas(true,true)}})
  $('workflowNodeDescription').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.description=$('workflowNodeDescription').value;dirty=true}})
  $('workflowRestUrl').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.rest={...(selectedNode.properties.rest||{method:'GET'}),url:$('workflowRestUrl').value};dirty=true}})

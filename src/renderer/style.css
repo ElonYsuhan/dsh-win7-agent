@@ -6338,12 +6338,7 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 #capabilityCenter #installedSkills,#capabilityCenter #installedMcp,#capabilityCenter #installedPlugins,
 #capabilityCenter #skillLibraryList,#capabilityCenter #mcpList,#capabilityCenter #pluginList{display:contents;overflow:visible;margin:0;padding:0;scrollbar-gutter:auto;}
 
-#workflowStepList.hidden,#workflowCanvasHost.hidden{display:none;}
-.workflow-step-list{overflow:auto;min-width:0;min-height:0;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);padding:12px;}
-.workflow-step-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;min-height:var(--workflow-node-height);border:1px solid var(--workflow-node-border);border-radius:var(--workflow-node-radius);padding:15px 18px 13px;margin-bottom:12px;background:var(--workflow-node-background);}
-.workflow-step-item.selected{border-color:var(--workflow-node-selected);box-shadow:inset 0 0 0 1px var(--workflow-node-selected);}
-.workflow-step-item>button{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:24px;padding:0;border:0;background:transparent;color:var(--workflow-node-text);font-size:14px;font-weight:600;}
-.workflow-step-item>div{display:flex;gap:6px;grid-column:1/-1;justify-content:flex-end;}
+#workflowCanvasHost.hidden{display:none;}
 .workflow-schema-field{display:block;margin:10px 0;font-size:12px;}
 .workflow-schema-field>input,.workflow-schema-field>textarea,.workflow-schema-field>select{display:block;box-sizing:border-box;width:100%;margin-top:5px;}
 .workflow-capability-options{max-height:170px;overflow:auto;}
@@ -6923,14 +6918,6 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-execution-map.is-collapsed .workflow-map-scroll {display:none;}
 .workflow-execution-map.is-collapsed .workflow-map-header {border-bottom:0;}
 
-/* 步骤视图：一行放得下序号、标题、类型和排序，6 步以内不用滚动。 */
-.workflow-step-list {padding:10px;}
-.workflow-step-item {grid-template-columns:minmax(0,1fr) auto auto;gap:10px;min-height:0;padding:10px 12px;margin-bottom:8px;}
-.workflow-step-item>button {font-size:13px;font-weight:600;line-height:1.4;}
-.workflow-step-item>small {grid-column:2;grid-row:1;white-space:nowrap;font-size:11px;color:var(--muted);}
-.workflow-step-item>div {grid-column:3;grid-row:1;justify-content:flex-end;gap:4px;}
-.workflow-step-item>div button {min-height:26px;padding:3px 8px;font-size:11px;}
-.workflow-step-item>button {justify-content:flex-start;text-align:left;}
 /* 未选中节点时属性面板只留一句提示，不显示空表单。 */
 .workflow-parameters.is-empty .workflow-property-content,
 .workflow-parameters.is-empty .workflow-property-footer {display:none;}
