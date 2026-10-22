@@ -5,6 +5,7 @@
   const label=element('label',labelText||schema.title||'字段');label.className='workflow-schema-field'
   let control,read
   if(schema.type==='object'){
+   const entries=Object.entries(schema.properties||{});if(entries.length===1){const[key,child]=entries[0],title=labelText||schema.title||'表单';if(title===(child.title||key)){const row=field(child,value&&value[key],(schema.required||[]).includes(key),child.title||key,fieldKey?fieldKey+'.'+key:key);return{element:row.element,read:()=>{const value=row.read();return value===undefined?{}:{[key]:value}}}}}
    const group=element('fieldset'),legend=element('legend',labelText||schema.title||'表单');group.append(legend);const readers={}
    for(const [key,child]of Object.entries(schema.properties||{})){const row=field(child,value&&value[key],(schema.required||[]).includes(key),child.title||key,fieldKey?fieldKey+'.'+key:key);group.append(row.element);readers[key]=row.read}
    return{element:group,read:()=>{const data={};for(const [key,get]of Object.entries(readers)){const v=get();if(v!==undefined)data[key]=v}return data}}

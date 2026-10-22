@@ -140,6 +140,7 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   }
  }
  function view(next){
+  clearPortHints(true)
   executionMapCleanup()
   finishSplit(true);finishCardResize(true);closeCanvasMenu(false)
   mode=next
@@ -338,7 +339,6 @@ function buildHumanTask(options){
  const hint=node('span','最多 3 个文件，合计 512 KB','workflow-upload-hint');hint.id=formId+'UploadHint'
  zoneText.append(node('strong','点击选择或拖入文件'),hint);zone.append(glyph('upload'),zoneText,files);inputLabel.append(uploadHeading,zone)
  const selectedList=node('ul',undefined,'workflow-selected-files');selectedList.setAttribute('aria-label','已选附件');selectedList.setAttribute('aria-live','polite')
- const fileNote=node('details',undefined,'workflow-file-note');fileNote.append(node('summary','附件如何传递？'),node('p','TXT、Markdown、JSON、CSV 等文本附件提取前 16000 字传给后续步骤，其他格式保留文件引用。'))
  const label=node('label',undefined,'workflow-conclusion-field'),conclusion=node('textarea');label.append(node('span',modes.includes('approval')?'审批意见（必填）':'处理结论（必填）','workflow-field-label'));conclusion.rows=4;conclusion.maxLength=16000;conclusion.required=true;conclusion.placeholder=modes.includes('approval')?'说明审批意见、判断依据或需要修改的内容…':'填写你的判断、结论或需要补充的说明…';label.append(conclusion)
  const error=node('p',undefined,'workflow-error');error.id=formId+'Error';error.setAttribute('role','alert');conclusion.setAttribute('aria-describedby',error.id);files.setAttribute('aria-describedby',hint.id+' '+error.id)
  function setFiles(list){
@@ -364,7 +364,7 @@ function buildHumanTask(options){
  }
  if(interaction&&interaction.type==='review'){legend.textContent='退回修改';decision.hidden=true}
  const reviewed=node('input');reviewed.type='checkbox';reviewed.required=modes.includes('read')&&!interaction
- const attachmentBlock=node('div',undefined,'workflow-processing-block');attachmentBlock.append(inputLabel,selectedList,fileNote)
+ const attachmentBlock=node('div',undefined,'workflow-processing-block');attachmentBlock.append(inputLabel,selectedList)
  const reused=new Set(((step&&step.returnFiles)||[]).map(f=>f.ref))
  if(reused.size){const previous=node('div',undefined,'workflow-reused-files');previous.append(node('p','上轮附件已保留，可继续使用或移除后重新上传。','muted'));for(const file of step.returnFiles){const row=node('label',undefined,'workflow-radio'),check=node('input');check.type='checkbox';check.checked=true;check.addEventListener('change',()=>{if(check.checked)reused.add(file.ref);else reused.delete(file.ref);files.required=modes.includes('upload')&&!reused.size});row.append(check,document.createTextNode(file.name+' · '+formatBytes(file.size)));previous.append(row)}attachmentBlock.prepend(previous)}
  let readValues=null
@@ -495,7 +495,12 @@ function renderHumanForm(result,entry,step,task){
    }
    N.title=def.name
    N.collapsable=false
-   N.prototype.computeSize=function(out){const size=out||[0,0],custom=this.properties&&this.properties.cardSize;size[0]=custom?custom[0]:cardTheme.width;size[1]=Math.max(custom?custom[1]:cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,Math.max((this.inputs||[]).length,(this.outputs||[]).length)*LiteGraph.NODE_SLOT_HEIGHT+22);return size}
+   N.prototype.computeSize=function(out){const size=out||[0,0],custom=this.properties&&this.properties.cardSize;size[0]=custom?custom[0]:cardTheme.width;size[1]=Math.max(custom?custom[1]:cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,Math.max(connectedPorts(this,true),connectedPorts(this,false))*LiteGraph.NODE_SLOT_HEIGHT+22);return size}
+   N.prototype.getConnectionPos=function(input,index,out){out=out||new Float32Array(2);const list=this[input?'inputs':'outputs']||[],port=list[index];if(!port||!portVisible(this,input,index)){out[0]=out[1]=-1e6;return out}out[0]=this.pos[0]+(input?10:this.size[0]-9);out[1]=this.pos[1]+(port._workflowTemporary&&port.pos?port.pos[1]:14+list.slice(0,index).filter(p=>portConnected(p,input)).length*LiteGraph.NODE_SLOT_HEIGHT);return out}
+   // LiteGraph's generic type fallback checks `links` even for inputs (`link`).
+   // Our card-body drops must select a genuinely free slot, never replace input 0.
+   N.prototype.connectByType=function(slot,target,type){const index=(target.inputs||[]).findIndex(p=>!portConnected(p,true)&&LiteGraph.isValidConnection(type,p.type));return index<0?null:this.connect(slot,target,index)}
+   N.prototype.connectByTypeOutput=function(slot,source,type){const index=(source.outputs||[]).findIndex(p=>!portConnected(p,false)&&LiteGraph.isValidConnection(p.type,type));return index<0?null:source.connect(index,this,slot)}
    N.prototype.onConnectionsChange=function(){dirty=true;queuePortSync(this)}
    LiteGraph.registerNodeType('workflow/'+def.type,N)
    LiteGraph.registered_node_types['workflow/'+def.type].title=def.name
@@ -600,7 +605,7 @@ function nextNodeId(type){
   for(const [depth,list]of columns){let y=100;for(const n of list){n.pos=[48+depth*(cardTheme.width+72),y];y+=n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+56}}
   dirty=true;graph.setDirtyCanvas(true,true);fitGraph()
  }
- function rechain(){if(!graph)return;positionSteps();for(const link of Object.values(graph.links).filter(Boolean))graph.removeLink(link.id);for(let i=1;i<graph._nodes.length;i++){const a=graph._nodes[i-1],b=graph._nodes[i];if(a.outputs&&a.outputs.length&&b.inputs&&b.inputs.length)a.connect(0,b,0)}dirty=true;renderSteps()}
+ function rechain(){if(!graph)return;positionSteps();for(const link of Object.values(graph.links).filter(Boolean))graph.removeLink(link.id);for(let i=1;i<graph._nodes.length;i++){const a=graph._nodes[i-1],b=graph._nodes[i];if(!['end','output'].includes(a.type.split('/')[1])&&!['start','input'].includes(b.type.split('/')[1])){if(!a.outputs||!a.outputs.length)a.addOutput('文本','text');if(!b.inputs||!b.inputs.length)b.addInput('输入1','text');a.connect(0,b,0)}}dirty=true;renderSteps()}
  // 流程元信息在右侧共享属性面板，点击画布空白时展示。
 function placeNameField(){const field=$('workflowNameField'),slot=$('workflowFlowNameSlot');if(field&&slot&&field.parentNode!==slot)slot.append(field)}
 function setSteps(value){
@@ -664,22 +669,48 @@ function setSteps(value){
   const tools=node('fieldset');tools.className='workflow-capability-options';tools.append(node('legend','固定工具白名单（不支持命令和浏览器）'))
   for(const tool of(data.capabilities&&data.capabilities.tools||[])){const label=node('label',undefined,'workflow-radio'),check=node('input');check.type='checkbox';check.checked=(config.tools||[]).includes(tool.name);check.disabled=(config.permission||'readonly')==='readonly'&&tool.permission!=='read'&&!check.checked;check.addEventListener('change',()=>{const set=new Set(config.tools||[]);check.checked?set.add(tool.name):set.delete(tool.name);config.tools=[...set];dirty=true});label.title=tool.description;label.append(check,document.createTextNode(tool.name+' · '+tool.permission));tools.append(label)}host.append(tools)
  }
- // 端口不在界面里单独配置：按连线自动增减，始终保留一个空闲入口 / 出口，多进多出直接拖线即可。
+ // Logical slot indexes remain stable for {{inputN}}. Only linked ports and the
+ // current gesture's temporary ports are visible/hittable; trailing blanks are removed.
+function portConnected(port,input){return input?port.link!==null&&port.link!==undefined:!!(port.links&&port.links.length)}
+function connectedPorts(n,input){return(n[input?'inputs':'outputs']||[]).filter(port=>portConnected(port,input)).length}
+function activePort(n,input,index){return!!canvas&&canvas.connecting_node===n&&canvas.connecting_slot===index&&!!(input?canvas.connecting_input:canvas.connecting_output)}
+function portVisible(n,input,index){const port=(n[input?'inputs':'outputs']||[])[index];return!!port&&(portConnected(port,input)||port._workflowTemporary||activePort(n,input,index))}
 let portSyncPending=false
-function queuePortSync(){if(portSyncPending||!graph)return;portSyncPending=true;requestAnimationFrame(()=>{portSyncPending=false;if(!graph)return;for(const item of graph._nodes)syncNodePorts(item);graph.setDirtyCanvas(true,true)})}
+function queuePortSync(){if(portSyncPending||!graph)return;portSyncPending=true;requestAnimationFrame(()=>{portSyncPending=false;if(!graph)return;for(const item of graph._nodes){for(const input of [true,false])for(const port of item[input?'inputs':'outputs']||[])if(port._workflowTemporary&&portConnected(port,input)){delete port._workflowTemporary;delete port.pos}syncNodePorts(item)}graph.setDirtyCanvas(true,true)})}
 function syncNodePorts(n){
  if(!n||!graph||graph._nodes.indexOf(n)<0)return
- const type=n.type.split('/')[1],limits=stepsMode?{inputs:1,outputs:1}:{inputs:8,outputs:8}
- const wantIn=['input','start'].includes(type)?0:Math.max(1,Math.min(limits.inputs,(n.inputs||[]).filter(port=>port.link!==null&&port.link!==undefined).length+(stepsMode?0:1)))
- const wantOut=['output','end'].includes(type)?0:Math.max(1,Math.min(limits.outputs,stepsMode?1:(n.outputs||[]).reduce((sum,port)=>sum+((port.links&&port.links.length)||0),0)+1))
+ const last=input=>{const list=n[input?'inputs':'outputs']||[];let count=0;for(let i=0;i<list.length;i++)if(portVisible(n,input,i))count=i+1;return count},wantIn=last(true),wantOut=last(false)
  let changed=false
- while((n.inputs||[]).length<wantIn){n.addInput('输入'+((n.inputs||[]).length+1),'text');changed=true}
  while((n.inputs||[]).length>wantIn&&(n.inputs[n.inputs.length-1].link===null||n.inputs[n.inputs.length-1].link===undefined)){n.removeInput(n.inputs.length-1);changed=true}
- while((n.outputs||[]).length<wantOut){n.addOutput((n.outputs||[]).length?'输出'+((n.outputs||[]).length+1):'文本','text');changed=true}
  while((n.outputs||[]).length>wantOut&&!((n.outputs[n.outputs.length-1].links||[]).length)){n.removeOutput(n.outputs.length-1);changed=true}
- if(changed&&n.size)n.size=n.computeSize()
+ if(n.size){const size=n.computeSize();if(size[0]!==n.size[0]||size[1]!==n.size[1]){n.size=size;changed=true}}
 }
 function syncAllPorts(){if(!graph)return;for(const item of graph._nodes)syncNodePorts(item)}
+function clearPortHints(cancel=false){
+ if(!graph)return
+ if(cancel&&canvas){canvas.connecting_node=null;canvas.connecting_input=null;canvas.connecting_output=null;canvas.connecting_pos=null;canvas.connecting_slot=-1}
+ let changed=false
+ for(const n of graph._nodes)for(const input of [true,false])for(const [index,port]of(n[input?'inputs':'outputs']||[]).entries())if(port._workflowTemporary&&!activePort(n,input,index)){delete port._workflowTemporary;delete port.pos;changed=true}
+ if(changed){syncAllPorts();if(canvas)canvas.setDirty(true,true)}
+}
+function freePort(n,input){
+ const list=n[input?'inputs':'outputs']||(n[input?'inputs':'outputs']=[]),index=list.findIndex((port,i)=>!portConnected(port,input)&&!activePort(n,input,i));if(index>=0)return index;if(list.length>=8)return-1
+ const name=input?'输入'+(list.length+1):list.length?'输出'+(list.length+1):'文本';if(input)n.addInput(name,'text');else n.addOutput(name,'text');return list.length-1
+}
+function updatePortHints(event){
+ if(!canvas||!graph||mode!=='editor'||stepsMode||!['select','connect'].includes(canvasMode)||canvas.node_dragged||canvas.dragging_canvas||cardResizeGesture||splitGesture){clearPortHints();return}
+ const point=splitPoint(event),n=event.target===canvas.canvas?graph.getNodeOnPos(point[0],point[1],canvas.visible_nodes):null,connecting=canvas.connecting_node
+ if(!n||n===connecting){clearPortHints();return}
+ if(!connecting&&n.is_selected&&point[1]>n.pos[1]+n.size[1]-12/canvas.ds.scale&&Math.min(Math.abs(point[0]-n.pos[0]),Math.abs(point[0]-n.pos[0]-n.size[0]))<12/canvas.ds.scale){clearPortHints();return}
+ const input=connecting?!!canvas.connecting_output:point[0]<n.pos[0]+n.size[0]/2,type=n.type.split('/')[1],edge=input?n.pos[0]+10:n.pos[0]+n.size[0]-9
+ if(input&&['start','input'].includes(type)||!input&&['end','output'].includes(type)||!connecting&&(Math.abs(point[0]-edge)>20/canvas.ds.scale||point[1]<n.pos[1]+6)){clearPortHints();return}
+ const list=n[input?'inputs':'outputs']||[]
+ if(list.some((port,index)=>portConnected(port,input)&&Math.hypot(...Array.from(n.getConnectionPos(input,index)).map((v,i)=>v-point[i]))<12/canvas.ds.scale)){clearPortHints();return}
+ // Reuse the same hint while moving along an edge, without adding/removing slots per pixel.
+ for(const other of graph._nodes)for(const side of [true,false])for(const [index,port]of(other[side?'inputs':'outputs']||[]).entries())if(port._workflowTemporary&&!activePort(other,side,index)&&(other!==n||side!==input)){delete port._workflowTemporary;delete port.pos}
+ syncAllPorts();const index=freePort(n,input);if(index<0)return
+ const port=n[input?'inputs':'outputs'][index];port._workflowTemporary=true;port.pos=[input?10:n.size[0]-9,Math.max(14,Math.min(n.size[1]-8,point[1]-n.pos[1]))];canvas.setDirty(true,true)
+}
 function edit(flow){
   register()
   editing=JSON.parse(JSON.stringify(flow))
@@ -728,7 +759,7 @@ function edit(flow){
    ctx.save();ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.lineCap='round';ctx.globalAlpha=this.editor_alpha;ctx.strokeStyle=this.highlighted_links[link.id]||marqueeHasLink(a,b,startDir,endDir,points)?cardTheme.selected:color||link.color||this.default_link_color;ctx.beginPath();window.workflowLinkRouting.trace(ctx,link._workflowRouteCommands);ctx.stroke();ctx.restore()
   }
   canvas.drawNodeShape=function(n,ctx,size,color,background,selected,hovered){drawNodeCard(n,ctx,size,selected,hovered)}
-  canvas.drawNode=function(n,ctx){ctx.save();ctx.beginPath();ctx.rect(-8,-LiteGraph.NODE_TITLE_HEIGHT-8,n.size[0]+16,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+16);ctx.clip();ctx.font=this.inner_text_font;for(const ports of [n.inputs||[],n.outputs||[]])for(const port of ports)port.label=fitNodeText(ctx,port.name,n.size[0]/2-28);try{return drawNode.call(this,n,ctx)}finally{ctx.restore()}}
+  canvas.drawNode=function(n,ctx){ctx.save();ctx.beginPath();ctx.rect(-8,-LiteGraph.NODE_TITLE_HEIGHT-8,n.size[0]+16,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+16);ctx.clip();ctx.font=this.inner_text_font;const names=[];for(const ports of [n.inputs||[],n.outputs||[]])for(const port of ports){if(port._workflowTemporary){names.push([port,port.name]);port.name=''}port.label=fitNodeText(ctx,port.name,n.size[0]/2-28)}try{const result=drawNode.call(this,n,ctx);for(const input of [true,false])for(const [index,port]of(n[input?'inputs':'outputs']||[]).entries())if(port._workflowTemporary){const p=n.getConnectionPos(input,index),x=p[0]-n.pos[0],y=p[1]-n.pos[1];ctx.fillStyle=cardTheme.selected;ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();ctx.strokeStyle=cardTheme.background;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x-3,y);ctx.lineTo(x+3,y);ctx.moveTo(x,y-3);ctx.lineTo(x,y+3);ctx.stroke()}return result}finally{for(const[port,name]of names)port.name=name;ctx.restore()}}
   canvas.allow_searchbox=false
   canvas.processContextMenu=(n,e)=>{if(e&&typeof e.preventDefault==='function')e.preventDefault();if(n){canvas.selectNode(n);parameter(n)}else if(e)showCanvasMenu(e.clientX,e.clientY);return false}
   canvas.onShowNodePanel=n=>{if(n.is_selected&&Object.keys(canvas.selected_nodes).length>1)return false;canvas.selectNode(n);parameter(n);if(!$('workflowNodeText').disabled)$('workflowNodeText').focus();return false}
@@ -798,7 +829,7 @@ function edit(flow){
   n.pos=position?[position[0]-n.size[0]/2,position[1]-(n.size[1]-LiteGraph.NODE_TITLE_HEIGHT)/2]:[canvas.canvas.width/(2*canvas.ds.scale)-canvas.ds.offset[0]-n.size[0]/2+(graph._nodes.length%3)*24,canvas.canvas.height/(2*canvas.ds.scale)-canvas.ds.offset[1]-n.size[1]/2+(graph._nodes.length%3)*24]
   applyNodeTheme(n);graph.add(n)
   if(stepsMode){const end=graph._nodes.find(v=>v.type==='workflow/end');if(end&&end!==n){graph._nodes.splice(graph._nodes.indexOf(n),1);graph._nodes.splice(graph._nodes.indexOf(end),0,n)}rechain()}
-  canvas.selectNode(n);parameter(n);dirty=true;graph.setDirtyCanvas(true,true);return n
+  canvas.selectNode(n);parameter(n);dirty=true;queuePortSync();graph.setDirtyCanvas(true,true);return n
  }
  function ribbonButton(control,iconName,text){if(!control)return;control.classList.add('workflow-ribbon-button');control.textContent='';control.append(glyph(iconName),node('span',text,'workflow-ribbon-label'));control.setAttribute('aria-label',text)}
  function setupRibbonActions(){
@@ -814,6 +845,7 @@ function edit(flow){
  function updateZoom(){if(canvas&&$('workflowZoom'))$('workflowZoom').textContent=Math.round(canvas.ds.scale*100)+'%'}
  let splitGesture=null,splitGuide=null
  function canvasModeSet(mode){
+  clearPortHints(true)
   finishSplit(true);finishCardResize(true);canvasMode=mode;splitGuide=null
   if(canvas){canvas.allow_dragnodes=mode==='select';canvas.allow_interaction=!['box','split','resize'].includes(mode);canvas.dragging_canvas=false;canvas.connecting_node=null;canvas.setDirty(true,true)}
   $('workflowCanvas').style.cursor=mode==='split'||mode==='box'||mode==='connect'?'crosshair':'default'
@@ -899,7 +931,7 @@ function edit(flow){
  }
  function moveCardResize(event){
   const g=cardResizeGesture;if(!g||!canvas)return
-  const point=splitPoint(event),dx=point[0]-g.start[0],dy=point[1]-g.start[1],ports=Math.max((g.node.inputs||[]).length,(g.node.outputs||[]).length),minHeight=Math.max(cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,ports*LiteGraph.NODE_SLOT_HEIGHT+22)
+  const point=splitPoint(event),dx=point[0]-g.start[0],dy=point[1]-g.start[1],ports=Math.max(connectedPorts(g.node,true),connectedPorts(g.node,false)),minHeight=Math.max(cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,ports*LiteGraph.NODE_SLOT_HEIGHT+22)
   const width=g.x?Math.max(200,Math.min(520,g.size[0]+g.x*dx)):g.size[0],height=g.y?Math.max(minHeight,Math.min(Math.max(360,minHeight),g.size[1]+g.y*dy)):g.size[1]
   g.node.size=[width,height];g.node.properties.cardSize=[width,height];g.node.pos=[g.pos[0]+(g.x<0?g.size[0]-width:0),g.pos[1]+(g.y<0?g.size[1]-height:0)];canvas.canvas.style.cursor=g.cursor;canvas.setDirty(true,true)
  }
@@ -913,7 +945,7 @@ function edit(flow){
   if(mode!=='editor'||canvasMode!=='resize'||!canvas||cardResizeGesture||event.target!==canvas.canvas||event.isComposing||event.ctrlKey||event.metaKey||event.altKey)return false
   const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[event.key],nodes=Object.values(canvas.selected_nodes)
   if(!delta||nodes.length!==1)return false
-  const n=nodes[0],step=event.shiftKey?10:2,ports=Math.max((n.inputs||[]).length,(n.outputs||[]).length),minHeight=Math.max(cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,ports*LiteGraph.NODE_SLOT_HEIGHT+22)
+  const n=nodes[0],step=event.shiftKey?10:2,ports=Math.max(connectedPorts(n,true),connectedPorts(n,false)),minHeight=Math.max(cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,ports*LiteGraph.NODE_SLOT_HEIGHT+22)
   n.size=[Math.max(200,Math.min(520,n.size[0]+delta[0]*step)),Math.max(minHeight,Math.min(Math.max(360,minHeight),n.size[1]+delta[1]*step))];n.properties.cardSize=Array.from(n.size)
   dirty=true;graph.change();canvas.setDirty(true,true);event.preventDefault();event.stopImmediatePropagation();return true
  }
@@ -929,6 +961,7 @@ function edit(flow){
  document.addEventListener('keydown',event=>{if(canvasMenu&&event.key==='Escape'&&!event.isComposing){event.preventDefault();event.stopImmediatePropagation();closeCanvasMenu(true)}},true)
  const pointer=typeof LiteGraph!=='undefined'?LiteGraph.pointerevents_method:'pointer'
  document.addEventListener(pointer+'down',event=>{
+  if(mode==='editor'&&event.button===0)updatePortHints(event)
   if(canvasMenu&&!canvasMenu.contains(event.target)&&!event.target.closest('[data-canvas-action=zoom]'))closeCanvasMenu(false)
   if(mode==='editor'&&event.button===0){const hit=cardResizeHit(event);if(hit){if(canvasMode==='resize')canvas.selectNode(hit.node);cardResizeGesture={...hit,start:splitPoint(event),pos:Array.from(hit.node.pos),size:Array.from(hit.node.size),custom:hit.node.properties.cardSize&&Array.from(hit.node.properties.cardSize)};canvas.canvas.focus();event.preventDefault();event.stopImmediatePropagation();return}}
   if(mode==='editor'&&canvasMode==='resize'&&canvas&&event.target===canvas.canvas&&event.button===0){const point=splitPoint(event),n=graph.getNodeOnPos(point[0],point[1],canvas.visible_nodes);if(n){canvas.selectNode(n);canvas.canvas.focus();event.preventDefault();event.stopImmediatePropagation();return}}
@@ -938,6 +971,7 @@ function edit(flow){
   splitGuide=start;canvas.canvas.focus();canvas.setDirty(true,true);event.preventDefault();event.stopImmediatePropagation()
  },true)
  document.addEventListener(pointer+'move',event=>{
+  updatePortHints(event)
   if(cardResizeGesture){moveCardResize(event);event.preventDefault();event.stopImmediatePropagation();return}
   if(mode==='editor'&&['select','resize'].includes(canvasMode)&&canvas&&event.target===canvas.canvas){const hit=cardResizeHit(event);queueMicrotask(()=>{if(canvas&&event.target===canvas.canvas&&['select','resize'].includes(canvasMode))canvas.canvas.style.cursor=hit?hit.cursor:'default'})}
   if(canvas&&mode==='editor'&&canvas.dragging_rectangle)canvas.setDirty(true,true)
@@ -945,15 +979,16 @@ function edit(flow){
   moveSplit(event);if(splitGesture){event.preventDefault();event.stopImmediatePropagation()}
  },true)
  document.addEventListener(pointer+'up',event=>{
+  if(mode==='editor')requestAnimationFrame(()=>{clearPortHints();syncAllPorts();if(canvas)canvas.setDirty(true,true)})
   if(cardResizeGesture){moveCardResize(event);finishCardResize(false);event.preventDefault();event.stopImmediatePropagation();return}
   if(splitGesture){moveSplit(event);finishSplit(false);event.preventDefault();event.stopImmediatePropagation();return}
   if(mode==='editor'&&canvasMode==='box')Promise.resolve().then(()=>{if(canvas&&canvasMode==='box')canvasModeSet('select')})
  },true)
- document.addEventListener('pointercancel',()=>{finishSplit(true);finishCardResize(true)},true)
- $('workflowCanvas').addEventListener('mouseleave',()=>{if(!splitGesture){splitGuide=null;if(canvas)canvas.setDirty(true,true)}})
+ document.addEventListener('pointercancel',()=>{clearPortHints(true);finishSplit(true);finishCardResize(true)},true)
+ $('workflowCanvas').addEventListener('mouseleave',()=>{clearPortHints();if(!splitGesture){splitGuide=null;if(canvas)canvas.setDirty(true,true)}})
  $('workflowCanvas').addEventListener('keydown',event=>{if(resizeCardByKey(event))return;if(event.key==='Escape'){finishCardResize(true);finishSplit(true);closeCanvasMenu(false);canvasModeSet('select');if(canvas){canvas.deselectAllNodes();canvas.dragging_rectangle=null;canvas.setDirty(true,true)}event.preventDefault()}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();const box=$('workflowCanvas').getBoundingClientRect();showCanvasMenu(box.left+40,box.top+40)}},true)
  $('workflowCanvasHost').addEventListener('wheel',event=>{if(!canvas||mode!=='editor')return;event.preventDefault();event.stopImmediatePropagation();if(splitGesture||cardResizeGesture||!event.deltaY)return;const rect=canvas.canvas.getBoundingClientRect();canvas.ds.changeScale(canvas.ds.scale*(event.deltaY<0?1.1:1/1.1),[event.clientX-rect.left,event.clientY-rect.top]);canvas.setDirty(true,true);updateZoom()},{passive:false,capture:true})
- window.addEventListener('blur',()=>{finishSplit(true);finishCardResize(true);closeCanvasMenu(false)})
+ window.addEventListener('blur',()=>{clearPortHints(true);finishSplit(true);finishCardResize(true);closeCanvasMenu(false)})
  function resize(){
   if(canvas&&mode==='editor'&&!page.classList.contains('hidden')){
    const rect=$('workflowCanvasHost').getBoundingClientRect()
@@ -1008,7 +1043,8 @@ function edit(flow){
  for(const id of ['Enabled','Kind','Time','Weekday','Minutes','Timezone'])$('workflowSchedule'+id).addEventListener('change',()=>{dirty=true;scheduleFields();$('workflowScheduleStatus').textContent='定时设置将在保存流程时同步'})
  $('workflowName').addEventListener('input',()=>{dirty=true})
  function editorDefinition(){
-   const nodes=graph._nodes.map(n=>({...Object.fromEntries(['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing'].filter(k=>n.properties[k]!==undefined&&!(k==='interaction'&&n.type!=='workflow/human')).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:(n.inputs||[]).map(p=>({name:p.name,type:'text'})),outputs:(n.outputs||[]).map(p=>({name:p.name,type:'text'})),size:Array.from(n.size||[]),pos:Array.from(n.pos)}))
+   const ports=(n,input)=>{const list=n[input?'inputs':'outputs']||[];let count=0;for(let i=0;i<list.length;i++)if(portConnected(list[i],input))count=i+1;return list.slice(0,count).map(p=>({name:p.name,type:'text'}))}
+   const nodes=graph._nodes.map(n=>({...Object.fromEntries(['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing'].filter(k=>n.properties[k]!==undefined&&!(k==='interaction'&&n.type!=='workflow/human')).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:ports(n,true),outputs:ports(n,false),size:Array.from(n.size||[]),pos:Array.from(n.pos)}))
    const byGraph=new Map(graph._nodes.map((n,i)=>[n.id,nodes[i].id]))
    const edges=Object.values(graph.links).filter(Boolean).map(l=>({from:byGraph.get(l.origin_id),to:byGraph.get(l.target_id),slot:l.target_slot||0,outputSlot:l.origin_slot||0}))
    return {...editing,editor:stepsMode?'steps':'canvas',name:$('workflowName').value,description:$('workflowDescription').value,nodes,edges}
@@ -1016,6 +1052,7 @@ function edit(flow){
  controls.save.addEventListener('click',async()=>{
   const b=controls.save;b.disabled=true
   try{
+   clearPortHints(true);syncAllPorts()
    if(graph._nodes.some(n=>Object.keys(n.properties.schemaErrors||{}).length))throw Error('请先修正节点 Schema 或输入映射 JSON')
    if(!scheduleLoaded)throw Error('定时配置尚未加载完成，请稍后保存')
    const definition=editorDefinition(),schedule=flowSchedule();if(schedule.enabled&&definition.nodes.some(n=>['agent','tool','rest'].includes(n.type))){if(!await window.appDialogs.confirm('保存并启用定时执行“'+definition.name+'”？\n\n定时执行会调用此流程配置的接口、工具或 Agent，并沿用节点中的工具白名单与限额。人工环节仍需确认；已有未结束实例时跳过。'))return;schedule.confirmed=true}

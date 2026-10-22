@@ -56,7 +56,7 @@ function apply(node,raw,workflow){
  if(node.type==='human'){result.interaction=design.interaction;result.processing=design.processing;result.humanModes=[design.interaction.type==='approve'?'approval':design.interaction.type==='review'?'read':'review',...(design.processing.blocks.some(b=>b.type==='attachments'&&b.required===true)?['upload']:[])];result.humanKind=result.humanModes[0]}
  return result
 }
-function fileMetadata(files){return(Array.isArray(files)?files:[]).slice(0,32).map(file=>({name:String(file.name||'').slice(0,200),size:Number.isFinite(file.size)?file.size:0,ref:String(file.ref||'').slice(0,300)}))}
+function fileMetadata(files){return(Array.isArray(files)?files:[]).slice(0,360).map(file=>({name:String(file.name||'').slice(0,200),size:Number.isFinite(file.size)?file.size:0,ref:String(file.ref||'').slice(0,300)}))}
 function envelope(node,step,upstreamFiles=[],textLimit=128000){
  nodeIdentity(node)
  const source=step||{}

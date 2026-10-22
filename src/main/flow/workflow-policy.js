@@ -6,4 +6,13 @@ function mapped(node,steps){const result={};for(const [field,binding]of Object.e
 function returnTarget(graph,node,order){const config=Interaction.configuration(node.interaction);if(!config)return null;const upstream=new Set(Interaction.reachable(graph,node.id,true).filter(key=>key!==node.id)),human=order.filter(key=>upstream.has(key)).map(key=>graph.nodes.find(n=>n.id===key)).filter(n=>n.type==='human');if(config.returnTo!=='previous-human')return human.find(n=>n.id===config.returnTo)||null;const handling=human.filter(n=>n.interaction?n.interaction.type==='handle':(n.humanModes||[n.humanKind||'review']).some(mode=>['review','upload'].includes(mode)));return(handling.length?handling:human).slice(-1)[0]||null}
 function validateInteractions(graph,order){for(const node of graph.nodes)if(node.interaction&&node.interaction.returnTo!=='previous-human'&&!returnTarget(graph,node,order))throw Error('驳回目标必须是上游人工环节')}
 function interactionView(run,node){const config=Interaction.configuration(node.interaction);if(!config)return null;const target=returnTarget(run.workflow,node,run.plan),step=target&&run.steps.find(s=>s.id===target.id);return{type:config.type,canReject:!!target&&!!step&&step.status==='succeeded',...(target?{returnTargetId:target.id,returnTargetTitle:target.title}:{})}}
-module.exports={plan,descendants,mapped,returnTarget,validateInteractions,interactionView}
+// Files travel by immutable upload references through all upstream steps, including
+// text-only intermediate nodes. Keep branch provenance and remove duplicate refs.
+function inputFiles(graph,steps,nodeId){
+ const upstream=new Set(),queue=[nodeId]
+ while(queue.length){const to=queue.shift();for(const edge of graph.edges)if(edge.to===to&&!upstream.has(edge.from)&&edge.from!==nodeId){upstream.add(edge.from);queue.push(edge.from)}}
+ const seen=new Set(),files=[]
+ for(const step of steps)if((upstream.has(step.id)&&step.status==='succeeded')||(step.id===nodeId&&step.assistance))for(const file of step.files||[])if(!seen.has(file.ref)){seen.add(file.ref);files.push(file)}
+ return files
+}
+module.exports={plan,descendants,mapped,returnTarget,validateInteractions,interactionView,inputFiles}
