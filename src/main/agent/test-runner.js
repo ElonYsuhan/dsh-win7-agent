@@ -145,13 +145,13 @@ async function runAssertion(driver, assertion, before) {
   }
   if (type === 'console_clean') {
     /* 增量语义：只看本用例产生的（基线快照长度之后的新增），历史错误不算 */
-    const errors = (driver.consoleErrors || []).slice(Array.isArray(before.consoleErrors) ? before.consoleErrors.length : 0)
+    const errors = deltaOf(driver.consoleErrors, before.consoleErrors)
     const ok = errors.length === 0
     return { ok: ok, actual: errors.length ? errors.slice(0, 5).map((item) => item.type + ': ' + item.text).join(' | ') : 'clean', message: 'console must have no errors' }
   }
   if (type === 'network_clean') {
     const allow = Array.isArray(assertion.allowStatus) ? assertion.allowStatus : []
-    const fresh = (driver.networkErrors || []).slice(Array.isArray(before.networkErrors) ? before.networkErrors.length : 0)
+    const fresh = deltaOf(driver.networkErrors, before.networkErrors)
     const bad = fresh.filter((item) => item.kind !== 'status' || allow.indexOf(item.status) === -1)
     const ok = bad.length === 0
     return { ok: ok, actual: bad.length ? bad.slice(0, 5).map((item) => (item.status ? item.status + ' ' : '') + (item.url || item.errorText)).join(' | ') : 'clean', message: 'network must have no failed/HTTP>=400 requests' }
@@ -175,7 +175,7 @@ async function runAssertion(driver, assertion, before) {
     }
     if (assertion.webglClean !== false) {
       /* 增量语义：与本用例开始前的基线比，只看新产生的 WebGL/GPU 错误 */
-      const freshErrors = (driver.consoleErrors || []).slice(Array.isArray(before.consoleErrors) ? before.consoleErrors.length : 0)
+      const freshErrors = deltaOf(driver.consoleErrors, before.consoleErrors)
       const glErrors = freshErrors.filter((item) => /webgl|gpu|context lost/i.test(item.text))
       if (glErrors.length) problems.push('WebGL/GPU errors in console: ' + glErrors[0].text.slice(0, 200))
     }
@@ -232,7 +232,7 @@ async function runCase(driver, testCase) {
     for (const artifact of artifacts) {
       report.screenshots.push(artifact.label)
     }
-    if (report.steps.length && report.steps[report.steps.length - 1].ok) {
+    if (report.status === 'PASS') {
       for (const assertion of (testCase.assertions || [])) {
         try {
           const outcome = await runAssertion(driver, assertion, beforeSnapshot)
@@ -264,6 +264,10 @@ async function runCase(driver, testCase) {
 
 /* 增量：before 快照长度之后的才是本次产生的 */
 function deltaOf(current, baseline) {
+  if (baseline && baseline.length && baseline.every(item => Number.isInteger(item.captureSequence))) {
+    const sequence = Math.max(...baseline.map(item => item.captureSequence))
+    return (current || []).filter(item => item.captureSequence > sequence)
+  }
   const count = Array.isArray(baseline) ? baseline.length : 0
   return (current || []).slice(count)
 }

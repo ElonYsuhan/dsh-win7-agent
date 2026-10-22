@@ -33,6 +33,7 @@ function load(file, platform, overrides) {
     clearTimeout: () => {},
     require: (name) => {
       if (overrides && Object.prototype.hasOwnProperty.call(overrides, name)) return overrides[name]
+      if (name.startsWith('.')) return require(path.resolve(ROOT, path.dirname(file), name))
       return require(name)
     }
   }

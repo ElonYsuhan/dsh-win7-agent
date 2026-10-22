@@ -1,7 +1,8 @@
 'use strict'
 const path=require('path'),crypto=require('crypto'),C=require('../../contracts/workflows'),P=require('../../flow/workflow-policy'),Schema=require('../../contracts/workflow-schema'),Templates=require('../../contracts/workflow-templates'),Artifacts=require('../../contracts/workflow-artifacts'),Processing=require('../../contracts/workflow-processing'),Interaction=require('../../contracts/workflow-interaction'),Design=require('../../contracts/workflow-node-design'),{Repository}=require('../../workflows/repository')
+const Materials=require('../../contracts/workflow-materials')
 const randomId=()=>crypto.randomBytes(12).toString('hex')
-module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','workflowAgent','workflowDesigner'],apply(ctx){
+module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','workflowAgent','workflowDesigner','knowledge'],apply(ctx){
  let repo,closed=false,closing=false,emit=()=>{}
  const active=new Map(),jobs=new Set()
  const notify=()=>{try{emit({type:'workflows:changed'})}catch(_){}}
@@ -30,6 +31,7 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
     let input=incoming.map(e=>values.get(e.from)||'').join('\n')
     if(Object.keys(node.bindings||{}).length){if(node.inputSchema&&node.type!=='human')Schema.validate(mapped,node.inputSchema,'节点输入');input=JSON.stringify(mapped)}
     else if(node.inputSchema&&node.type!=='human')Schema.validate(mapped,node.inputSchema,'节点输入')
+    const materialContext=Materials.context(run.materials);if(materialContext&&['start','input','ai','evaluate','agent','human'].includes(node.type)&&!input.includes(materialContext))input+=(input?'\n\n':'')+materialContext
     const before=current.steps.find(s=>s.id===key);if(before.assistance)input+='\n\n上次中间结论：'+(before.partial||'')+'\n人工补充：'+before.assistance
     const expected=run.workflow.nodes.flatMap(n=>(n.deliverable&&n.deliverable.files||[]).filter(f=>f.nodeId===key).map(f=>f.path));if(expected.length&&['agent','ai'].includes(node.type))input+='\n\n本步骤必须实际生成以下交付文件（相对于当前工作目录）：'+expected.join('、')+'。不得只描述文件已创建；若没有写文件能力，明确报告无法完成。';
     const started=record(run.id,{type:'node-started',nodeId:key,input,data:mapped}),step=started.steps.find(s=>s.id===key)
@@ -40,7 +42,7 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
      if(['ai','evaluate','agent'].includes(node.type)&&++modelCalls>20)throw Error('单次流程最多执行20个模型/Agent节点尝试')
      const resources=run.resources||{skills:{},tools:{}}
      if(resources.nodeVersions&&resources.nodeVersions[node.type]!==String((ctx.workflowNodes.definitions.find(d=>d.type===node.type)||{}).version||'1'))throw Error('节点扩展版本已变更，请创建新实例')
-     let workspaceRoot;const files=P.inputFiles(run.workflow,started.steps,key)
+     let workspaceRoot;const files=P.inputFiles(run.workflow,started.steps,key,run.materials||[])
      if(['agent','tool'].includes(node.type)||run.workflow.nodes.some(n=>(n.deliverable&&n.deliverable.files||[]).some(f=>f.nodeId===key))){sessionId='wf_'+run.id+'_'+crypto.createHash('sha256').update(key+':'+step.attempt).digest('hex').slice(0,16);workspaceRoot=ready().workspace(run.id,key,step.attempt,input,files)}
      const raw=await ctx.workflowNodes.execute({node,input,inputs,files:Design.fileMetadata(files),signal:controller.signal,settings:ctx.agentConfig.settings.data,resources,workspaceRoot,sessionId,onProgress:(message,extra={})=>{if(progressCount++>=100)return;record(run.id,{type:'node-progress',nodeId:key,message:String(message).slice(0,1000),...(extra.tool?{tool:String(extra.tool).slice(0,80)}:{}),...(extra.result?{result:String(extra.result).slice(0,1500)}:{}),...(extra.sessionId?{sessionId:String(extra.sessionId).slice(0,80)}:{})})}})
      text=typeof raw==='object'&&raw!==null?String(raw.output||''):String(raw)
@@ -60,9 +62,19 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
   }catch(error){record(run.id,{type:'finished',status:controller.signal.aborted&&!expired?'cancelled':'failed',error:expired?'自动执行超过10分钟时限':error.message})}
   finally{clearTimeout(timer);active.delete(run.id)}
  }
- function startRun(raw,trigger){const r=ready(),workflow=r.definitions.find(w=>w.id===C.id(raw.id));if(!workflow)throw Error('WORKFLOW_NOT_FOUND');if(trigger&&workflow.revision!==trigger.revision)throw Error('流程已修改，请重新保存定时设置');const scheduledId=trigger?crypto.createHash('sha256').update('task:'+trigger.taskRunId).digest('hex').slice(0,24):null;if(scheduledId&&r.runs.has(scheduledId))return r.getRun(scheduledId);if(trigger&&[...r.runs.values()].some(run=>run.workflowId===workflow.id&&['pending','running','waiting','paused'].includes(run.status)))throw Error('该流程已有未结束的实例');C.validate(workflow,ctx.workflowNodes.definitions);P.validateInteractions(workflow,P.plan(workflow));if(workflow.nodes.some(n=>['agent','tool'].includes(n.type))&&raw.confirmed!==true)throw Error('请先确认流程步骤、Agent 工具白名单和执行限额');capacity();if(r.runs.size>=2000)throw Error('运行记录达到2000条上限');const resources={...ctx.workflowAgent.snapshot(workflow.nodes),nodeVersions:Object.fromEntries(ctx.workflowNodes.definitions.map(d=>[d.type,String(d.version||'1')]))},id=scheduledId||randomId(),plannedArtifacts=r.drafts(id,workflow),run=record(id,{type:'created',run:{id,...(trigger?{trigger}:{}),plannedArtifacts,workflowId:workflow.id,name:workflow.name,revision:workflow.revision,workflow:JSON.parse(JSON.stringify(workflow)),confirmed:raw.confirmed===true,resources,plan:P.plan(workflow),createdAt:Date.now()}});launch(run);return run}
- const envelopeFor=(run,step,textLimit)=>Design.envelope(run.workflow.nodes.find(n=>n.id===step.id),step,P.inputFiles(run.workflow,run.steps,step.id),textLimit)
+ function startRun(raw,trigger){const r=ready(),workflow=r.definitions.find(w=>w.id===C.id(raw.id));if(!workflow)throw Error('WORKFLOW_NOT_FOUND');if(trigger&&workflow.revision!==trigger.revision)throw Error('流程已修改，请重新保存定时设置');const scheduledId=trigger?crypto.createHash('sha256').update('task:'+trigger.taskRunId).digest('hex').slice(0,24):null;if(scheduledId&&r.runs.has(scheduledId))return r.getRun(scheduledId);if(trigger&&[...r.runs.values()].some(run=>run.workflowId===workflow.id&&['pending','running','waiting','paused'].includes(run.status)))throw Error('该流程已有未结束的实例');C.validate(workflow,ctx.workflowNodes.definitions);P.validateInteractions(workflow,P.plan(workflow));if(workflow.nodes.some(n=>['agent','tool'].includes(n.type))&&raw.confirmed!==true)throw Error('请先确认流程步骤、Agent 工具白名单和执行限额');capacity();if(r.runs.size>=2000)throw Error('运行记录达到2000条上限');const resources={...ctx.workflowAgent.snapshot(workflow.nodes),nodeVersions:Object.fromEntries(ctx.workflowNodes.definitions.map(d=>[d.type,String(d.version||'1')]))},id=scheduledId||randomId(),plannedArtifacts=r.drafts(id,workflow),materials=r.materials.snapshot(workflow.materials||[],id,r.dir),run=record(id,{type:'created',run:{id,...(trigger?{trigger}:{}),plannedArtifacts,materials,workflowId:workflow.id,name:workflow.name,revision:workflow.revision,workflow:JSON.parse(JSON.stringify(workflow)),confirmed:raw.confirmed===true,resources,plan:P.plan(workflow),createdAt:Date.now()}});launch(run);return run}
+ const envelopeFor=(run,step,textLimit)=>Design.envelope(run.workflow.nodes.find(n=>n.id===step.id),step,P.inputFiles(run.workflow,run.steps,step.id,run.materials||[]),textLimit)
+ async function importMaterial(raw){
+   if(raw.source==='knowledge'){const exported=await ctx.knowledge.workflowFile(raw);return ready().materials.store(exported)}
+   if(raw.source!=='local'||typeof raw.data!=='string'||raw.data.length>Math.ceil(Materials.LIMITS.fileBytes/3)*4||raw.data.length%4||/[^A-Za-z0-9+/=]/.test(raw.data))throw Error('流程资料上传格式无效')
+   const bytes=Buffer.from(raw.data,'base64');if(bytes.toString('base64')!==raw.data)throw Error('流程资料编码无效')
+   return ready().materials.store({bytes,name:raw.name,source:{type:'local'}})
+ }
  const service={
+  importMaterial(raw){
+   if(closing||closed)return Promise.reject(Error('WORKFLOW_CLOSED'))
+   const job=Promise.resolve().then(()=>importMaterial(raw));jobs.add(job);job.then(()=>jobs.delete(job),()=>jobs.delete(job));return job
+  },
   design:raw=>ctx.workflowDesigner.design(raw),
   validateDesign:raw=>ctx.workflowDesigner.validateDesign(raw),
   simulate:raw=>ctx.workflowDesigner.simulate(raw),
@@ -72,7 +84,7 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
   canStart(){return!closing&&!closed&&active.size<2},
   hasActive(raw){const id=C.id(raw.id);return[...ready().runs.values()].some(run=>run.workflowId===id&&['pending','running','waiting','paused'].includes(run.status))},
   template(raw){return C.validate(Templates.create(raw.id),ctx.workflowNodes.definitions)},
-  save(raw){const r=ready(),graph=C.validate(raw,ctx.workflowNodes.definitions);P.validateInteractions(graph,P.plan(graph));const old=r.definitions.find(w=>w.id===graph.id);if(old&&raw.revision!==old.revision)throw Error('流程已被其他窗口修改，请重新打开');if(graph.id&&!old)throw Error('WORKFLOW_NOT_FOUND');if(r.definitions.length>=100&&!old)throw Error('流程数量超过100');const next={...graph,id:graph.id||randomId(),revision:old?old.revision+1:1};const previous=r.definitions;r.definitions=old?r.definitions.map(w=>w.id===old.id?next:w):[...r.definitions,next];try{r.save()}catch(e){r.definitions=previous;throw e}notify();return next},
+  save(raw){const r=ready(),graph=C.validate(raw,ctx.workflowNodes.definitions);graph.materials=r.materials.validate(graph.materials);P.validateInteractions(graph,P.plan(graph));const old=r.definitions.find(w=>w.id===graph.id);if(old&&raw.revision!==old.revision)throw Error('流程已被其他窗口修改，请重新打开');if(graph.id&&!old)throw Error('WORKFLOW_NOT_FOUND');if(r.definitions.length>=100&&!old)throw Error('流程数量超过100');const next={...graph,id:graph.id||randomId(),revision:old?old.revision+1:1};const previous=r.definitions;r.definitions=old?r.definitions.map(w=>w.id===old.id?next:w):[...r.definitions,next];try{r.save()}catch(e){r.definitions=previous;throw e}notify();return next},
   remove(raw){const r=ready(),id=C.id(raw.id);if([...r.runs.values()].some(run=>run.workflowId===id&&['pending','running','waiting','paused'].includes(run.status)))throw Error('请先停止正在执行、暂停或等待人工处理的实例');const previous=r.definitions;r.definitions=r.definitions.filter(w=>w.id!==id);try{r.save()}catch(e){r.definitions=previous;throw e}notify();return{ok:true}},
   run:raw=>startRun(raw),
   runScheduled(raw){const trigger=C.scheduledTrigger({version:1,type:'task',taskId:raw.taskId,taskRunId:raw.taskRunId,revision:raw.revision});return startRun({id:raw.workflowId,confirmed:true},trigger)},

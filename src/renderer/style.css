@@ -6208,14 +6208,34 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-toolbar { margin:12px 0;flex-shrink:0; }.workflow-toolbar input{flex:1;min-width:80px;}
 .workflow-page input,.workflow-page textarea{box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text);font:inherit;}
 .workflow-scroll { flex:1;min-height:0;overflow:auto;padding-bottom:18px; }
-.workflow-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px; }
-.workflow-card{min-height:142px;display:flex;flex-direction:column;justify-content:space-between;box-sizing:border-box;padding:16px;border:1px solid var(--border);background:var(--panel-2);border-radius:10px;}
+.workflow-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px; }
+.workflow-card{min-height:168px;display:flex;flex-direction:column;justify-content:space-between;gap:10px;box-sizing:border-box;padding:16px 18px 14px;border:1px solid var(--border);background:var(--panel-2);border-radius:12px;transition:border-color 140ms ease,background-color 140ms ease;}
+.workflow-card:hover{border-color:var(--hover-border);}
+.workflow-card.is-active{border-color:var(--workflow-node-selected);}
 [data-theme="light"] .workflow-card{background:var(--panel-2);}
-.workflow-card strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.workflow-card p{font-size:12px;margin:10px 0;}
+.workflow-card-head{gap:10px;min-width:0;}
+.workflow-card-head .workflow-typed-title{flex:1;min-width:0;display:inline-flex;align-items:center;gap:8px;font-size:15px;font-weight:650;color:var(--text);}
+.workflow-card-head .workflow-node-title-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.workflow-card-badges{display: inline-flex;align-items:center;gap:6px;flex-shrink:0;}
+.workflow-card-badges .workflow-status-pill{height:22px;padding:0 8px;font-size:11px;}
+.workflow-version-pill{display:inline-flex;align-items:center;height:22px;padding:0 7px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--muted);font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;}
+.workflow-card-steps{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;overflow:hidden;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:var(--panel);min-height:32px;box-sizing:border-box;}
+.workflow-step-chip{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:112px;padding:2px 6px;border-radius:5px;background:var(--panel-2);color:var(--text);font-size:11px;line-height:1.3;white-space:nowrap;}
+.workflow-step-chip .icon,.workflow-step-chip svg{width:12px;height:12px;flex-shrink:0;color:var(--muted);}
+.workflow-step-chip-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.workflow-step-arrow{color:var(--muted);font-size:11px;flex-shrink:0;opacity:.75;}
+.workflow-step-more{margin-left:auto;padding:1px 6px;border-radius:999px;background:var(--panel-2);color:var(--muted);font-size:10px;font-weight:600;flex-shrink:0;}
+.workflow-card-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;}
+.workflow-card strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.workflow-card p{font-size:12px;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.workflow-card-time{flex-shrink:0;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;}
 .workflow-card-actions button{min-height:30px;font-size:12px;}.workflow-run-row{border-bottom:1px solid var(--border);padding:14px 4px;}.workflow-run-row p{margin:6px 0;font-size:12px;}
-.workflow-card-actions{gap:8px;}
-.workflow-card-actions .workflow-icon-action{display:inline-flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;min-width:36px;height:36px;min-height:36px;padding:0;border-radius:8px;}
-.workflow-card-actions .workflow-icon-action .icon,.workflow-card-actions .workflow-icon-action svg{width:20px;height:20px;}
+.workflow-card-actions{gap:8px;padding-top:10px;border-top:1px solid var(--border);}
+.workflow-card-actions .workflow-icon-action{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;min-width:36px;height:36px;min-height:36px;padding:0;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);}
+.workflow-card-actions .workflow-icon-action:hover:not(:disabled){border-color:var(--hover-border);background:var(--selection-bg);}
+.workflow-card-actions [data-workflow-action=run]{background:var(--send-bg);color:var(--send-text);border-color:var(--send-bg);}
+.workflow-card-actions [data-workflow-action=run]:hover:not(:disabled){background:var(--send-hover);border-color:var(--send-hover);}
+.workflow-card-actions [data-workflow-action=delete]{margin-left:auto;color:var(--muted);}
+.workflow-card-actions .workflow-icon-action .icon,.workflow-card-actions .workflow-icon-action svg{width:18px;height:18px;}
 .workflow-card-actions .workflow-icon-action:focus-visible{outline:2px solid var(--workflow-node-selected);outline-offset:2px;}
 .workflow-card-actions [data-workflow-action=delete]:is(:hover,:focus-visible){color:var(--error-text);border-color:var(--error-text);background:var(--error);}
 .workflow-step{border:1px solid var(--border);border-radius:8px;padding:12px;margin:10px 0;background:var(--panel-2);}.workflow-step summary{cursor:pointer;font-weight:500;}.workflow-step pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;margin:10px 0 0;padding:10px;border-radius:6px;border:1px solid var(--border);background:var(--panel);}.workflow-error{color:var(--error-text);}
@@ -6945,3 +6965,94 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-execution-summary p{font-size:11px;line-height:1.6;margin:8px 0;}
 #workflowExecutionMiniPreview textarea{box-sizing:border-box;width:100%;min-height:58px;height:auto;resize:vertical;font-size:12px;background:var(--panel);}
 .workflow-mini-action{display:inline-flex;margin-top:8px;border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--muted);font-size:11px;}
+
+/* 实例批量停止与返回聊天共享页头操作区。 */
+.workflow-header > div:first-child{margin-right:auto;}
+.workflow-run-actions{align-items:center;flex-wrap:wrap;justify-content:flex-end;}
+.workflow-run-status{white-space:nowrap;font-size:13px;}
+
+/* 按流程分组的紧凑实例看板；自动换列适配窗口宽度。 */
+.workflow-run-filters{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:0 0 14px;}
+.workflow-run-filters label{white-space:nowrap;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);min-width:0;}
+.workflow-run-filters select{max-width:300px;min-width:140px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font:inherit;}
+#workflowRunSummary{margin-left:auto;font-size:12px;}
+.workflow-run-group{--run-tone:#82b7a2;margin-bottom:22px;}
+.workflow-run-group[data-tone="1"]{--run-tone:#8daed3;}
+.workflow-run-group[data-tone="2"]{--run-tone:#b5a0cf;}
+.workflow-run-group[data-tone="3"]{--run-tone:#cfac78;}
+.workflow-run-group-heading{display:flex;align-items:center;gap:12px;margin:0 0 10px;border-left:4px solid var(--run-tone);padding-left:10px;}
+.workflow-run-group-heading h2{margin:0;font-size:14px;overflow-wrap:anywhere;}
+.workflow-run-group-heading>span{font-size:12px;white-space:nowrap;}
+.workflow-run-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:10px;}
+#workflowInstances .workflow-run-row{display:flex;flex-direction:column;align-items:stretch;gap:10px;min-width:0;padding:12px;border:1px solid var(--border);border-top:3px solid var(--run-tone);border-radius:9px;background:var(--panel);}
+.workflow-run-info{min-width:0;display:grid;gap:6px;}
+.workflow-run-card-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.workflow-run-card-heading strong{font-size:13px;}
+.workflow-run-current{margin:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.workflow-run-info small{display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.workflow-run-info progress{width:100%;height:4px;accent-color:var(--run-tone);}
+#workflowInstances .workflow-run-actions{margin-top:auto;gap:6px;}
+#workflowInstances .workflow-run-actions button{padding:6px 9px;font-size:12px;}
+.workflow-run-card-heading .workflow-run-status{font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 6px;background:var(--panel-2);color:var(--text);}
+@media(max-width:700px){.workflow-run-filters{gap:8px;}.workflow-run-filters select{max-width:190px;}#workflowRunSummary{margin-left:0;}.workflow-run-group-heading{flex-wrap:wrap;gap:5px;}}
+
+/* 工作流页工具栏：唯一创建入口（分段按钮）、返回聊天与实例入口同排、执行实例用深色底。 */
+#workflowPage {
+  --workflow-runs-bg:#141414;
+  --workflow-runs-bg-hover:#0f0f0f;
+  --workflow-runs-border:#4a4a4a;
+  --workflow-runs-text:#f2f2f2;
+}
+[data-theme="light"] #workflowPage {
+  --workflow-runs-bg:#252525;
+  --workflow-runs-bg-hover:#111111;
+  --workflow-runs-border:#252525;
+  --workflow-runs-text:#ffffff;
+}
+.workflow-toolbar > button,
+.workflow-toolbar > .workflow-create > button { flex:none;min-height:36px;padding:7px 14px;font-size:13px; }
+#workflowPage #workflowAllRuns { background:var(--workflow-runs-bg);color:var(--workflow-runs-text);border-color:var(--workflow-runs-border);font-weight:600; }
+#workflowPage #workflowAllRuns:hover:not(:disabled) { background:var(--workflow-runs-bg-hover);border-color:var(--workflow-runs-border);color:var(--workflow-runs-text); }
+#workflowPage #workflowClose { color:var(--muted); }
+#workflowPage #workflowClose:hover:not(:disabled) { color:var(--text); }
+.workflow-create { position:relative;display:inline-flex;align-items:stretch;flex:none; }
+.workflow-create-main { border-top-right-radius:0;border-bottom-right-radius:0; }
+.workflow-create-toggle { display:inline-flex;align-items:center;justify-content:center;width:32px;margin-left:1px;padding:0;border-top-left-radius:0;border-bottom-left-radius:0;background:var(--primary-bg);border-color:transparent;color:var(--text); }
+.workflow-create-toggle:hover:not(:disabled) { background:var(--primary-hover);border-color:transparent; }
+.workflow-create-toggle[aria-expanded="true"] { background:var(--primary-hover); }
+.workflow-create-toggle > .icon,.workflow-create-toggle > .icon svg { width:14px;height:14px;transition:transform 140ms ease; }
+.workflow-create-toggle[aria-expanded="true"] > .icon { transform:rotate(180deg); }
+#workflowPage .workflow-create-menu { top:calc(100% + 6px);right:0;bottom:auto;left:auto;min-width:180px;display:flex;flex-direction:column;gap:2px;padding:6px; }
+#workflowPage .workflow-create-menu.hidden { display:none; }
+#workflowPage .workflow-create-menu button { display:flex;width:100%;align-items:center;justify-content:flex-start;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:var(--text);font-size:13px;text-align:left; }
+#workflowPage .workflow-create-menu button:hover:not(:disabled),
+#workflowPage .workflow-create-menu button:focus-visible { background:var(--selection-bg); }
+
+/* 流程资料：平面卡片与共享弹窗外壳。 */
+.workflow-material-card{border:1px solid var(--border);border-radius:8px;padding:12px;display:grid;gap:10px;}
+.workflow-material-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.workflow-material-heading h3{font-size:13px;margin:0;}.workflow-material-card p{margin:0;font-size:12px;line-height:1.6;}
+.workflow-material-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;}.workflow-material-actions button{min-width:0;padding:7px 5px;font-size:12px;background:transparent;}
+.workflow-material-list{list-style:none;padding:0;margin:0;display:grid;gap:8px;max-height:260px;overflow:auto;}.workflow-material-list:empty{display:none;}
+.workflow-material-list li{display:flex;align-items:center;gap:6px;min-width:0;border-top:1px solid var(--border);padding-top:8px;}
+.workflow-material-list li>div{min-width:0;flex:1;}.workflow-material-list strong,.workflow-material-list span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;}.workflow-material-list span{font-size:11px;margin-top:3px;}
+.workflow-material-list button{border:0;background:transparent;flex-shrink:0;padding:4px 8px;}.workflow-material-status:empty{display:none;}
+.workflow-material-dialog .modal-card{width:650px;max-height:85vh;}.workflow-material-dialog h2{margin:0;font-size:19px;}.workflow-material-dialog p{margin:0;font-size:12px;line-height:1.6;}
+.workflow-material-tree{overflow:auto;min-height:120px;max-height:45vh;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px 0;}
+.workflow-material-tree details{padding:6px 0;}.workflow-material-tree summary{cursor:pointer;}.workflow-material-tree summary label{display:inline-flex;vertical-align:middle;}.workflow-material-tree label{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;min-width:0;}.workflow-material-tree label span{overflow-wrap:anywhere;flex:1;}.workflow-material-tree input[type=checkbox]{width:auto;flex:0 0 auto;margin:0;}.workflow-material-tree small{font-size:11px;white-space:nowrap;color:var(--muted);}.workflow-material-tree ul{list-style:none;padding:0 0 0 24px;margin:6px 0;}.workflow-material-tree li{padding:7px 0;}
+
+#workflowMaterialInput{display:none!important;}
+.workflow-material-tree label,.workflow-material-tree summary label{flex-direction:row;justify-content:flex-start;margin:0;}
+.workflow-material-tree summary label{width:calc(100% - 24px);}
+
+/* Shared drag handles; content and controls retain their normal interactions. */
+.modal:not(#approvalModal) .modal-card h2,.modal:not(#approvalModal) .modal-card h3,
+.modal:not(#approvalModal) .settings-content-head,.task-dialog .task-dialog-heading,
+dialog>header,.artifact-overlay h2,.artifact-overlay h3{cursor:move;touch-action:none;}
+html.dialog-dragging,html.dialog-dragging *{cursor:grabbing!important;user-select:none!important;}
+
+.workflow-port-legend{position:absolute;right:14px;bottom:12px;display:flex;gap:12px;font-size:11px;pointer-events:none;z-index:2;}
+.workflow-port-legend .port-input{color:#16a36b;}.workflow-port-legend .port-output{color:#3b82f6;}
+/* Slightly denser conversation rows; section spacing stays independent. */
+.sidebar .chat-item,.sidebar .session-item{min-height:32px;}
+.sidebar #chatList,.sidebar .project-session-list{gap:2px;}

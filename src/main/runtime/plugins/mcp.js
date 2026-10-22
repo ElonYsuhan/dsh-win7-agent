@@ -104,6 +104,7 @@ module.exports = {
       for(const [id,disposers] of packageUnregister){if(keep.has(id))continue;for(const off of disposers)await off();packageUnregister.delete(id)}
       packageServers=items.slice()
       await manager.reconcile(manual.concat(packageServers))
+      if (closed) return status()
       for(const server of manager.status().servers){
         if(!packageServers.some(item=>item.id===server.id)||packageUnregister.has(server.id)||server.status!=='connected')continue
         const disposers=[];packageUnregister.set(server.id,disposers)
@@ -131,9 +132,14 @@ module.exports = {
     ctx.effect(() => ctx.prompts.add(() => 'Built-in mcp__documents tools read/create/edit DOCX and XLSX offline. Always use the current workspace; read before editing and pass its revision; edits save a NEW output file. Explain unsupported complex formatting. Do not claim formulas were recalculated. MCP tools, when configured, are exposed with the prefix mcp__<server>__<tool>. Use an MCP tool only when its description matches the task, and treat its result as external tool output. Never claim an MCP call succeeded unless the tool output says so.'))
     ctx.contracts.assertService('mcp', service)
     ctx.provide('mcp', service)
-    ctx.effect(() => () => {
+    ctx.effect(() => async () => {
       closed = true
-      return unregisterTools().then(() => Promise.all([manager.stop(), documents.close()]))
+      // Interrupt a handshake immediately, then drain queued configuration work
+      // before removing its last registrations. No activation can outlive us.
+      await manager.stop()
+      await chain
+      await unregisterTools()
+      await Promise.all([manager.stop(), documents.close()])
     })
     schedule()
   }

@@ -1,9 +1,10 @@
 'use strict'
 const {id,scheduledTrigger}=require('../contracts/workflows'),Artifacts=require('../contracts/workflow-artifacts'),Interaction=require('../contracts/workflow-interaction')
+const Materials=require('../contracts/workflow-materials')
 const terminal=['succeeded','failed','cancelled','interrupted']
 function reduce(previous,event){
  if(event.version!==1||!Number.isFinite(event.at)||event.sequence!==(previous?previous.sequence+1:1))throw Error('WORKFLOW_EVENT_INVALID')
- if(!previous){if(event.type!=='created')throw Error('WORKFLOW_FIRST_EVENT');id(event.run.id);if(event.run.trigger)scheduledTrigger(event.run.trigger);if(event.run.plannedArtifacts!==undefined)Artifacts.initial(event.run.plannedArtifacts,event.run.workflow);return {...event.run,sequence:1,status:'pending',steps:event.run.plan.map(key=>({id:key,title:event.run.workflow.nodes.find(n=>n.id===key).title,status:'pending',timeline:[],attempts:[]}))}}
+ if(!previous){if(event.type!=='created')throw Error('WORKFLOW_FIRST_EVENT');id(event.run.id);if(event.run.trigger)scheduledTrigger(event.run.trigger);if(event.run.materials){Materials.list(event.run.materials);if(event.run.materials.some((f,i)=>f.ref!==event.run.id+'/materials/'+i||typeof f.text!=='string'||f.text.length>16000))throw Error('流程实例资料快照无效')}if(event.run.plannedArtifacts!==undefined)Artifacts.initial(event.run.plannedArtifacts,event.run.workflow);return {...event.run,sequence:1,status:'pending',steps:event.run.plan.map(key=>({id:key,title:event.run.workflow.nodes.find(n=>n.id===key).title,status:'pending',timeline:[],attempts:[]}))}}
  if(terminal.includes(previous.status)&&!['retry-requested','deliveries-initialized'].includes(event.type))throw Error('WORKFLOW_ALREADY_FINISHED')
  const next={...previous,sequence:event.sequence,steps:previous.steps.map(s=>({...s,timeline:(s.timeline||[]).slice(),attempts:(s.attempts||[]).map(a=>({...a}))}))}
  const step=next.steps.find(s=>s.id===event.nodeId)

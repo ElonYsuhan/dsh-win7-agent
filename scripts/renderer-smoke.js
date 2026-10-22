@@ -2142,6 +2142,7 @@ const checks = `
   delete state.processBuffers.s2
   state.currentSessionId = 's1'
   await handleEvent({ type: 'assistant:thinking', sessionId: 's2', text: '后半段' })
+  flushProcessSaves() /* 流式快照合并窗口结束后核对持久化视图。 */
   const mergedHtml = findSessionById('s2').processHtml
   ok('切走后由后台接手：前半段（曾画在 DOM 里）没被盖掉，和后半段接在一起',
     mergedHtml.indexOf('前半段') !== -1 && mergedHtml.indexOf('后半段') !== -1,
@@ -2208,6 +2209,7 @@ const checks = `
   window.__dshRunningSessions = ['s1']
   applyRunState()
   await handleEvent({ type: 'assistant:thinking', sessionId: 's1', text: '第二轮思考：复现一下' })
+  flushProcessSaves() /* 流式快照合并窗口结束后核对持久化视图。 */
   const twoTurnHtml = findSessionById('s1').processHtml
   ok('同一会话连跑两轮：第一轮的过程不会被第二轮盖掉（旧实现只剩最后一轮）',
     twoTurnHtml.indexOf('第一轮思考') !== -1 && twoTurnHtml.indexOf('第二轮思考') !== -1,
@@ -2307,6 +2309,7 @@ const checks = `
   applyRunState()
   renderMessages(s2Resume)
   await handleEvent({ type: 'assistant:thinking', sessionId: 's2', text: '续写的增量' })
+  flushProcessSaves() /* 流式快照合并窗口结束后核对持久化视图。 */
   const resumedHtml = findSessionById('s2').processHtml
   const abcCount = resumedHtml.split('工具调用：abc').length - 1
   ok('续接正在跑的会话：已有过程只保存一次（出现两次就是兜底重复了）',

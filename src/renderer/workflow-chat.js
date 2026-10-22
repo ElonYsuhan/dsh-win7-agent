@@ -10,7 +10,7 @@
  }
  async function open(ref){
   if(ref.workflowId)await window.dsh.workflowRequest('context',ref)
-  let session=(sessionStore.__recent__||[]).find(s=>s.workflowReference&&s.workflowReference.mode===ref.mode&&s.workflowReference.workflowId===ref.workflowId&&s.workflowReference.runId===ref.runId&&s.workflowReference.nodeId===ref.nodeId)
+  let session=ref.mode==='create'?null:(sessionStore.__recent__||[]).find(s=>s.workflowReference&&s.workflowReference.mode===ref.mode&&s.workflowReference.workflowId===ref.workflowId&&s.workflowReference.runId===ref.runId&&s.workflowReference.nodeId===ref.nodeId)
   if(!session){session=createSession('',ref.mode==='create'?'AI 创建流程':'流程分析 · '+(ref.nodeTitle||ref.name),'recent');session.workflowReference={...ref};saveSessionStore()}
   await selectSession(session.id);$('contentFrame').classList.remove('hidden');render(session)
   if(!$('input').innerText.trim())$('input').innerText=ref.mode==='create'?'请帮我设计一个工作流。先根据我的需求确认步骤，再创建流程草稿供我编辑。':'请结合当前流程、节点输入和历史执行结果，帮我分析当前待办，给出判断依据和建议。'

@@ -165,7 +165,7 @@ async function main() {
       ]
     }], {})
     ok('test_run：正面用例判定 PASS', positive.suite.status === 'PASS' && positive.suite.passed === 1,
-      compactSuite(positive.suite).split('\n')[0])
+      compactSuite(positive.suite))
 
     /* ---- test_run：负面用例（故意触发 console.error，报告必须抓到）----
        不带 url：不复导航，避免把页面加载期那次 404 混进本用例增量；
@@ -203,8 +203,10 @@ async function main() {
     ok('test_run：network_clean 放行 allowStatus 后（历史错误不计入增量）',
       allowRun.suite.status === 'PASS', compactSuite(allowRun.suite))
 
+    const browserChild = driver.child, profile = driver.userDataDir
     await driver.close()
-    ok('关闭：close() 正常返回', true)
+    ok('关闭：返回前浏览器已退出、临时目录已释放',
+      (browserChild.exitCode !== null || browserChild.signalCode !== null) && !fs.existsSync(profile))
   } catch (error) {
     failed += 1
     failures.push('(fatal) ' + error.message)

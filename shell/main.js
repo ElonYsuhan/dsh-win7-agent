@@ -8,6 +8,8 @@ const installer = require('./installer')
 const { hideApplicationMenu, configureWindowMenu } = require('./menu')
 const { windowChromeOptions, controlsSide, windowState, applyWindowAction, attachWindowChrome, normalizeTheme, windowBackground, applyWindowTheme } = require('./window-chrome')
 
+const { attachNavigationGuard } = require('./navigation-guard')
+
 const not = (value) => value ? false : true
 const DEFAULT_BASE_PORT = 8080
 const APP_NAME = 'Agent'
@@ -509,6 +511,7 @@ function windowIconPath() {
 }
 
 function attachSecurity(window) {
+  attachNavigationGuard(window)
   window.webContents.setWindowOpenHandler(({ url: target }) => {
     if (target.startsWith('http://') || target.startsWith('https://')) { // win7-exempt (protocol check only, loads nothing)
       shell.openExternal(target)

@@ -8,12 +8,12 @@ function replaceSlots(template,input,inputs=[]){
 // Native Cordis capability; the canvas never executes node code.
 module.exports={name:'core/workflow-nodes',inject:['llm','workflowAgent'],apply(ctx){
  const handlers={
-  start:async({node})=>node.text,
+  start:async({node,input})=>[node.text,input].filter(Boolean).join('\n\n'),
   end:async({input})=>input,
   rest:async({node,input,inputs,signal})=>{const method=node.rest.method;let body='';if(!['GET','DELETE'].includes(method)){body=node.text?replaceSlots(node.text,input,inputs):JSON.stringify({input});try{JSON.parse(body)}catch(_){throw Error('REST 请求体需要有效的 JSON')}}return requestText({url:node.rest.url,method,body,signal})},
   tool:request=>{const convert=value=>typeof value==='string'?replaceSlots(value,request.input,request.inputs):Array.isArray(value)?value.map(convert):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([k,v])=>[k,convert(v)])):value;return ctx.workflowAgent.invoke({...request,args:convert(request.node.tool.arguments)})},
   agent:request=>ctx.workflowAgent.execute(request),
-  input:async({node})=>node.text,
+  input:async({node,input})=>[node.text,input].filter(Boolean).join('\n\n'),
   template:async({node,input,inputs})=>node.text?replaceSlots(node.text,input,inputs):String(input||''),
   output:async({input})=>input,
   human:async()=>{throw Error('人工节点由工作流待办驱动')},

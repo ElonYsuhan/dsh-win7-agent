@@ -26,6 +26,7 @@ const { assertInside, relativeDisplay } = require('./path-guard')
 const not = (value) => value ? false : true
 const MAX_PROCESSES = 8
 const MAX_LOG_BYTES = 256 * 1024
+const MAX_PROCESS_RECORDS = 32
 const NAME_PATTERN = /^[A-Za-z0-9._-]{1,32}$/
 
 function sleep(ms) {
@@ -41,6 +42,8 @@ class ProcessManager {
     this.maxProcesses = MAX_PROCESSES
     this.procs = new Map() /* name → record {name,pid,child,command,cwd,startedAt,exitCode,endedAt,chunks,bytes,dropped} */
     this.exitHookInstalled = false
+    this.exitHook = () => this.killAllSync()
+    this.disposed = false
   }
 
   setWorkspace(root) {
@@ -51,7 +54,7 @@ class ProcessManager {
     if (this.exitHookInstalled) return
     this.exitHookInstalled = true
     /* 服务进程退出时尽力回收：node 的 exit 里只能做同步操作 */
-    process.on('exit', () => this.killAllSync())
+    process.on('exit', this.exitHook)
   }
 
   record(name) {
@@ -63,6 +66,7 @@ class ProcessManager {
   }
 
   start(input) {
+    if (this.disposed) throw new Error('PROCESS_MANAGER_CLOSED')
     const name = String((input && input.name) || '').trim()
     if (not(NAME_PATTERN.test(name))) {
       throw new Error('BAD_PROCESS_NAME: 仅允许字母数字点横线下划线，长度 1-32（收到 "' + name + '"）')
@@ -136,6 +140,12 @@ class ProcessManager {
       entry.endedAt = Date.now()
       append('\n[process exited] code=' + entry.exitCode + (signal ? ' signal=' + signal : ''))
     })
+    // Keep recent completed logs, without accumulating one 256KB ring for
+    // every historical process name in a long-running conversation.
+    for (const [key, record] of this.procs) {
+      if (this.procs.size < MAX_PROCESS_RECORDS) break
+      if (record.exitCode !== null && key !== name) this.procs.delete(key)
+    }
     this.procs.set(name, entry)
     this.installExitHook()
     return {
@@ -189,11 +199,16 @@ class ProcessManager {
 
   async stopAll() {
     const names = [...this.procs.keys()]
-    const results = []
-    for (const name of names) {
-      results.push(await this.stop(name).catch((error) => ({ name: name, error: String(error.message) })))
-    }
-    return results
+    return Promise.all(names.map(name => this.stop(name).catch(error => ({ name, error: String(error.message) }))))
+  }
+
+  async dispose() {
+    this.disposed = true
+    await this.stopAll()
+    if ([...this.procs.values()].some(entry => entry.exitCode === null)) throw new Error('PROCESS_CLEANUP_FAILED')
+    process.removeListener('exit', this.exitHook)
+    this.exitHookInstalled = false
+    this.procs.clear()
   }
 
   /* exit 钩子里只能同步做 */

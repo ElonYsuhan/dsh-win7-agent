@@ -234,3 +234,20 @@ contextBridge.exposeInMainWorld('dsh', {
     return () => ipcRenderer.removeListener('agent:event', listener)
   }
 })
+
+// Mouse side buttons must not navigate back into startup/update history.
+// Sandbox preloads cannot import local modules; keep both entry points aligned.
+for (const type of ['mousedown', 'mouseup', 'auxclick']) {
+  window.addEventListener(type, (event) => {
+    if (event.button === 3 || event.button === 4) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+  }, { capture: true, passive: false })
+}
+window.addEventListener('keydown', (event) => {
+  if (['BrowserBack', 'BrowserForward', 'GoBack', 'GoForward'].includes(event.key)) {
+    event.preventDefault()
+    event.stopImmediatePropagation()
+  }
+}, true)

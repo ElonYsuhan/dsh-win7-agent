@@ -35,7 +35,9 @@ function waitFor(promise, timeoutMs) {
 function safeSegment(value) {
   const text = String(value || '').trim()
   if (text === '') return ''
-  const safe = text.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 48)
+  let safe = text.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 48)
+  // Session directories must be ordinary children on both POSIX and Win7.
+  if (/^\.{1,2}$/.test(safe) || /[.]$/.test(safe) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(safe)) safe = '_' + safe.replace(/[.]+$/, '_')
   if (safe === text) return safe
   let hash = 0
   for (let index = 0; index < text.length; index += 1) {

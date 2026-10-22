@@ -1,4 +1,5 @@
 'use strict'
+const { writeEvent } = require('./event-stream')
 
 /* 终端会话管理（三期）—— HTTP（web-bridge / 打包壳的渲染层）与 IPC（dev 应用）共用一套。
  *
@@ -307,13 +308,15 @@ async function handleTerminalApi(context) {
       connection: 'keep-alive'
     })
     const client = (payload) => {
-      response.write('event: terminal\ndata: ' + JSON.stringify(payload) + '\n\n')
+      writeEvent(response, 'event: terminal\ndata: ' + JSON.stringify(payload) + '\n\n')
     }
     subscribe(sid, client)
-    request.on('close', () => {
+    const detach = () => {
       const at = session.clients.indexOf(client)
       if (at >= 0) session.clients.splice(at, 1)
-    })
+    }
+    response.on('close', detach)
+    response.on('error', detach)
     return true
   }
   return false

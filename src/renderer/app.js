@@ -778,6 +778,7 @@ function addThinkingBlock(html) {
 
 /* UI 过程按模型回复定位；不进入发给模型的 messages，也不参与执行状态迁移。 */
 function recordProcessTimeline(sessionId, event) {
+  if (event.type === 'assistant:message' || event.type === 'finished') flushProcessSaves()
   const session = findSessionById(sessionId)
   if (not(session)) return
   const processTypes = ['assistant:thinking', 'tool:start', 'tool:result', 'notice', 'capability:missing']
@@ -867,6 +868,7 @@ function renderProcessTimeline(session, list, runningHere) {
 }
 
 function renderMessages(session) {
+  flushProcessSaves()
   clearMessages()
   state.currentAssistant = null
   state.currentThinking = null
@@ -2326,19 +2328,41 @@ function mergeProcessHtml(base, fresh) {
   return trimProcessHtml(head + THINKING_TURN_SEP + tail)
 }
 
-function saveThinkingProcess(content) {
-  const session = findSessionById(state.currentSessionId)
+/* 只合并界面快照，不改变运行事实与工具执行。每个会话只保留最新容器引用，
+   固定窗口触发（不随 token 续期），防止高速流把全量 storage/IPC 写入排满。 */
+const pendingProcessSaves = new Map()
+let processSaveTimer = null
+function flushProcessSaves() {
+  if (processSaveTimer !== null) clearTimeout(processSaveTimer)
+  processSaveTimer = null
+  const pending = Array.from(pendingProcessSaves.values())
+  pendingProcessSaves.clear()
+  for (const item of pending) persistProcessContent(item.session, item.content, item.base)
+}
+function persistProcessContent(session, content, base) {
   if (not(session) || not(content)) return
   if (Array.isArray(session.processTimeline)) {
     saveProcessTimelineContent(session, content.innerHTML)
     return
   }
-  /* 本轮块里的内容 + 此前记下的（state.thinkingBase）一起写回，不能只写本轮 ——
-     否则会话里第二轮一开始，第一轮的思考过程就被整段覆盖掉了。 */
-  const merged = mergeProcessHtml(state.thinkingBase || '', content.innerHTML)
+  const merged = mergeProcessHtml(base || '', content.innerHTML)
   if (session.processHtml === merged) return
   session.processHtml = merged
   saveSessionStore()
+}
+function saveThinkingProcess(content, deferred) {
+  const session = findSessionById(state.currentSessionId)
+  if (not(session) || not(content)) return
+  saveProcessContent(session, content, state.thinkingBase || '', deferred)
+}
+function saveProcessContent(session, content, base, deferred) {
+  if (deferred) {
+    pendingProcessSaves.set(session.id, {session, content, base})
+    if (processSaveTimer === null) processSaveTimer = setTimeout(flushProcessSaves, 250)
+    return
+  }
+  pendingProcessSaves.delete(session.id)
+  persistProcessContent(session, content, base)
 }
 
 /* ---- 步骤时间线 ----
@@ -2596,6 +2620,7 @@ function appendProcessToolResult(target, name, result, executionOutcome) {
    每次追加后同步回 session.processHtml（和当前会话走同一套元素级操作，格式天然一致）。 */
 function processRecord(sessionId) {
   const key = String(sessionId || '')
+  if (pendingProcessSaves.has(key) && not(state.processBuffers[key])) flushProcessSaves()
   if (not(key)) return null
   if (not(state.processBuffers[key])) {
     const content = document.createElement('div')
@@ -2612,21 +2637,11 @@ function processRecord(sessionId) {
   return state.processBuffers[key]
 }
 
-function commitProcessRecord(sessionId) {
-  const key = String(sessionId || '')
-  const content = state.processBuffers[key]
-  if (not(content)) return
+function commitProcessRecord(sessionId, deferred) {
+  const key = String(sessionId || ''), content = state.processBuffers[key]
   const session = findSessionById(key)
-  if (not(session)) return
-  if (Array.isArray(session.processTimeline)) {
-    saveProcessTimelineContent(session, content.innerHTML)
-    return
-  }
-  const html = content.innerHTML
-  const merged = mergeProcessHtml('', html)
-  if (session.processHtml === merged) return
-  session.processHtml = merged
-  saveSessionStore()
+  if (not(content) || not(session)) return
+  saveProcessContent(session, content, '', deferred)
 }
 
 function dropProcessRecord(sessionId) {
@@ -2652,7 +2667,7 @@ function recordBackgroundProcess(sessionId, event) {
   } else {
     return
   }
-  commitProcessRecord(key)
+  commitProcessRecord(key, event.type === 'assistant:thinking')
 }
 
 /* 后台会话的授权：能自动放行的（本会话授权 / 放行清单）直接放行，
@@ -2694,7 +2709,7 @@ async function handleBackgroundApproval(sessionId, event) {
 function updateThinking(text) {
   const body = beginThinking('')
   appendProcessText(body, text)
-  saveThinkingProcess(body)
+  saveThinkingProcess(body, true)
   updateRunStatus()
   scrollToBottom()
 }
@@ -2726,6 +2741,7 @@ function resumeThinking(seed) {
 }
 
 function endThinking(label) {
+  flushProcessSaves()
   clearWaitingTimer()
   /* 结束所有残留活动块，避免旧块失去引用后仍显示转圈。 */
   const blocks = Array.from(messagesContent().querySelectorAll('.thinking-active'))
@@ -2914,8 +2930,11 @@ async function handleEvent(event) {
   if (event.type === 'assistant:delta') {
     clearWaitingTimer()
     const body = beginAssistant()
-    const raw = (body.dataset.raw || '') + (event.text || '')
-    setBubbleText(body, raw, true)
+    const text = event.text || ''
+    body.dataset.raw = (body.dataset.raw || '') + text
+    const last = body.lastChild
+    if (last && last.nodeType === 3) last.appendData(text)
+    else body.appendChild(document.createTextNode(text))
     scrollToBottom()
     return
   }
@@ -4491,6 +4510,7 @@ window.addEventListener('DOMContentLoaded', () => {
 })
 
 window.addEventListener('beforeunload', () => {
+  flushProcessSaves()
   beaconUiStore()
   if (composerObserver) composerObserver.disconnect()
   composerObserver = null

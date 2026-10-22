@@ -2,6 +2,7 @@
 const fs = require('fs'), path = require('path')
 const { runTransition } = require('../state/task-state')
 const { assertRunRecord } = require('../contracts/tasks')
+const { visitJsonLines } = require('../persistence/jsonl')
 class TaskRepository {
   constructor(home) { this.dir = path.join(home, 'tasks'); this.snapshot = path.join(this.dir, 'tasks.json'); this.log = path.join(this.dir, 'runs.jsonl'); this.tasks = []; this.runs = new Map(); this.locked = false }
   open() {
@@ -25,15 +26,13 @@ class TaskRepository {
         this.tasks = data.tasks
       }
       if (fs.existsSync(this.log)) {
-        const bytes = fs.readFileSync(this.log), end = bytes.lastIndexOf(10) + 1
-        if (end !== bytes.length) fs.truncateSync(this.log, end)
-        for (const line of bytes.subarray(0, end).toString('utf8').split('\n').filter(Boolean)) {
-          const row = JSON.parse(line), old = this.runs.get(row.id)
+        visitJsonLines(this.log, true, row => {
+          const old = this.runs.get(row.id)
           // A compacted terminal record is a self-contained checkpoint.
           if (old || !row.checkpoint) runTransition(old, row)
           else assertRunRecord(row)
           this.runs.set(row.id, row)
-        }
+        })
       }
       for (const run of Array.from(this.runs.values())) if (run.status === 'running') this.transition(run.id, { status: 'interrupted', endedAt: Date.now(), summary: '服务重启，未自动重复执行' })
       this.compact()

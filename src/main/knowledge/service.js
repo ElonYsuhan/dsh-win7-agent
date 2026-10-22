@@ -56,6 +56,15 @@ class Knowledge{
  async projectPath(raw){await this.ready();const base=await this.base(raw.baseId),root=C.scope(raw.root);const links=await this.repo.query('SELECT scope FROM base_scopes WHERE base_id='+q(base.id)+' AND scope='+q(root)+';');if(!links.length)throw Error('KNOWLEDGE_PROJECT_NOT_LINKED');const realRoot=await fs.promises.realpath(root),target=await fs.promises.realpath(raw.path||root);const relative=path.relative(realRoot,target);if(relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))throw Error('PATH_OUTSIDE_WORKSPACE');return target}
  async tree(raw){const target=await this.projectPath(raw);const entries=await fs.promises.readdir(target,{withFileTypes:true});entries.sort((a,b)=>Number(b.isDirectory())-Number(a.isDirectory())||a.name.localeCompare(b.name));return {items:entries.slice(0,2000).map(e=>({name:e.name,path:path.join(target,e.name),directory:e.isDirectory()})),truncated:entries.length>2000}}
  async projectPreview(raw){return require('./file-preview').preview(await this.projectPath(raw))}
+ workflowFile(raw){return this.operation(async()=>{
+  const base=await this.base(raw.baseId),rows=await this.repo.query('SELECT d.name,d.active,v.hash FROM documents d JOIN versions v ON v.id=d.active WHERE d.id='+q(C.id(raw.documentId))+' AND d.base_id='+q(base.id)+' AND d.deleted=0;')
+  if(!rows.length)throw Error('知识库文件不可用，请等待解析完成或重新选择')
+  const doc=rows[0];if(!/^[a-f0-9]{64}$/.test(doc.hash))throw Error('知识库原件摘要无效');const file=path.join(this.repo.dir,'objects',doc.hash),stat=fs.lstatSync(file)
+  if(!stat.isFile()||stat.isSymbolicLink()||stat.size>C.LIMITS.fileBytes)throw Error('知识库原件无效')
+  const bytes=fs.readFileSync(file);if(crypto.createHash('sha256').update(bytes).digest('hex')!==doc.hash)throw Error('知识库原件校验失败')
+  const parts=await this.repo.query('SELECT substr(text,1,16000) AS text FROM chunks WHERE version_id='+q(doc.active)+' ORDER BY ordinal LIMIT 16;')
+  return{bytes,name:doc.name.replace(/[\\/]/g,'_'),text:parts.map(p=>p.text).join('\n').slice(0,16000),source:{type:'knowledge',baseId:base.id,documentId:raw.documentId,versionId:doc.active,baseName:base.name}}
+ })}
  async preview(raw){await this.ready();const base=await this.base(raw.baseId);const rows=await this.repo.query('SELECT d.name,c.text,c.locator FROM documents d JOIN chunks c ON c.version_id=d.active WHERE d.id='+q(C.id(raw.id))+' AND d.base_id='+q(base.id)+' AND d.deleted=0 ORDER BY c.ordinal LIMIT 201;');if(!rows.length)throw Error('KNOWLEDGE_PREVIEW_UNAVAILABLE');return {title:rows[0].name,parts:rows.slice(0,200).map(r=>({text:r.text,locator:JSON.parse(r.locator)})),truncated:rows.length>200}}
  async close(){if(this.closed)return;this.closed=true;if(this.worker)await this.worker.terminate();if(this.pumping)await this.pumping;await this.operations;if(this.repo)await this.repo.close()}
 }

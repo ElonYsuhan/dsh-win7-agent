@@ -8,10 +8,10 @@ function validateInteractions(graph,order){for(const node of graph.nodes)if(node
 function interactionView(run,node){const config=Interaction.configuration(node.interaction);if(!config)return null;const target=returnTarget(run.workflow,node,run.plan),step=target&&run.steps.find(s=>s.id===target.id);return{type:config.type,canReject:!!target&&!!step&&step.status==='succeeded',...(target?{returnTargetId:target.id,returnTargetTitle:target.title}:{})}}
 // Files travel by immutable upload references through all upstream steps, including
 // text-only intermediate nodes. Keep branch provenance and remove duplicate refs.
-function inputFiles(graph,steps,nodeId){
+function inputFiles(graph,steps,nodeId,materials=[]){
  const upstream=new Set(),queue=[nodeId]
  while(queue.length){const to=queue.shift();for(const edge of graph.edges)if(edge.to===to&&!upstream.has(edge.from)&&edge.from!==nodeId){upstream.add(edge.from);queue.push(edge.from)}}
- const seen=new Set(),files=[]
+ const seen=new Set(materials.map(f=>f.ref)),files=materials.slice()
  for(const step of steps)if((upstream.has(step.id)&&step.status==='succeeded')||(step.id===nodeId&&step.assistance))for(const file of step.files||[])if(!seen.has(file.ref)){seen.add(file.ref);files.push(file)}
  return files
 }

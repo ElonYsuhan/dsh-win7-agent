@@ -1,6 +1,19 @@
 'use strict'
 // Pure, bounded orthogonal routing. No graph mutation, DOM or vendor patches.
 ;(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.workflowLinkRouting=api})(typeof window==='object'?window:globalThis,function(){
+ // Display geometry only: port identity and graph slots never change.
+ const PORT_COLORS=Object.freeze({input:'#16a36b',output:'#3b82f6'})
+ function portLayout(card,ports){
+  const cx=(card.left+card.right)/2,cy=(card.top+card.bottom)/2,w=card.right-card.left,h=card.bottom-card.top
+  const planned=ports.map(port=>{
+   let side=port.input?'left':'right'
+   if(port.peers&&port.peers.length){let x=0,y=0,pw=0,ph=0;for(const peer of port.peers){x+=(peer.left+peer.right)/2;y+=(peer.top+peer.bottom)/2;pw+=peer.right-peer.left;ph+=peer.bottom-peer.top}const n=port.peers.length,dx=x/n-cx,dy=y/n-cy;side=Math.abs(dx)/Math.max(1,(w+pw/n)/2)>=Math.abs(dy)/Math.max(1,(h+ph/n)/2)?(dx>=0?'right':'left'):(dy>=0?'down':'up')}
+   return{...port,side}
+  })
+  const result=new Map()
+  for(const side of ['left','right','up','down']){const group=planned.filter(p=>p.side===side);group.forEach((port,index)=>{const t=(index+1)/(group.length+1),vertical=side==='left'||side==='right';result.set(port.key,{direction:side,point:vertical?[side==='left'?card.left+8:card.right-8,card.top+h*t]:[card.left+w*t,side==='up'?card.top:card.bottom],color:port.input?PORT_COLORS.input:PORT_COLORS.output})})}
+  return result
+ }
  const EPS=.001
  const same=(a,b)=>Math.abs(a[0]-b[0])<EPS&&Math.abs(a[1]-b[1])<EPS
  function hits(a,b,r){
@@ -121,5 +134,5 @@
  }
  function trace(ctx,path){for(const cmd of path)if(cmd.type==='M')ctx.moveTo(...cmd.values);else if(cmd.type==='C')ctx.bezierCurveTo(...cmd.values);else ctx.lineTo(...cmd.values)}
  const svgPath=path=>path.map(cmd=>cmd.type+' '+cmd.values.join(' ')).join(' ')
- return{create,hits,pointAt,length,commands,trace,svgPath}
+ return{create,hits,pointAt,length,commands,trace,svgPath,portLayout,PORT_COLORS}
 })

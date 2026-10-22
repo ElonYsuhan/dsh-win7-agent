@@ -357,7 +357,7 @@ function fillAppDir(appDir, mark, targetKey) {
   //      打包后 404」。所以下面顺手对账一次，宁可构建失败也别把坏包发出去。
   const serviceDir = path.join(appDir, 'service')
   mkdirp(serviceDir)
-  const SERVICE_FILES = ['index.js', 'settings-store.js', 'file-api.js', 'native-folder.js', 'terminal-api.js', 'ui-store.js', 'task-api.js', 'mcp-api.js', 'knowledge-api.js', 'workflow-api.js', 'extension-api.js']
+  const SERVICE_FILES = ['index.js', 'settings-store.js', 'file-api.js', 'native-folder.js', 'terminal-api.js', 'event-stream.js', 'ui-store.js', 'task-api.js', 'mcp-api.js', 'knowledge-api.js', 'workflow-api.js', 'extension-api.js']
   for (const name of SERVICE_FILES) {
     copyFile(path.join(ROOT, 'server', name), path.join(serviceDir, name))
   }

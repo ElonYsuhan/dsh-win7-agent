@@ -39,10 +39,22 @@ function parseFrontmatter(text) {
   if (not(match)) return {}
   const body = match[1]
   const out = {}
-  for (const line of body.split(/\r?\n/)) {
+  const lines = body.split(/\r?\n/)
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
     const item = /^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/.exec(line)
     if (not(item)) continue
     let value = item[2].trim()
+    // YAML block scalars are common in bundled and installed skills. Only
+    // parse top-level scalar metadata; never evaluate YAML tags or objects.
+    if (/^[>|][+-]?$/.test(value)) {
+      const block = []
+      while (index + 1 < lines.length && (/^\s/.test(lines[index + 1]) || !lines[index + 1].trim())) block.push(lines[++index])
+      const indents = block.filter(line => line.trim()).map(line => /^\s*/.exec(line)[0].length)
+      const indent = indents.length ? Math.min(...indents) : 0
+      const text = block.map(line => line.slice(indent)).join('\n').trim()
+      value = value[0] === '>' ? text.replace(/([^\n])\n(?=[^\n])/g, '$1 ') : text
+    }
     if ((value.charAt(0) === '"' && value.slice(-1) === '"') || (value.charAt(0) === "'" && value.slice(-1) === "'")) {
       value = value.slice(1, -1)
     }
@@ -62,7 +74,7 @@ function countFiles(dir, depth) {
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true })
   } catch (error) {
-    return { files: 0, dirs: 0 }
+    return { files: 0, dirs: 0, total: 0 }
   }
   for (const entry of entries) {
     if (entry.name === '.DS_Store') continue

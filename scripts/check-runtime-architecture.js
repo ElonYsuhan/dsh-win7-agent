@@ -29,8 +29,13 @@ for (const directory of ['contracts', 'flow']) {
     assert(!/setTimeout\(|setInterval\(/.test(code), directory + '/' + file + ' must remain pure')
   }
 }
-const model = read('src/main/state/session-state.js')
-assert(!/require\(['"](?:fs|http|https|[^'"]*(?:runtime|plugins|agent)\/)[^'"]*['"]\)/.test(model), 'State reducer must be pure')
+for (const file of fs.readdirSync(path.join(root, 'src/main/state')).filter(name => name.endsWith('-state.js'))) {
+  const model = read('src/main/state/' + file)
+  for (const match of model.matchAll(/require\(['"]([^'"]+)['"]\)/g)) {
+    assert(/^\.\.\/contracts(?:\/|$)/.test(match[1]), file + ' reducer may import contracts only')
+  }
+  assert(!/setTimeout\(|setInterval\(|Date\.now\(|Math\.random\(/.test(model), file + ' reducer must remain deterministic')
+}
 const executor = read('src/main/runtime/run-turn.js')
 assert(!/this\.messages\.push|this\.messages\s*=|this\.memory\s*=/.test(executor), 'State changes must go through recorded transitions')
 for (const capability of ['flow', 'state', 'contracts']) assert(read('src/main/runtime/plugins/agent-loop.js').includes("'" + capability + "'"), 'Executor must inject ' + capability)

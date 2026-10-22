@@ -14,6 +14,7 @@ const { fetchModelList } = require('../src/main/agent/model-list')
 const { handleFileApi } = require('./file-api')
 const { handleTerminalApi, teardownAll } = require('./terminal-api')
 const { UiStore } = require('./ui-store')
+const { writeEvent } = require('./event-stream')
 
 const not = (value) => value ? false : true
 const HOST = process.env.HOST || '0.0.0.0'
@@ -165,7 +166,7 @@ async function shutdown() {
 function broadcast(event) {
   const payload = 'data: ' + JSON.stringify(event) + '\n\n'
   for (const client of sseClients) {
-    client.write(payload)
+    if (!writeEvent(client, payload)) sseClients.delete(client)
   }
 }
 
@@ -321,7 +322,8 @@ async function handleApi(request, response, url) {
     response.write(': connected\n\n')
     sseClients.add(response)
     broadcast({ type: 'status', text: 'connected' })
-    request.on('close', () => sseClients.delete(response))
+    response.on('close', () => sseClients.delete(response))
+    response.on('error', () => sseClients.delete(response))
     return true
   }
   if (url.pathname === '/api/settings' && request.method === 'POST') {

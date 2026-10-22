@@ -1,7 +1,8 @@
 'use strict'
 const fs=require('fs'),path=require('path'),crypto=require('crypto'),Artifacts=require('../contracts/workflow-artifacts'),S=require('../state/workflow-state'),C=require('../contracts/workflows')
+const {visitJsonLines}=require('../persistence/jsonl')
 class Repository{
- constructor(home){this.dir=path.join(home,'workflows');this.runs=new Map();this.details=new Map();this.detailBytes=0;this.definitions=[];this.opened=false}
+ constructor(home){this.dir=path.join(home,'workflows');this.materials=new(require('./materials').Materials)(this.dir);this.runs=new Map();this.details=new Map();this.detailBytes=0;this.definitions=[];this.opened=false}
  open(){if(this.opened)return;fs.mkdirSync(this.dir,{recursive:true});this.lock=path.join(this.dir,'owner.json');try{this.fd=fs.openSync(this.lock,'wx')}catch(e){if(e.code!=='EEXIST')throw e;let owner;try{owner=JSON.parse(fs.readFileSync(this.lock,'utf8'));process.kill(owner.pid,0)}catch(error){if(error.code==='ESRCH'){fs.unlinkSync(this.lock);return this.open()}throw Error('WORKFLOW_STORAGE_LOCKED')}throw Error('WORKFLOW_STORAGE_LOCKED')}
  try{fs.writeFileSync(this.fd,JSON.stringify({pid:process.pid}));this.opened=true;const file=path.join(this.dir,'definitions.json');let saved={version:1,workflows:[]};if(fs.existsSync(file)){try{saved=JSON.parse(fs.readFileSync(file,'utf8'))}catch(e){saved=JSON.parse(fs.readFileSync(file+'.bak','utf8'))}}if(saved.version!==1||!Array.isArray(saved.workflows))throw Error('WORKFLOW_STORAGE_VERSION');this.definitions=saved.workflows.map(w=>({...C.validate(w,null),revision:Number(w.revision)||1}));fs.mkdirSync(path.join(this.dir,'runs'),{recursive:true});for(const name of fs.readdirSync(path.join(this.dir,'runs'))){if(!/^[a-zA-Z0-9_-]+\.jsonl$/.test(name))continue;const state=this.readRun(name.slice(0,-6),true);if(state)this.runs.set(state.id,this.index(state))}for(const run of this.runs.values())if(['pending','running'].includes(run.status))this.append(run.id,{type:'finished',status:'interrupted',error:'服务重启，未自动重放执行'})}catch(e){this.close();throw e}}
  save(){const file=path.join(this.dir,'definitions.json'),tmp=file+'.tmp',data=JSON.stringify({version:1,workflows:this.definitions});if(fs.existsSync(file))fs.copyFileSync(file,file+'.bak');const fd=fs.openSync(tmp,'w');try{fs.writeFileSync(fd,data);fs.fsyncSync(fd)}finally{fs.closeSync(fd)}fs.renameSync(tmp,file)}
@@ -12,10 +13,9 @@ class Repository{
   return {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,...(trigger?{trigger}:{}),deliveryCount:(state.plannedArtifacts||[]).length,artifactCount:Artifacts.current(state).length||state.steps.filter(s=>s.artifact).length,steps:state.steps.map(({id,title,status,startedAt,endedAt})=>({id,title,status,startedAt,endedAt}))}
  }
  readRun(id,repair){
-  const file=path.join(this.dir,'runs',C.id(id)+'.jsonl'),bytes=fs.readFileSync(file),end=bytes.lastIndexOf(10)+1
-  if(repair&&end!==bytes.length)fs.truncateSync(file,end)
+  const file=path.join(this.dir,'runs',C.id(id)+'.jsonl')
   let state
-  for(const line of bytes.subarray(0,end).toString('utf8').split('\n').filter(Boolean))state=S.reduce(state,JSON.parse(line))
+  visitJsonLines(file,repair,event=>{state=S.reduce(state,event)})
   return state
  }
  dropDetail(id){const old=this.details.get(id);if(old){this.detailBytes-=old.bytes;this.details.delete(id)}}

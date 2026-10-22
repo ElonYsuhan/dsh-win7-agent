@@ -61,3 +61,11 @@ for(let from=0;from<100;from++)for(let gap=1;gap<=3&&from+gap<100;gap++){const a
 const denseBegan=Date.now(),denseRoutes=Routing.create(many).routeAll(dense)
 assert.strictEqual([...denseRoutes.values()].filter(Boolean).length,294,'Near-limit fanout keeps all routes');assert(Date.now()-denseBegan<3000,'Indexed cable queries and a shared search budget bound near-limit planning')
 console.log('Workflow routing: obstacle avoidance, negotiated separate lanes, no wrap crossings, deterministic batch ordering, cubic Bezier clearance, shared Canvas/SVG geometry and bounded 100-card layout passed')
+// Adaptive anchors face their peers instead of forcing every cable through L/R.
+const card=rect('a',200,200,220,100)
+for(const [peer,direction]of [[rect('b',600,200),'right'],[rect('b',-100,200),'left'],[rect('b',200,500),'down'],[rect('b',200,-100),'up']]){
+ const port=Routing.portLayout(card,[{key:'o',input:false,peers:[peer]}]).get('o');assert.strictEqual(port.direction,direction);assert.strictEqual(port.color,Routing.PORT_COLORS.output)
+ const target=Routing.portLayout(peer,[{key:'i',input:true,peers:[card]}]).get('i');assert.strictEqual(target.color,Routing.PORT_COLORS.input)
+ const points=Routing.create([card,peer]).route({start:port.point,end:target.point,source:'a',target:'b',startDirection:port.direction,endDirection:target.direction});assert(points);assert(points.length<=4,'Facing nodes do not take an exterior lap')
+}
+const crowded=Routing.portLayout(card,[{key:'i0',input:true,peers:[rect('b',-100,200)]},{key:'i2',input:true,peers:[rect('c',-100,220)]},{key:'o4',input:false,peers:[rect('d',-100,240)]}]);assert.strictEqual(new Set([...crowded.values()].map(p=>p.point.join(','))).size,3,'Mixed-direction slots on one edge remain distinct')

@@ -12,6 +12,7 @@ class McpManager {
     this.servers = new Map()
     this.probes = new Set()
     this.stopped = true
+    this.generation = 0
   }
 
   createClient(config) {
@@ -20,36 +21,39 @@ class McpManager {
       : new StdioClient(config, this.options)
   }
 
+  current(generation) {
+    return !this.stopped && this.generation === generation
+  }
+
+  async connect(config, generation) {
+    if (!this.current(generation)) return
+    const entry = { config, client: null, status: config.enabled ? 'connecting' : 'disabled', error: '', tools: [] }
+    this.servers.set(config.id, entry)
+    if (!config.enabled) return
+    const client = entry.client = this.createClient(config)
+    try {
+      await client.start()
+      if (!this.current(generation)) { await client.close(); return }
+      const tools = await client.listTools()
+      if (!this.current(generation)) { await client.close(); return }
+      entry.tools = tools.slice(0, contract.MAX_TOOLS_PER_SERVER)
+      entry.status = 'connected'
+    } catch (error) {
+      entry.status = 'error'
+      entry.error = String((error && error.message) || error).slice(0, 2000)
+      try { await client.close() } catch (closeError) {}
+    }
+  }
+
   async start(configs) {
-    await this.stop()
     const normalized = contract.normalizeServers(configs)
+    const generation = ++this.generation
+    this.stopped = true
+    await this.closeClients()
+    if (generation !== this.generation) return this.status()
+    this.servers.clear()
     this.stopped = false
-    const jobs = normalized.map(async (config) => {
-      const entry = {
-        config,
-        client: null,
-        status: config.enabled ? 'connecting' : 'disabled',
-        error: '',
-        tools: []
-      }
-      this.servers.set(config.id, entry)
-      if (not(config.enabled)) return
-      const client = this.createClient(config)
-      entry.client = client
-      try {
-        await client.start()
-        const tools = await client.listTools()
-        entry.client = client
-        entry.tools = tools.slice(0, contract.MAX_TOOLS_PER_SERVER)
-        entry.status = 'connected'
-      } catch (error) {
-        entry.status = 'error'
-        entry.error = String((error && error.message) || error).slice(0, 2000)
-        try { await client.close() } catch (closeError) {}
-      }
-    })
-    await Promise.all(jobs)
-    if (this.stopped) await this.closeClients()
+    await Promise.all(normalized.map(config => this.connect(config, generation)))
     return this.status()
   }
 
@@ -57,35 +61,27 @@ class McpManager {
   async reconcile(configs) {
     const normalized = contract.normalizeServers(configs)
     const wanted = new Map(normalized.map(config => [config.id, config]))
+    const generation = ++this.generation
+    this.stopped = false
     for (const [id, entry] of this.servers) {
+      if (!this.current(generation)) return this.status()
       if (wanted.has(id) && JSON.stringify(wanted.get(id)) === JSON.stringify(entry.config)) continue
       if (entry.client) await entry.client.close()
+      if (!this.current(generation)) return this.status()
       this.servers.delete(id)
     }
-    this.stopped = false
     for (const config of normalized) {
-      if (this.servers.has(config.id)) continue
-      const entry = { config, client: null, status: config.enabled ? 'connecting' : 'disabled', error: '', tools: [] }
-      this.servers.set(config.id, entry)
-      if (!config.enabled) continue
-      const client = entry.client = this.createClient(config)
-      try {
-        await client.start()
-        entry.tools = (await client.listTools()).slice(0, contract.MAX_TOOLS_PER_SERVER)
-        entry.status = 'connected'
-      } catch (error) {
-        entry.status = 'error'
-        entry.error = String(error.message || error).slice(0, 2000)
-        await client.close()
-      }
+      if (!this.current(generation)) break
+      if (!this.servers.has(config.id)) await this.connect(config, generation)
     }
     return this.status()
   }
 
   async stop() {
+    const generation = ++this.generation
     this.stopped = true
     await this.closeClients()
-    this.servers.clear()
+    if (generation === this.generation) this.servers.clear()
   }
 
   async closeClients() {

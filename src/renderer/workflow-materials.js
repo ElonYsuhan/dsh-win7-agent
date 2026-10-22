@@ -1,0 +1,41 @@
+'use strict'
+;(function(){
+ const el=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e}
+ window.createWorkflowMaterials=function({host,onChange}){
+  let files=[],pending=false,epoch=0,dialog=null
+  const header=el('div',undefined,'workflow-material-heading'),title=el('h3','支撑资料'),count=el('span','','muted'),actions=el('div',undefined,'workflow-material-actions'),choose=el('button','＋ 关联知识库'),upload=el('button','＋ 本地文件'),input=el('input'),list=el('ul',undefined,'workflow-material-list'),status=el('p','','workflow-material-status muted')
+  choose.type=upload.type='button';choose.id='workflowMaterialKnowledge';upload.id='workflowMaterialLocal';input.type='file';input.multiple=true;input.hidden=true;input.id='workflowMaterialInput';input.setAttribute('aria-label','上传流程支撑资料');status.setAttribute('role','status');status.setAttribute('aria-live','polite');list.setAttribute('aria-label','已关联流程资料');header.append(title,count);actions.append(choose,upload);host.append(header,actions,input,list,status)
+  function check(next){if(next.length>32||next.reduce((n,f)=>n+f.size,0)>64*1048576)throw Error('最多关联32份资料，总大小不超过64MB。')}
+  function render(){
+   const groups=new Map()
+   for(const file of files){const knowledge=file.source.type==='knowledge',key=knowledge?'knowledge:'+file.source.baseId:file.id;if(!groups.has(key))groups.set(key,{name:knowledge?file.source.baseName||'知识库':file.name,knowledge,ids:[]});groups.get(key).ids.push(file.id)}
+   count.textContent=groups.size+' 项';list.textContent=''
+   for(const group of groups.values()){
+    const row=el('li'),copy=el('div'),name=el('strong',group.name),remove=el('button','×')
+    row.dataset.source=group.knowledge?'knowledge':'local';remove.type='button';remove.setAttribute('aria-label',(group.knowledge?'移除知识库：':'移除资料：')+group.name);remove.disabled=pending
+    remove.addEventListener('click',()=>{files=files.filter(f=>!group.ids.includes(f.id));onChange();render();upload.focus()})
+    name.title=group.name;copy.append(name);row.append(copy,remove);list.append(row)
+   }
+   choose.disabled=upload.disabled=pending;host.setAttribute('aria-busy',String(pending))
+  }
+  async function add(sources,loader){const ticket=epoch;pending=true;onChange();status.textContent='正在保存资料快照…';render();try{const next=files.slice();check([...next,...sources.map(f=>({size:f.size||0}))]);for(const source of sources){const imported=await loader(source);if(ticket!==epoch)return;if(!next.some(f=>f.id===imported.id))next.push(imported);check(next)}files=next;onChange();status.textContent=''}catch(e){if(ticket===epoch)status.textContent=e.message;throw e}finally{if(ticket===epoch){pending=false;render()}}}
+  upload.addEventListener('click',()=>input.click())
+  input.addEventListener('change',async()=>{const picked=Array.from(input.files||[]);input.value='';if(!picked.length)return;try{if(picked.some(f=>f.size>8*1048576))throw Error('单份资料不能超过8MB。');await add(picked,async file=>{const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]||'');reader.onerror=()=>reject(Error('读取文件失败：'+file.name));reader.readAsDataURL(file)});return window.dsh.workflowRequest('importMaterial',{source:'local',name:file.name,data})})}catch(e){status.textContent=e.message}})
+  function close(){if(dialog){dialog.remove();dialog=null;choose.focus()}}
+  async function open(){
+   if(dialog)return
+   const ticket=epoch,prior=document.activeElement,overlay=el('div',undefined,'modal workflow-material-dialog'),card=el('section',undefined,'modal-card'),heading=el('h2','关联知识库资料'),description=el('p','勾选文件，或勾选知识库选择其全部可用文件。保存当前版本副本，后续知识库更新不改变已有资料。','muted'),search=el('input'),tree=el('div',undefined,'workflow-material-tree'),message=el('p','正在加载知识库…','muted'),footer=el('div',undefined,'modal-actions'),cancel=el('button','取消'),apply=el('button','添加所选资料','primary')
+   heading.id='workflowMaterialDialogTitle';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-labelledby',heading.id);search.type='search';search.placeholder='搜索知识库或文件';search.setAttribute('aria-label','搜索知识库资料');cancel.type=apply.type='button';apply.disabled=true;message.setAttribute('role','status');footer.append(cancel,apply);card.append(heading,description,search,tree,message,footer);overlay.append(card);document.body.append(overlay);dialog=overlay;search.focus()
+   const selected=new Map(),selectedKeys=new Set(files.filter(f=>f.source.type==='knowledge').map(f=>f.source.baseId+':'+f.source.documentId+':'+f.source.versionId));let groups=[]
+   const dismiss=()=>{close();if(prior&&prior.isConnected)prior.focus()};cancel.addEventListener('click',dismiss);overlay.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(!pending)dismiss()}})
+   function redraw(){const expanded=new Set(Array.from(tree.querySelectorAll('details[open]')).map(d=>d.dataset.baseId));tree.textContent='';const query=search.value.trim().toLowerCase();for(const {base,documents}of groups){const visible=documents.filter(d=>!query||base.name.toLowerCase().includes(query)||d.name.toLowerCase().includes(query));if(!visible.length&&query)continue;const branch=el('details'),summary=el('summary'),baseLabel=el('label'),all=el('input'),children=el('ul');branch.dataset.baseId=base.id;branch.open=!!query||groups.length===1||expanded.has(base.id)||visible.some(d=>selected.has(d.id));all.type='checkbox';all.dataset.baseId=base.id;all.setAttribute('aria-label','选择知识库 '+base.name+' 的可用文件');const available=visible.filter(d=>d.active&&!selectedKeys.has(base.id+':'+d.id+':'+d.active));all.disabled=!available.length;all.checked=!!available.length&&available.every(d=>selected.has(d.id));all.indeterminate=!all.checked&&available.some(d=>selected.has(d.id));baseLabel.append(all,el('span',base.name),el('small',visible.length+' 份','muted'));summary.append(baseLabel);branch.append(summary,children);all.addEventListener('click',e=>e.stopPropagation());all.addEventListener('change',()=>{for(const doc of available){if(all.checked)selected.set(doc.id,{baseId:base.id,documentId:doc.id});else selected.delete(doc.id)}redraw();const focus=Array.from(tree.querySelectorAll('summary input')).find(n=>n.dataset.baseId===base.id);if(focus)focus.focus()});for(const doc of visible){const row=el('li'),label=el('label'),box=el('input'),already=selectedKeys.has(base.id+':'+doc.id+':'+doc.active);box.type='checkbox';box.dataset.documentId=doc.id;box.checked=already||selected.has(doc.id);box.disabled=already||!doc.active;label.append(box,el('span',doc.name),el('small',already?'已关联':doc.active?'可用':'解析未完成','muted'));box.addEventListener('change',()=>{if(box.checked)selected.set(doc.id,{baseId:base.id,documentId:doc.id});else selected.delete(doc.id);all.checked=available.every(d=>selected.has(d.id));all.indeterminate=!all.checked&&available.some(d=>selected.has(d.id));update()});row.append(label);children.append(row)}tree.append(branch)}update()}
+   function update(){apply.disabled=!selected.size||pending;message.textContent=selected.size?'已选择 '+selected.size+' 份资料':'请选择需要的资料';if(!tree.children.length)message.textContent=groups.length?'没有匹配的资料':'暂无知识库，请先在知识库中导入文件。'}
+   search.addEventListener('input',redraw)
+   apply.addEventListener('click',async()=>{apply.disabled=cancel.disabled=true;search.disabled=true;try{await add([...selected.values()],f=>window.dsh.workflowRequest('importMaterial',{source:'knowledge',...f}));dismiss()}catch(e){message.textContent=e.message;apply.disabled=!selected.size;cancel.disabled=false;search.disabled=false}})
+   try{const data=await window.dsh.knowledgeRequest('list');if(ticket!==epoch||dialog!==overlay)return;groups=data.bases.map(base=>({base,documents:data.documents.filter(doc=>doc.base_id===base.id)}));redraw()}catch(e){if(dialog===overlay)message.textContent='加载失败：'+e.message}
+  }
+  choose.addEventListener('click',open)
+  render()
+  return{load(next){epoch++;pending=false;close();files=(next||[]).map(f=>({...f}));status.textContent='';render()},get(){if(pending)throw Error('资料正在导入，请等待完成后保存流程。');return files.slice()}}
+ }
+})()

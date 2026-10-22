@@ -83,7 +83,7 @@ class Agent {
       this._browserDriver = null
     }
     if (this._processManager) {
-      try { await this._processManager.stopAll() } catch (error) {}
+      try { await this._processManager.dispose() } catch (error) {}
       this._processManager = null
     }
     const agents = this.plugins.get('agents')

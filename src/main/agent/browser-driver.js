@@ -67,7 +67,7 @@ function reapBrowsers() {
     if (child && child.exitCode === null) {
       try { child.kill('SIGKILL') } catch (error) { /* 收摊不计较 */ }
     }
-    /* close() 里的临时 profile 清理是 setTimeout 起的，强杀这条路不会跑到 —— 自己删掉。
+    /* 正常 close() 等待进程退出后清理；进程异常终止时在此兜底。
        exit 处理器里只能同步操作，fs.rmSync 正好合适。 */
     if (driver.userDataDir) {
       try { fs.rmSync(driver.userDataDir, { recursive: true, force: true }) } catch (error) { /* 收摊不计较 */ }
@@ -89,6 +89,7 @@ class BrowserDriver {
     this.consoleErrors = [] /* {type:'console'|'exception'|'log', text, ts} */
     this.networkErrors = [] /* {kind:'status'|'failed', url, status?, errorText?, ts} */
     this.requestCount = 0
+    this.captureSequence = 0
     this.onExited = null /* 进程意外退出时通知宿主 */
     this.ws = null
   }
@@ -99,6 +100,8 @@ class BrowserDriver {
 
   /* ---- 启动 ---- */
   async launch(targetUrl, launchOptions) {
+    if (this.closePromise) { await this.closePromise; this.closePromise = null }
+    this.closedByUs = false
     if (this.isOpen) {
       await this.open(targetUrl || 'about:blank')
       return { reused: true, port: this.port }
@@ -131,11 +134,16 @@ class BrowserDriver {
     liveDrivers.add(this)
     this.child.on('exit', exitHandler)
     this.child.on('error', exitHandler)
-    this.port = await this.readDebugPort(this.child.stderr, options.debugTimeoutMs || 20000)
-    this.cdp = await this.attach(this.port, targetUrl || 'about:blank')
-    this.wireCapture()
-    this.launched = true
-    return { reused: false, port: this.port }
+    try {
+      this.port = await this.readDebugPort(this.child.stderr, options.debugTimeoutMs || 20000)
+      this.cdp = await this.attach(this.port, targetUrl || 'about:blank')
+      this.wireCapture()
+      this.launched = true
+      return { reused: false, port: this.port }
+    } catch (error) {
+      await this.close()
+      throw error
+    }
   }
 
   /* stderr 里捞 DevTools 监听行 */
@@ -143,23 +151,26 @@ class BrowserDriver {
     return new Promise((resolve, reject) => {
       let text = ''
       let settled = false
-      const timer = setTimeout(() => {
+      const finish = (error, port) => {
         if (settled) return
         settled = true
-        reject(new Error('BROWSER_DEBUG_TIMEOUT: no DevTools line in ' + timeoutMs + 'ms. stderr head: ' + text.slice(0, 400)))
-      }, timeoutMs)
-      if (timer.unref) timer.unref()
-      const onData = (chunk) => {
-        text += chunk.toString()
-        const match = text.match(/DevTools listening on ws:\/\/[^\s]*?:(\d+)[^\s]*/)
-        if (match && not(settled)) {
-          settled = true
-          clearTimeout(timer)
-          stderrStream.removeListener('data', onData)
-          resolve(Number(match[1]))
-        }
+        clearTimeout(timer)
+        stderrStream.removeListener('data', onData)
+        stderrStream.removeListener('end', onEnd)
+        stderrStream.removeListener('error', onError)
+        error ? reject(error) : resolve(port)
       }
+      const timer = setTimeout(() => finish(new Error('BROWSER_DEBUG_TIMEOUT: no DevTools line in ' + timeoutMs + 'ms. stderr tail: ' + text.slice(-400))), timeoutMs)
+      const onData = (chunk) => {
+        text = (text + chunk.toString()).slice(-8192)
+        const match = text.match(/DevTools listening on ws:\/\/[^\s]*?:(\d+)[^\s]*/)
+        if (match) finish(null, Number(match[1]))
+      }
+      const onEnd = () => finish(new Error('BROWSER_EXITED_BEFORE_DEBUG_PORT'))
+      const onError = error => finish(error)
       stderrStream.on('data', onData)
+      stderrStream.once('end', onEnd)
+      stderrStream.once('error', onError)
     })
   }
 
@@ -202,19 +213,19 @@ class BrowserDriver {
       if (params.type === 'error' || params.type === 'warning') {
         const text = (params.args || []).map((arg) => arg.value !== undefined ? String(arg.value) : (arg.description || arg.type)).join(' ')
         if (params.type === 'error') {
-          pushCapped(this.consoleErrors, { type: 'console', text: text.slice(0, 2000), ts: Date.now() })
+          this.capture(this.consoleErrors, { type: 'console', text: text.slice(0, 2000), ts: Date.now() })
         }
       }
     })
     cdp.on('Runtime.exceptionThrown', (params) => {
       const detail = params.exceptionDetails || {}
       const text = detail.text + (detail.exception && detail.exception.description ? ' ' + detail.exception.description : '')
-      pushCapped(this.consoleErrors, { type: 'exception', text: text.slice(0, 2000), ts: Date.now() })
+      this.capture(this.consoleErrors, { type: 'exception', text: text.slice(0, 2000), ts: Date.now() })
     })
     cdp.on('Log.entryAdded', (params) => {
       const entry = params.entry || {}
       if (entry.level === 'error') {
-        pushCapped(this.consoleErrors, { type: 'log', text: String(entry.text || '').slice(0, 2000), ts: Date.now() })
+        this.capture(this.consoleErrors, { type: 'log', text: String(entry.text || '').slice(0, 2000), ts: Date.now() })
       }
     })
     cdp.on('Network.requestWillBeSent', () => {
@@ -223,7 +234,7 @@ class BrowserDriver {
     cdp.on('Network.responseReceived', (params) => {
       const response = params.response || {}
       if (response.status >= 400) {
-        pushCapped(this.networkErrors, {
+        this.capture(this.networkErrors, {
           kind: 'status',
           url: String(response.url || '').slice(0, 500),
           status: response.status,
@@ -234,7 +245,7 @@ class BrowserDriver {
     cdp.on('Network.loadingFailed', (params) => {
       /* canceled 多为主动取消/被前端拦截，不算错 */
       if (params.canceled) return
-      pushCapped(this.networkErrors, {
+      this.capture(this.networkErrors, {
         kind: 'failed',
         url: '',
         errorText: params.errorText || 'loading failed',
@@ -242,6 +253,10 @@ class BrowserDriver {
         ts: Date.now()
       })
     })
+  }
+
+  capture(list, item) {
+    pushCapped(list, { ...item, captureSequence: ++this.captureSequence })
   }
 
   /* ---- 页面内执行 ---- */
@@ -270,20 +285,24 @@ class BrowserDriver {
     if (not(this.isOpen)) {
       throw new Error('BROWSER_NOT_OPEN: call browser_launch first')
     }
-    await this.cdp.send('Page.navigate', { url: String(targetUrl) })
+    const cdp = this.cdp
+    await cdp.send('Page.navigate', { url: String(targetUrl) })
     /* 等一次 loadEventFired（最多 30s），失败不阻塞 —— SPA 可能永不再触发 load */
     await new Promise((resolve) => {
       let timer = null
       const finish = () => {
         clearTimeout(timer)
-        this.cdp.listeners['Page.loadEventFired'] = (this.cdp.listeners['Page.loadEventFired'] || []).filter((fn) => fn !== handler)
+        cdp.listeners['Page.loadEventFired'] = (cdp.listeners['Page.loadEventFired'] || []).filter((fn) => fn !== handler)
         resolve()
       }
       const handler = () => finish()
       timer = setTimeout(finish, 30000)
       if (timer.unref) timer.unref()
-      this.cdp.on('Page.loadEventFired', handler)
+      cdp.on('Page.loadEventFired', handler)
     })
+    // Load completion can precede the compositor's new hit-test frame. Waiting
+    // for presentation keeps a real click from targeting the previous document.
+    await this.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))', { awaitPromise: true })
     return { navigated: true }
   }
 
@@ -376,9 +395,13 @@ class BrowserDriver {
     return result.data /* base64 png */
   }
 
-  async close() {
+  close() {
+    if (!this.closePromise) this.closePromise = this.finishClose()
+    return this.closePromise
+  }
+
+  async finishClose() {
     this.closedByUs = true
-    liveDrivers.delete(this)
     if (this.ws) {
       try { this.ws.close() } catch (error) { /* 收摊不计较 */ }
       this.ws = null
@@ -386,23 +409,31 @@ class BrowserDriver {
     this.cdp = null
     this.launched = false
     const child = this.child
-    this.child = null
-    if (child && child.exitCode === null) {
+    if (child && child.pid && child.exitCode === null && child.signalCode === null) {
       /* 先体面退（Electron 会清 user-data-dir 锁），卡住再强杀 */
-      child.kill()
-      const forceTimer = setTimeout(() => {
-        try { child.kill('SIGKILL') } catch (error) { /* 已退出 */ }
-      }, 3000)
-      if (forceTimer.unref) forceTimer.unref()
+      await new Promise((resolve, reject) => {
+        let forceTimer, deadline
+        const finish = error => {
+          clearTimeout(forceTimer); clearTimeout(deadline)
+          child.removeListener('close', onClose)
+          error ? reject(error) : resolve()
+        }
+        const onClose = () => finish()
+        child.once('close', onClose)
+        forceTimer = setTimeout(() => { try { child.kill('SIGKILL') } catch (error) {} }, 3000)
+        deadline = setTimeout(() => finish(new Error('BROWSER_CLOSE_TIMEOUT')), 6000)
+        try { child.kill() } catch (error) { /* force timer still owns cleanup */ }
+      })
     }
+    this.child = null
+    liveDrivers.delete(this)
     this.consoleErrors = []
     this.networkErrors = []
     this.requestCount = 0
     if (this.userDataDir) {
       const dir = this.userDataDir
-      setTimeout(() => {
-        fs.rm(dir, { recursive: true, force: true }, () => undefined)
-      }, 5000).unref()
+      await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+      this.userDataDir = null
     }
     return { closed: true }
   }

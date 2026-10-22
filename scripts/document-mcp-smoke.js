@@ -13,7 +13,7 @@ async function protocol(root){
  const input=new PassThrough(),output=new PassThrough(),responses=[]
  output.on('data',chunk=>{for(const line of chunk.toString().trim().split('\n'))responses.push(JSON.parse(line))})
  const service=serve(root,input,output)
- async function send(value){const n=responses.length;input.write(typeof value==='string'?value+'\n':JSON.stringify(value)+'\n');await new Promise(r=>setTimeout(r,5));return responses[n]}
+ async function send(value){const n=responses.length,id=typeof value==='object'&&value&&!Array.isArray(value)?value.id:undefined;input.write(typeof value==='string'?value+'\n':JSON.stringify(value)+'\n');for(let i=0;i<(id===undefined?1:400);i++){if(responses.length>n)break;await new Promise(r=>setTimeout(r,5))}return responses[n]}
  ok('协议：初始化前拒绝工具发现',(await send({jsonrpc:'2.0',id:1,method:'tools/list'})).error.code===-32000)
  ok('协议：畸形 JSON 返回 parse error',(await send('{broken')).error.code===-32700)
  ok('协议：无效请求返回 invalid request',(await send([])).error.code===-32600)

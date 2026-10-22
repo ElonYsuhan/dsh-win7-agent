@@ -147,7 +147,11 @@ On load the repository restores the snapshot and replays newer journal events.
 A final line lacking its newline is an interrupted write and is truncated before
 new appends. A malformed **committed** line, unknown version or sequence gap is an
 error; it is not silently discarded. This is process-interruption recovery, not a
-power-loss/fsync guarantee. The journal is currently retained without rotation.
+power-loss/fsync guarantee. After publishing a complete atomic snapshot, the
+repository truncates its redundant journal; a failed truncation leaves facts
+that recovery safely skips by sequence. It is a recovery journal, not a permanent
+audit archive. Session, task and workflow repositories share a 64KiB incremental
+JSONL IO adapter, keeping one fact at a time rather than a whole-file event array.
 
 An unfinished turn is recorded as interrupted before accepting the next turn.
 Incomplete tool batches get explicit missing-result placeholders so model history
@@ -460,3 +464,16 @@ saveWorkflow/removeWorkflow 是现有 tasks 服务的协调入口：先校验图
 恢复沿用现有实现，未来宿主可替换而定义/触发协议保持不变。定向回归使用注入时钟和
 真实 Cordis 服务，浏览器覆盖留白、类型图标、属性切换、定时配置同步与任务中心跳转；
 构建机与内嵌 Node 测试不能代替 Win7 真机验收。
+
+
+### 流程支撑资料与独立设计会话（2026-10-22）
+
+为让流程在开始前绑定数据依据，纯 workflow-materials 契约定义版本1的来源、摘要、
+数量/大小和预览边界。workflows原生Cordis插件声明knowledge依赖，知识库交付已发布
+原件和版本信息，独立工作流仓储持有不可变副本；导入纳入既有jobs生命周期。启动时
+固定实例原件及清单，纯inputFiles策略传递引用，沿用现有Agent/工具工作目录，无新
+执行器、容器、数据库或事实旁路。模型文本与原件分离，实例不随源库更新而漂移。
+
+资料选择界面与文件IO可独立替换；核心清单和实例事实保持平台无关。继续固定
+Node16/Chromium108，不增加生产依赖。新设计入口每次创建会话以隔离草稿上下文，
+已有节点分析会话兼容。协议、容量边界、恢复和回归范围见WORKFLOWS.md的流程支撑资料章节。

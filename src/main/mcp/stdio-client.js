@@ -29,7 +29,14 @@ class StdioClient {
     return this.exitError ? 'error' : (this.initialized ? 'connected' : (this.child ? 'connecting' : 'disconnected'))
   }
 
-  async start() {
+  start() {
+    if (this.closed) return Promise.reject(new Error('MCP_CLIENT_CLOSED'))
+    if (this.startPromise) return this.startPromise
+    this.startPromise = this.initialize().finally(() => { this.startPromise = null })
+    return this.startPromise
+  }
+
+  async initialize() {
     if (this.child) return this
     const env = childEnvironment(this.config)
     const options = {
@@ -59,10 +66,12 @@ class StdioClient {
     })
     const decoder = new StringDecoder('utf8')
     let buffer = ''
+    this.child.once('close', () => { buffer = '' })
     this.child.stdout.on('data', chunk => {
+      if (this.closed) return
       buffer += decoder.write(chunk)
       let newline
-      while ((newline = buffer.indexOf('\n')) >= 0) {
+      while (!this.closed && (newline = buffer.indexOf('\n')) >= 0) {
         const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1)
         if (Buffer.byteLength(line) > 16 * 1024 * 1024) { this.exitError = 'MCP_RESPONSE_TOO_LARGE'; this.rejectPending(new Error(this.exitError)); this.close(); return }
         this.handleLine(line)
@@ -104,7 +113,7 @@ class StdioClient {
         else resolve(value)
       }
       const onAbort = () => {
-        this.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: 'cancelled' } })
+        if (method !== 'initialize') this.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: 'cancelled' } })
         finish(new Error('ABORTED'))
       }
       const timer = setTimeout(() => { if (method !== 'initialize') this.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: 'timeout' } }); finish(new Error('MCP_TIMEOUT: ' + method)) }, Math.max(1000, Number(timeoutMs) || this.config.timeoutMs))
