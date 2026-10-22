@@ -6213,6 +6213,11 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 [data-theme="light"] .workflow-card{background:var(--panel-2);}
 .workflow-card strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.workflow-card p{font-size:12px;margin:10px 0;}
 .workflow-card-actions button{min-height:30px;font-size:12px;}.workflow-run-row{border-bottom:1px solid var(--border);padding:14px 4px;}.workflow-run-row p{margin:6px 0;font-size:12px;}
+.workflow-card-actions{gap:8px;}
+.workflow-card-actions .workflow-icon-action{display:inline-flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;min-width:36px;height:36px;min-height:36px;padding:0;border-radius:8px;}
+.workflow-card-actions .workflow-icon-action .icon,.workflow-card-actions .workflow-icon-action svg{width:20px;height:20px;}
+.workflow-card-actions .workflow-icon-action:focus-visible{outline:2px solid var(--workflow-node-selected);outline-offset:2px;}
+.workflow-card-actions [data-workflow-action=delete]:is(:hover,:focus-visible){color:var(--error-text);border-color:var(--error-text);background:var(--error);}
 .workflow-step{border:1px solid var(--border);border-radius:8px;padding:12px;margin:10px 0;background:var(--panel-2);}.workflow-step summary{cursor:pointer;font-weight:500;}.workflow-step pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;margin:10px 0 0;padding:10px;border-radius:6px;border:1px solid var(--border);background:var(--panel);}.workflow-error{color:var(--error-text);}
 .workflow-step-actions{margin-top:8px;flex-wrap:wrap;}.workflow-step-actions button{min-height:28px;padding:4px 10px;font-size:12px;}
 .workflow-name-label {display:flex;align-items:center;gap:10px;margin-bottom:10px;}.workflow-name-label input{flex:1;}.workflow-node-types{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}

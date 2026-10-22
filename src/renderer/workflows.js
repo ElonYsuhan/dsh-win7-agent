@@ -177,12 +177,13 @@ function drawNodeCard(n,ctx,size,selected,hovered){
    const latest=instances[0]
    const meta=flow.nodes.length+' 个节点 · '+instances.length+' 个执行实例'+(latest?' · 最近：'+(labels[latest.status]||latest.status):'')
    card.append(head,node('p',meta,'muted'))
-   const actions=node('div',undefined,'workflow-card-actions')
+   const actions=node('div',undefined,'workflow-card-actions');actions.setAttribute('role','group');actions.setAttribute('aria-label','流程操作')
+   const action=(key,icon,title,fn)=>{const control=button('',fn,title);control.className='workflow-icon-action';control.dataset.workflowAction=key;control.append(glyph(icon));return control}
    actions.append(
-    button('▶',async()=>{notice('');const run=await startRun(flow);if(!run)return;filter=flow.id;activeRun=run.id;runSelection='';pinnedSelection=false;detailSignature='';view('detail');await refresh()},'执行 '+flow.name),
-    button('☷',()=>{notice('');filter=flow.id;$('workflowSearch').value='';view('runs');renderRuns()},'查看执行实例'),
-    button('编辑',()=>{notice('');edit(flow)}),
-    button('删除',async()=>{if(await window.appDialogs.confirm('删除流程“'+flow.name+'”？已产生的执行记录仍保留。')){const removed=await window.dsh.taskRequest('removeWorkflow',{id:flow.id});if(removed.syncError)notice('流程已删除，但定时任务未清理：'+removed.syncError);if(filter===flow.id)filter='';await refresh()}})
+    action('run','play','执行 '+flow.name,async()=>{notice('');const run=await startRun(flow);if(!run)return;filter=flow.id;activeRun=run.id;runSelection='';pinnedSelection=false;detailSignature='';view('detail');await refresh()}),
+    action('instances','wf-steps','查看执行实例',()=>{notice('');filter=flow.id;$('workflowSearch').value='';view('runs');renderRuns()}),
+    action('edit','edit','编辑流程',()=>{notice('');edit(flow)}),
+    action('delete','trash','删除流程',async()=>{if(await window.appDialogs.confirm('删除流程“'+flow.name+'”？已产生的执行记录仍保留。')){const removed=await window.dsh.taskRequest('removeWorkflow',{id:flow.id});if(removed.syncError)notice('流程已删除，但定时任务未清理：'+removed.syncError);if(filter===flow.id)filter='';await refresh()}})
    )
    card.append(actions);list.append(card)
   }

@@ -55,6 +55,7 @@
     trash: '<svg ' + base + '><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/></svg>',
     copy: '<svg ' + base + '><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
     edit: '<svg ' + base + '><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    play: '<svg ' + base + '><path d="m8 4 12 8-12 8z" fill="currentColor" stroke-linejoin="round"/></svg>',
     /* ---- 右侧文件面板 ---- */
     /* panel 的镜像：分隔线挪到右边 */
     'panel-right': '<svg ' + base + '><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="15" y1="4" x2="15" y2="20"/></svg>',
