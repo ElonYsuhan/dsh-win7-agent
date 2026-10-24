@@ -23,6 +23,18 @@ const MANIFEST_NAME = 'install.json'
 const TRASH_PREFIX = '.old-'
 const DEFAULT_APP_NAME = 'Agent'
 
+// Managed installers own their installation. AppImage mounts are read-only and
+// must never be copied into an old loose Electron directory by legacy takeover.
+function allowsDirectoryTakeover(appDirectory, platform, environment) {
+  if (platform === 'linux' && environment && environment.APPIMAGE) return false
+  const marker = path.join(appDirectory, 'distribution.json')
+  if (!fs.existsSync(marker)) return true
+  try {
+    const info = JSON.parse(fs.readFileSync(marker, 'utf8'))
+    return info.formatVersion === 1 && info.kind === 'app-bundle' && info.directoryTakeover === true
+  } catch (error) { return false }
+}
+
 // macOS Gatekeeper mounts quarantined apps read-only at a transient location.
 function isTransientPackage(packageDir, platform) {
   return platform === 'darwin' && /(?:^|\/)AppTranslocation\//.test(String(packageDir || '').replace(/\\/g, '/'))
@@ -465,6 +477,7 @@ function relaunch(packageDir, options) {
 }
 
 module.exports = {
+  allowsDirectoryTakeover,
   isTransientPackage,
   packageBuildId,
   MANIFEST_NAME,

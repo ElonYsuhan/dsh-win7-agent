@@ -1,11 +1,12 @@
 # 桌面交付、更新、源码保护与性能契约
 
-2026-10-24：按用户要求确立后续建设规则。本文件是目标契约和实施边界，
-不表示现有安装器、在线更新或源码保护已经完成。上位规则为根目录 AGENTS.md。
+2026-10-24：默认交付改为每个平台文件夹中仅一个入口。平台封装已接入，
+在线更新、源码保护和目标机验收仍按本文件分别推进。上位规则为根目录 AGENTS.md。
 
 ## 当前差距
 
-- `scripts/build-desktop.js` 将 shell、server 和 src 复制为可读目录，再生成 ZIP。
+- `scripts/build-desktop.js` 先将 shell、server 和 src 放到内部暂存目录，
+  `desktop-distribution.js` 再封装成 Windows EXE、Linux AppImage、Mac 应用包。
   package.json 中的 asar 配置不代表这条自定义脚本实际生成了受保护载荷。
 - `shell/main.js` 与 `shell/installer.js` 已有安装登记、构建指纹、本地新包接管、
   PID 身份检查和重启确认。它们不等于可信远程更新源、后台下载、验签及完整回滚。
@@ -16,15 +17,17 @@
 
 | 目标 | 固定分发文件名 | 安装后的运行入口 |
 | --- | --- | --- |
-| win-x64 | Agent-win-x64.exe | 固定安装目录中的 Agent.exe |
-| mac-arm64 | Agent-mac-arm64.dmg | 固定位置的 Agent.app |
-| mac-x64 | Agent-mac-x64.dmg | 固定位置的 Agent.app |
-| linux-x64 | Agent-linux-x64.AppImage | 固定位置的应用入口 |
-| linux-arm64 | Agent-linux-arm64.AppImage | 固定位置的应用入口 |
+| win-x64 | Agent-win-x64/Agent.exe | 当前用户安装目录中的 Agent.exe |
+| mac-arm64 | Agent-mac-arm64/Agent.app | Agent.app |
+| mac-x64 | Agent-mac-x64/Agent.app | Agent.app |
+| linux-x64 | Agent-linux-x64/Agent.AppImage | Agent.AppImage |
+| linux-arm64 | Agent-linux-arm64/Agent.AppImage | Agent.AppImage |
 
-这是待实现的输出规范，不能把现有 ZIP 直接改扩展名。安装器完整离线，用户无需
+这是默认打包输出规范，不能把现有 ZIP 直接改扩展名。Windows EXE 为首次安装并打开的
+完整离线入口，不是每次解压的 portable 包；后续从桌面/开始菜单启动已安装程序。
+每个平台文件夹内不额外塞 README、依赖或其他入口；校验文件统一在上级目录。用户无需
 配置 Node、Python、npm 或另外下载 Electron。Mac 的 .app 本身是一个标准应用包；
-分发镜像和安装后应用是两个阶段，不要求把 Chromium、动态库塞成一个裸二进制。
+不要求把 Chromium、动态库塞成一个裸二进制。
 Linux 需验证发行版/glibc、FUSE 或经验证的无 FUSE 启动路径、文件系统执行权限。
 Windows 安装与升级必须在 Win7 SP1 x64 验证，不能使用仅新 Windows 支持的安装机制。
 打包工具属于构建环境，选型仍须固定版本、离线缓存、记录许可与供应链摘要。
@@ -33,6 +36,41 @@ Windows 安装与升级必须在 Win7 SP1 x64 验证，不能使用仅新 Window
 签名 → 隔离安装与升级验证 → 原子发布固定分发名 → 清理旧分发包。
 一套清单协调平台封装，不为每个平台另建业务执行容器。开发目录保留可调试源码，
 发布目录只接收构建暂存区的输出，绝不直接把整个仓库复制给用户。
+
+### 已接入的平台封装
+
+构建工具沿用锁定 `electron-builder 24.13.3`、`app-builder-bin 4.0.0`，其固定下载清单
+使用 NSIS 3.0.4.1 / nsis-resources 3.4.1、AppImage 12.0.1。目标 Electron 仍为22.3.27。
+旧 AppImage ARM64 启动头依赖开发用的 libz.so，不能作为自包含交付。因此仅 Linux
+封装启动头改用官方 [type2-runtime 20251108](https://github.com/AppImage/type2-runtime/releases/tag/20251108)
+（commit dd6cebedcbddde9c82f89b011e8e1d40b6e43868），两个架构的下载地址和官方资产
+SHA256 锁在 `scripts/desktop/appimage-runtime.json`。启动头静态链接 zlib/libfuse，
+不改变内嵌 Electron、业务运行时或 Windows 兼容边界。构建时校验摘要后，与原 SquashFS
+拼接，不改第三方机器码；许可与源码定位随镜像内置。正常路径仍以 FUSE 挂载，需系统
+允许 `/dev/fuse`；受限容器的解包验证不能代替真实 Linux 桌面启动测试。
+完整解包验证额外使用构建机 p7zip 17.06（程序 banner 为17.05），通过 `7z` 或
+`AGENT_FULL_7ZIP` 指定，不随程序分发；不增加 npm 生产依赖或目标机下载。
+首次构建所需工具可由 electron-builder 下载到构建缓存，离线构建需要事先准备缓存。
+静态启动头的固定文件缓存在 `release/.desktop-tools/appimage-20251108/`，仅构建机
+在缓存缺失时下载，目标机没有下载流程。系统组件 LGPL 等许可仍按上游要求保留。
+
+`npm run build:desktop` 构建五个平台；指定平台仍通过原入口传参。暂存目录为
+`release/.desktop-build/<平台>/`；审计清单为 `release/validation/desktop/<平台>.json`，
+记录源码提交、完整载荷文件摘要、封装结果和工具版本。打包从最终工作树读取，核对
+封装内的 shell/service/src 每个文件与暂存载荷逐字节一致，并检查 ELF/PE/Mach-O 架构。
+Mac 另验证 ad-hoc 签名（不是开发者签名或公证），Windows 暂无发布者签名。
+
+整批请求的所有平台封装验证成功后才替换原有交付目录；每个平台通过同卷改名发布，
+改名失败保留旧包，提交失败恢复上一目录。新校验清单写入后，再清理已替换平台的旧
+ZIP/散文件；活动目录及无法确认进程占用时保留。Mac 应用包的校验按包内普通文件
+逐条列入统一 SHA256SUMS.txt，符号链接目标与权限记录在审计清单中。
+
+AppImage 是只读挂载；NSIS 管理安装位置。两者由随包 `distribution.json` 声明禁止
+旧 Shell 目录接管，避免将只读挂载复制到旧散文件位置，或把新安装搬离快捷方式目标。
+Mac 与旧目录包继续兼容原逻辑。此适配只属于 Shell 平台层，不改动 Cordis 业务执行。
+未来在线更新器替换此平台封装/安装适配，Agent 契约和持久化不变。
+
+本阶段不包含在线更新、源码混淆和性能预算达标的承诺；平台封装不等于加密。
 
 ## 安装和更新契约
 
@@ -119,7 +157,8 @@ ASAR、压缩、关闭开发者工具、内置 AES 密钥均不能单独作为�
 
 更新源地址、发布渠道、发布签名密钥及各系统应用签名证书尚未由本次任务配置。
 这些是发布自动更新的实际前置条件；未就绪时只交付明确标识的开发验收包，不伪造签名。
-当前仅更新规则与方案，旧目录打包、本地接管逻辑暂留，不能宣布已上线新的交付机制。
+平台封装已接入；旧目录构建只作为内部输入保留。在线更新与源码保护仍未上线，
+不得把封装验证当作 Windows 7 或 Linux 桌面真实安装/图形启动验收。
 
 参考：[Electron ASAR](https://www.electronjs.org/docs/latest/tutorial/asar-archives)、
 [Electron 更新器平台边界](https://www.electronjs.org/docs/latest/api/auto-updater)、

@@ -58,9 +58,11 @@ architecture for future Agent iterations, not an optional integration.
 本节替代原先以 ZIP＋解压目录为主要交付的规则。详细契约、现状差距与验收要求见
 `docs/DESKTOP-DELIVERY.md`。以下为建设要求，未通过对应验收不得宣称已经实现。
 
-- **统一交付：每个平台只交付一个供用户打开的分发文件，内含完整离线运行环境。**
-  Windows 为离线 `.exe` 安装程序，macOS 为内含 `Agent.app` 的 `.dmg`，Linux 以
-  `.AppImage` 为目标格式；实际依赖、执行权限与目标系统兼容性必须分别验证。
+- **统一交付：每个平台文件夹里只放一个可打开的程序，内含完整离线运行环境。**
+  固定为 `release/desktop/Agent-<平台>/`：Windows 内只有 `Agent.exe` 离线安装运行入口，
+  macOS 内只有 `Agent.app`，Linux 内只有 `Agent.AppImage`。不得将散列 Electron
+  依赖目录或其 ZIP 当作默认交付；构建中间目录移到 `release/.desktop-build/`。
+  实际依赖、执行权限与目标系统兼容性必须分别验证。
   “一个分发文件”不等于 Electron 只能有一个物理二进制，禁止为凑单文件而每次启动
   都全量解压运行时。Mac 的 `.app` 是标准应用包，不应伪装成裸 Mach-O 可执行文件。
 - 支持范围仍为 `win-x64`、`mac-arm64`、`mac-x64`、`linux-x64`、`linux-arm64`。
@@ -90,9 +92,10 @@ architecture for future Agent iterations, not an optional integration.
   报告阻塞。成功后每平台只保留最新分发包和统一 `SHA256SUMS.txt`；Mac 另保留
   最新解压 `Agent.app` 并在最终回复中提供绝对路径。缓存、审计记录、符号和验证报告
   独立保留，活动程序暂缓清理；客户端仅额外保留必要的上一个可回滚版本。
-- **迁移期：** 新安装器/保护流水线尚未验收前，现有打包脚本可用于开发验收，仍覆盖
-  同名当前版本包并保留 Mac `Agent.app`。交付时明确这是过渡包，不能将 ZIP 改后缀
-  冒充单文件应用，也不能把未经保护的旧包说成已经加密。最终验收以新交付契约为准。
+- 默认 `build:desktop` 已改走平台封装，旧 ZIP 仅可通过 `--legacy-zip` 显式生成供内部排查。
+  成功验证新包后才清理同平台旧散文件和 ZIP；活动旧程序暂缓删除。Mac 两个架构均
+  保留 `Agent.app`，总目录统一生成 `SHA256SUMS.txt`。源码保护与在线更新仍单独验收，
+  不能把平台封装说成源码加密或自动更新完成。最终验收以新交付契约为准。
 
 # 知识库 SQLite 的限定组件例外
 

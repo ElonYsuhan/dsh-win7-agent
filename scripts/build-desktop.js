@@ -2,14 +2,15 @@
 'use strict'
 
 /**
- * 跨平台桌面版打包脚本（免安装、解压双击即用）。
+ * 跨平台桌面版打包入口（默认每个平台目录只有一个运行入口）。
+ * runtime 布局是内部中间产物，由 desktop-distribution.js 封装后交付。
  *
  * 用法：
  *   node scripts/build-desktop.js win-x64
  *   node scripts/build-desktop.js mac-arm64       // 别名：darwin-arm64 / mac / macos-arm64
  *   node scripts/build-desktop.js linux-x64
- *   node scripts/build-desktop.js all             // = win-x64 + mac-arm64 + linux-x64
- *   node scripts/build-desktop.js mac-x64         // Intel Mac，默认不出，需要时显式点名
+ *   node scripts/build-desktop.js all             // 五个平台与架构
+ *   node scripts/build-desktop.js mac-x64         // Intel Mac
  *
  * 产物结构（以 win-x64 为例）：
  *   release/desktop/Agent-win-x64-<version>/
@@ -656,7 +657,7 @@ async function buildTarget(targetKey, options) {
   log('=== building ' + targetKey + ' ===')
 
   const unpacked = await ensureDist(targetKey)
-  const outDir = path.join(OUT_ROOT, APP_NAME + '-' + targetKey + '-' + PRODUCT_VERSION)
+  const outDir = path.join((options && options.outRoot) || OUT_ROOT, APP_NAME + '-' + targetKey + '-' + PRODUCT_VERSION)
   // 先改名让位再删：改名失败=真有实例占着（报错退出），删除失败=只是环境的批量删除保护
   clearOutDir(outDir)
   mkdirp(outDir)
@@ -687,17 +688,24 @@ async function main() {
   const keys = names.indexOf('all') >= 0
     ? ALL_TARGETS.slice()
     : names.map((name) => ALIASES[name] || name)
-  mkdirp(OUT_ROOT)
+  const outputRoot = path.join(ROOT, 'release', '.desktop-build', 'legacy')
+  mkdirp(outputRoot)
   const results = []
   for (const key of keys) {
-    results.push(await buildTarget(key, { noZip }))
+    results.push(await buildTarget(key, { noZip, outRoot: outputRoot }))
   }
-  if (!noZip) require('./release-retention').prune(OUT_ROOT)
+  if (!noZip) require('./release-retention').prune(outputRoot)
   log('all done:')
   for (const item of results) log('  ' + item)
 }
 
-main().catch((error) => {
-  console.error('[build-desktop] crashed: ' + (error && error.stack ? error.stack : error))
-  process.exit(1)
-})
+module.exports = { buildTarget, download, targets: Object.keys(TARGETS), aliases: ALIASES }
+
+if (require.main === module) {
+  // Loose Electron directories are internal build inputs, never the default delivery.
+  const entry = process.argv.includes('--legacy-zip') ? main : require('./desktop-distribution').main
+  entry().catch((error) => {
+    console.error('[build-desktop] crashed: ' + (error && error.stack ? error.stack : error))
+    process.exit(1)
+  })
+}

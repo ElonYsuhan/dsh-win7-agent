@@ -170,6 +170,7 @@ function programDir() {
  * 顺带也就排除了开发态（那时 programDir 指向 node_modules 里的 Electron）。
  */
 function isDesktopPackage() {
+  if (!installer.allowsDirectoryTakeover(__dirname, process.platform, process.env)) return false
   const dir = programDir()
   if (process.platform === 'darwin') {
     return fs.existsSync(path.join(dir, 'Contents', 'Resources', 'app'))

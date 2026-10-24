@@ -22,7 +22,7 @@ async function freePort() {
 }
 async function run() {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-package-ui-')))
-  const bundle = path.resolve(process.argv[2] || path.join(ROOT, 'release/desktop/Agent-mac-arm64-' + version + '/Agent.app'))
+  const bundle = path.resolve(process.argv[2] || path.join(ROOT, 'release/desktop/Agent-mac-' + process.arch + '/Agent.app'))
   const debug = await freePort()
   const stale = http.createServer((req, res) => {
     res.setHeader('content-type', 'application/json')

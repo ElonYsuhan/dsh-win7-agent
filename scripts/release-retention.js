@@ -44,6 +44,12 @@ function prune(directory, options) {
     console.log((settings.dryRun ? 'would remove ' : 'removed ') + name)
   }
   if (!settings.dryRun) {
+    const deliveries = ['win-x64', 'mac-arm64', 'mac-x64', 'linux-x64', 'linux-arm64'].filter(target => fs.existsSync(path.join(directory, 'Agent-' + target)))
+    if (deliveries.length) {
+      pruneLegacy(directory, deliveries)
+      require('./desktop-distribution').checksums(directory)
+      return victims
+    }
     const packages = fs.readdirSync(directory).filter((name) => pattern.test(name) && name.endsWith('.zip')).sort()
     // 保留文件统一使用一份校验清单，避免历史清单继续累积。
     const sums = packages.map((name) => crypto.createHash('sha256').update(fs.readFileSync(path.join(directory, name))).digest('hex') + '  ' + name + '\n').join('')
@@ -52,4 +58,18 @@ function prune(directory, options) {
   }
   return victims
 }
-module.exports = { plan, prune }
+// Migration cleanup only follows successfully verified single-entry deliveries.
+function pruneLegacy(directory, targets) {
+  let processes
+  try { processes = execFileSync('ps', ['-axo', 'command='], { encoding: 'utf8' }) } catch (error) { return [] }
+  const removed = []
+  for (const name of fs.readdirSync(directory)) {
+    const match = pattern.exec(name)
+    if (!match || !targets.includes(match[1]) || !fs.existsSync(path.join(directory, 'Agent-' + match[1]))) continue
+    const full = path.join(directory, name)
+    if (processes.includes(full + path.sep)) { console.log('活动旧程序暂缓清理：' + full); continue }
+    try { fs.rmSync(full, { recursive: true, force: true }); removed.push(name) } catch (error) { console.warn('旧包暂缓清理：' + full) }
+  }
+  return removed
+}
+module.exports = { plan, prune, pruneLegacy }
