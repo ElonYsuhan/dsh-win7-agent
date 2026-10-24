@@ -256,9 +256,9 @@ async function performUpdate() {
     if (!await installer.waitGone(info.oldPid, 10000)) throw new Error('OLD_RUNNING')
   }
 
-  // A Gatekeeper mount is not an installation destination. Keep this package
-  // in its real location, close the old instance, then take over its data/lock.
-  if (installer.isTransientPackage(info.oldPath, process.platform) || installer.samePath(info.oldPath, info.newPath, process.platform)) {
+  // A missing bundle or Gatekeeper mount is not an installation destination.
+  // Keep this package in its real location and take over the existing profile.
+  if (!fs.existsSync(info.oldPath) || installer.isTransientPackage(info.oldPath, process.platform) || installer.samePath(info.oldPath, info.newPath, process.platform)) {
     updateDecision = null
     setUpdateState({ phase: 'done', detail: '已自动切换到当前程序。' })
     return startAfterUpdateDecision()

@@ -16,6 +16,7 @@
     "check:concurrency": "node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js",
     "check:service": "node scripts/service-manager-smoke.js",
     "check:installer": "node scripts/installer-smoke.js",
+    "check:updates:browser": "node scripts/update-takeover-e2e-smoke.js",
     "check:menu": "node scripts/shell-menu-smoke.js",
     "check:navigation:runtime": "node scripts/navigation-guard-runtime-smoke.js",
     "check:menu:runtime": "node scripts/shell-menu-runtime-smoke.js",

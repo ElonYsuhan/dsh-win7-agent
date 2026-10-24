@@ -278,7 +278,15 @@ function processOwnsPackage(pid, packageDir, platform) {
       return samePath(executable, binary, os)
     }
     const command = execFileSync('ps', ['-p', String(value), '-o', 'command='], { encoding: 'utf8', timeout: 2000 }).trim()
-    return command === binary || command.startsWith(binary + ' ')
+    const candidates = [binary]
+    // Finder can move/delete a bundle while its process remains alive. Its plist
+    // is then unavailable, but ps still reports the original executable path.
+    // Match only the two shipped executable names inside that exact registered
+    // .app; never fall back to a basename or a general Electron process match.
+    if (os === 'darwin' && path.isAbsolute(packageDir) && packageDir.endsWith('.app') && !fs.existsSync(packageDir)) {
+      candidates.push(path.join(packageDir, 'Contents', 'MacOS', 'Electron'))
+    }
+    return candidates.some(candidate => command === candidate || command.startsWith(candidate + ' '))
   } catch (error) { return false }
 }
 
