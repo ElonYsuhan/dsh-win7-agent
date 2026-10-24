@@ -72,6 +72,23 @@ async function main() {
     const binary = path.join(root, 'node_modules/electron/dist', fs.readFileSync(path.join(root, 'node_modules/electron/path.txt'), 'utf8').trim())
     await driver.launch(base + '/', { electronPath: binary, width: 1280, height: 900, noSandbox: process.env.SMOKE_NO_SANDBOX === '1' })
     await wait(() => driver.evaluate('!!window.workflowUI'), 'renderer')
+    // A long workflow must open at a readable size in the user's narrower window,
+    // rather than shrinking all of its cards into a thin line.
+    await driver.cdp.send('Emulation.setDeviceMetricsOverride',{width:1280,height:840,deviceScaleFactor:1,mobile:false})
+    const longNodes=Array.from({length:16},(_,i)=>({id:'long_'+i,type:i===0?'start':i===15?'end':'human',title:i===0?'开始 · 日常训练':i===15?'结束 · 训练归档':'第'+i+'组 · 登山跑 50 次',text:'完成本组动作后填写备注，审阅并继续。',pos:[48+i*352,100]}))
+    const longFlow=await req('POST',base+'/api/workflows/save',{name:'长流程可读性验收',version:2,nodes:longNodes,edges:longNodes.slice(1).map((n,i)=>({from:longNodes[i].id,to:n.id}))})
+    await driver.evaluate('workflowUI.openDraft('+JSON.stringify(longFlow.id)+')',{awaitPromise:true})
+    await wait(()=>driver.evaluate('document.getElementById("workflowCanvas").data?.graph._nodes.length===16&&document.getElementById("workflowZoom").textContent==="100%"'),'readable long workflow')
+    const readingView=()=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(n=>n.properties.workflowId==='long_0'),b=n.getBounding();return{scale:c.ds.scale,canvasWidth:c.canvas.width,canvasHeight:c.canvas.height,card:{left:(b[0]+c.ds.offset[0])*c.ds.scale,top:(b[1]+c.ds.offset[1])*c.ds.scale,width:b[2]*c.ds.scale,height:b[3]*c.ds.scale},positions:c.graph._nodes.map(n=>Array.from(n.pos))}})()`)
+    const readable=await readingView();assert.strictEqual(readable.scale,1);assert(readable.card.width>=200,'Default card remains readable at actual size');assert(readable.card.left>=70&&readable.card.top>=30&&readable.card.left+readable.card.width<readable.canvasWidth&&readable.card.top+readable.card.height<readable.canvasHeight,'First card stays visible and clear of the floating tools');assert.deepStrictEqual(readable.positions,longNodes.map(n=>n.pos),'Initial framing never rewrites saved node positions')
+    for(const theme of ['light','dark']){await driver.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)};document.getElementById('workflowCanvas').data.setDirty(true,true)`);await sleep(100);shot('workflow-readable-default-'+theme+'.png',Buffer.from(await driver.screenshot(),'base64'))}
+    await driver.click('[data-canvas-action=zoom]');await driver.evaluate(`Array.from(document.querySelectorAll('#workflowZoomMenu button')).find(b=>b.textContent==='适应全部').click();true`)
+    assert((await readingView()).scale<.3,'Overview remains an explicit user action')
+    await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
+    await driver.evaluate('workflowUI.openDraft('+JSON.stringify(longFlow.id)+')',{awaitPromise:true})
+    await wait(()=>driver.evaluate('document.getElementById("workflowZoom").textContent==="100%"'),'reopen restores readable default')
+    await driver.click('#workflowArrange');assert.strictEqual((await readingView()).scale,1,'Arranging nodes keeps readable scale')
+    await driver.click('#workflowSave');await wait(()=>driver.evaluate('!document.getElementById("workflowCards").classList.contains("hidden")'),'save arranged long flow')
     const flow = await req('POST', base + '/api/workflows/save', graph)
 
     await driver.cdp.send('Emulation.setDeviceMetricsOverride',{width:1600,height:1000,deviceScaleFactor:1,mobile:false})

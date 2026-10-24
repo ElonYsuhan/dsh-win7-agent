@@ -698,7 +698,7 @@ function nextNodeId(type){
   if(ordered.length!==nodes.length){notice('请先移除循环连线，再整理布局。');return}
   const columns=new Map();for(const id of ordered){const depth=rank.get(id);if(!columns.has(depth))columns.set(depth,[]);columns.get(depth).push(graph.getNodeById(id))}
   for(const [depth,list]of columns){let y=100;for(const n of list){n.pos=[48+depth*(cardTheme.width+72),y];y+=n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+56}}
-  dirty=true;graph.setDirtyCanvas(true,true);fitGraph()
+  dirty=true;graph.setDirtyCanvas(true,true);readableGraph()
  }
  // 流程元信息在右侧共享属性面板，点击画布空白时展示。
 function placeNameField(){const field=$('workflowNameField'),slot=$('workflowFlowNameSlot');if(field&&slot&&field.parentNode!==slot)slot.append(field)}
@@ -906,7 +906,8 @@ function edit(flow){
   placeNameField();parameter(null)
   canvas.startRendering()
   resize()
-  requestAnimationFrame(()=>{resize();fitGraph()})
+  const openedCanvas=canvas
+  requestAnimationFrame(()=>{if(canvas!==openedCanvas||mode!=='editor')return;resize();readableGraph()})
  }
  function addEditorNode(type,position){
   const n=LiteGraph.createNode('workflow/'+type.type);n.title=type.name;n.properties.workflowId=nextNodeId(type.type)
@@ -987,6 +988,23 @@ function edit(flow){
   if(!canvas)return
   if(!graph._nodes.length){canvas.ds.scale=1;canvas.ds.offset[0]=0;canvas.ds.offset[1]=0}
   else{const bounds=graph._nodes.map(n=>n.getBounding()),x=Math.min(...bounds.map(b=>b[0])),y=Math.min(...bounds.map(b=>b[1])),right=Math.max(...bounds.map(b=>b[0]+b[2])),bottom=Math.max(...bounds.map(b=>b[1]+b[3]));canvas.ds.scale=Math.max(.1,Math.min(1.5,(canvas.canvas.width-140)/Math.max(1,right-x),(canvas.canvas.height-100)/Math.max(1,bottom-y)));canvas.ds.offset[0]=canvas.canvas.width/(2*canvas.ds.scale)-(x+right)/2;canvas.ds.offset[1]=canvas.canvas.height/(2*canvas.ds.scale)-(y+bottom)/2}
+  canvas.setDirty(true,true);updateZoom()
+ }
+ // Reading and editing start at actual size. A long graph may extend outside
+ // the viewport; only the explicit "适应全部" action trades readability for overview.
+ function readableGraph(){
+  if(!canvas)return
+  canvas.ds.scale=1
+  const nodes=graph._nodes,width=canvas.canvas.width,height=canvas.canvas.height,left=84,top=64
+  if(!nodes.length){canvas.ds.offset[0]=0;canvas.ds.offset[1]=0}
+  else{
+   const bounds=nodes.map(n=>n.getBounding()),x=Math.min(...bounds.map(b=>b[0])),y=Math.min(...bounds.map(b=>b[1])),right=Math.max(...bounds.map(b=>b[0]+b[2])),bottom=Math.max(...bounds.map(b=>b[1]+b[3]))
+   if(right-x<=width-left-24&&bottom-y<=height-top-40){canvas.ds.offset[0]=left+(width-left-24-(right-x))/2-x;canvas.ds.offset[1]=(height-(bottom-y))/2-y}
+   else{
+    const focus=selectedNode&&nodes.includes(selectedNode)?selectedNode:nodes.find(n=>n.type==='workflow/start'||n.type==='workflow/input')||nodes[0],bounds=focus.getBounding()
+    canvas.ds.offset[0]=left-bounds[0];canvas.ds.offset[1]=top-bounds[1]
+   }
+  }
   canvas.setDirty(true,true);updateZoom()
  }
  function setupCanvasTools(){
