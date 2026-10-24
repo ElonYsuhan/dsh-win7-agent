@@ -174,7 +174,8 @@ sandbox/contextIsolation，不给页面开放Node，不添加unsafe-eval或远�
 `protected-runtime-smoke` 另在真实加密包上运行Cordis、工作流、离线节点扩展、权限与
 节点设计回归。`packaged-ui-smoke`验证实际应用启动、主题及浏览器入口隐藏。
 `source-protection-perf`以同份源码构建内部明文基线，与加密包交替各30次独立进程启动，
-记录首页就绪、模块首次/重复切换、20轮前后资源采样及宿主配置。OS缓存未清空，窗口观测是
+记录首页就绪、模块首次/重复切换、20轮前后资源采样及宿主配置。模块动作统一从rAF
+帧边界触发并等待双帧，避免两组触发时点不同导致帧相位噪声。OS缓存未清空，窗口观测是
 CDP页面出现而非合成器首帧；测试为空数据Mac开发机，不冒充Win7、真实历史规模或
 完整跨平台性能预算验收。报告保存于release/validation/source-protection-perf.json。
 
