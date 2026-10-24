@@ -34,6 +34,8 @@ function inventory(root) {
   const files = []
   function walk(dir, relative) {
     for (const item of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'en'))) {
+      // Finder metadata is not application payload and can appear after publication.
+      if (item.name === '.DS_Store' && item.isFile()) continue
       const name = relative ? relative + '/' + item.name : item.name
       const full = path.join(dir, item.name)
       if (item.isSymbolicLink()) files.push({ path: name, link: fs.readlinkSync(full) })

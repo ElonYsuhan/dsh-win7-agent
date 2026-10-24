@@ -55,12 +55,6 @@ module.exports = {
           tasksSave(repo.tasks.map(t=>t.id===task.id?{ ...t, failures, enabled: failures >= task.failureLimit ? false : t.enabled, lastRun: { id: result.id, status: result.status, at: result.createdAt } }:t))
         }
         active = null; repo.compact(); notify()
-        /* 每次跑完都发一条：渲染层判断「这条会话当前没打开」才亮通知点（2026-10-17 用户要求）。
-           带 runId / sessionId，气泡列表点条目就能直接打开那次运行的会话。 */
-        const needsAttention = ['failed','needs_attention','interrupted','timed_out','exhausted'].includes(result.status)
-        emit({ type: 'tasks:notification', taskId: run.taskId, runId: result.id, sessionId: run.sessionId,
-          title: run.task.name, status: result.status, ...(result.workflowRunId?{workflowId:run.task.workflow.id,workflowRunId:result.workflowRunId}:{}),
-          message: needsAttention ? '定时任务需要关注，请查看运行记录。' : run.task.workflow?(result.workflowRunId?'已触发流程，请查看实例进度。':'定时触发已取消。'):'定时任务已执行完成。' })
         if (!closed) scheduleTick()
       }
     }

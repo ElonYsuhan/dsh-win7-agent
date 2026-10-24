@@ -172,7 +172,6 @@ try {
 
 contextBridge.exposeInMainWorld('shell', {
   taskPreferences: (value) => ipcRenderer.invoke('shell:task-preferences', value === undefined ? null : value),
-  taskNotify: (value) => ipcRenderer.invoke('shell:task-notify', value),
   getConfig: () => ipcRenderer.invoke('shell:get-config'),
   saveConfig: (value) => ipcRenderer.invoke('shell:save-config', value),
   retry: () => ipcRenderer.invoke('shell:retry'),

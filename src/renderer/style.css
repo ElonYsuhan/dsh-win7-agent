@@ -5698,7 +5698,7 @@ button .dropdown-chevron svg, button .dropdown-check svg { width: 14px; height: 
 .task-editor details:not([open]) > *:not(summary) { display:none !important; }
 
 
-/* ---- 定时任务：卡片瘦身 / 运行记录紧凑行 / 通知气泡（2026-10-17）---- */
+/* ---- 定时任务：卡片瘦身 / 运行记录紧凑行（2026-10-17）---- */
 
 /* 卡片：原来三段（标题+描述+底部两行）占掉大半屏，现在压成两行 */
 .scheduled-task { padding: 9px 10px; gap: 3px; border-radius:10px; }
@@ -5732,23 +5732,8 @@ button .dropdown-chevron svg, button .dropdown-check svg { width: 14px; height: 
 .task-run-tail { flex:0 0 auto; display:flex; align-items:center; gap:10px; font-size:11px; color:var(--muted); }
 .task-run-open { color:var(--text); opacity:.7; }
 
-/* 通知铃铛 + 气泡列表 */
+/* 侧栏底部操作 */
 .sidebar-footer-actions { position:relative; display:flex; align-items:center; gap:6px; }
-.notice-bell { width:36px; min-width:36px; padding:0; justify-content:center; position:relative; }
-.notice-dot { position:absolute; top:6px; right:7px; width:7px; height:7px; border-radius:50%; background:#e98787; box-shadow:0 0 0 2px var(--panel); }
-.notice-popover { position:absolute; bottom:calc(100% + 8px); right:0; left:0; width:auto; max-width:min(320px, calc(100vw - 24px)); max-height:min(320px, calc(100vh - 140px)); padding:8px 0; border:1px solid var(--border); border-radius:12px; background:var(--panel); color:var(--text); box-shadow:0 12px 34px rgba(0,0,0,.28); z-index:60; }
-.notice-popover.hidden { display:none; }
-.notice-popover-head { display:flex; align-items:center; justify-content:space-between; padding:4px 12px 8px; font-size:12px; font-weight:600; border-bottom:1px solid var(--border); }
-.notice-popover-head button { min-height:24px; padding:0 6px; border:0; background:transparent; color:var(--muted); font-size:11px; }
-.notice-items { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow-y:auto; }
-.notice-item { display:flex; flex-direction:column; gap:2px; width:100%; padding:8px 12px; border:0; border-radius:0; background:transparent; color:var(--text); text-align:left; }
-.notice-item:hover { background:var(--hover-bg); border-color:transparent; }
-.notice-item-title { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.notice-item-meta { font-size:11px; color:var(--muted); }
-.notice-item.is-unread .notice-item-title::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:#e98787; margin-right:6px; vertical-align:middle; }
-.notice-empty { margin:0; padding:16px 12px; font-size:12px; color:var(--muted); text-align:center; }
-.notice-empty[hidden] { display:none; }
-
 /* 星期下拉沿用设置里的统一样式，位置朝上 */
 .weekday-dropdown .dropdown-menu { bottom:auto; top:calc(100% + 6px); }
 

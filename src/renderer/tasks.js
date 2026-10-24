@@ -21,48 +21,7 @@
     if(rule.kind==='interval')return rule.minutes%1440===0?'每 '+(rule.minutes/1440)+' 天':(rule.minutes%60===0?'每 '+(rule.minutes/60)+' 小时':'每 '+rule.minutes+' 分钟')
     return (rule.kind==='weekly'?'每周'+WEEKDAYS[rule.weekday]:'每天')+' '+rule.time
   }
-  async function notifyRun(run){
-    if(!window.shell||!window.shell.taskNotify||!['failed','needs_attention','interrupted','timed_out','exhausted'].includes(run.status))return
-    let seen=[];try{seen=JSON.parse(localStorage.getItem('task-notifications')||'[]')}catch(_){}
-    if(seen.includes(run.id)||Date.now()-(run.endedAt||run.createdAt)>86400000)return
-    seen.push(run.id);try{localStorage.setItem('task-notifications',JSON.stringify(seen.slice(-200)))}catch(_){}
-    try{await window.shell.taskNotify({title:run.task.name,status:run.status})}catch(_){}
-  }
-  /* 通知中心：任务跑完、而这条会话当前没打开时才亮红点（用户 2026-10-17）。
-     点铃铛看列表，点条目直接打开那次运行的会话。 */
-  let notices=[]
-  function loadNotices(){try{notices=JSON.parse(localStorage.getItem('task-notices')||'[]')}catch(_){notices=[]}}
-  function saveNotices(){try{localStorage.setItem('task-notices',JSON.stringify(notices.slice(-50)))}catch(_){}}
-  function pushNotice(item){
-    if(notices.some(n=>n.runId===item.runId))return
-    notices.push(item);notices=notices.slice(-50);saveNotices();renderNotices()
-  }
-  function markNoticeRead(runId){const hit=notices.find(n=>n.runId===runId);if(hit&&!hit.read){hit.read=true;saveNotices();renderNotices()}}
-  function renderNotices(){
-    const box=$('taskNoticeList'),items=$('taskNoticeItems'),dot=$('taskNoticeDot'),empty=$('taskNoticeEmpty')
-    if(!box)return
-    const unread=notices.filter(n=>!n.read).length
-    if(dot)dot.hidden=unread===0
-    const bell=$('taskNoticeBell')
-    if(bell)bell.setAttribute('aria-label',unread?('通知（'+unread+' 条未读）'):'通知')
-    if(items){items.textContent=''
-      for(const item of notices.slice().reverse()){
-        const row=el('button',undefined,'notice-item'+(item.read?'':' is-unread'))
-        row.type='button'
-        row.appendChild(el('span',item.title,'notice-item-title'))
-        row.appendChild(el('span',(item.workflowId&&item.status==='completed'?'已触发':statuses[item.status]||item.status)+' · '+whenText(item.at),'notice-item-meta'))
-        row.addEventListener('click',()=>openNotice(item))
-        items.appendChild(row)
-      }}
-    if(empty)empty.hidden=notices.length>0
-  }
-  async function openNotice(item){
-    markNoticeRead(item.runId)
-    closeNotices()
-    try{if(item.workflowRunId){await window.workflowUI.openReference({workflowId:item.workflowId,runId:item.workflowRunId});return}const value=await request('conversation',{runId:item.runId});await host.open(value)}catch(e){notice(e.message)}
-  }
-  function closeNotices(){const box=$('taskNoticeList');if(box)box.classList.add('hidden');const bell=$('taskNoticeBell');if(bell)bell.setAttribute('aria-expanded','false')}
-  async function refresh(){if(!host)return;if(loading){refreshAgain=true;return}loading=true;try{data=await request('list');if(data.error)notice('任务调度已停止：'+data.error+'。请处理存储异常后重启服务。');if(host.sync)host.sync(data);for(const run of data.runs)notifyRun(run);render()}finally{loading=false;if(refreshAgain){refreshAgain=false;refresh().catch(()=>{})}}}
+  async function refresh(){if(!host)return;if(loading){refreshAgain=true;return}loading=true;try{data=await request('list');if(data.error)notice('任务调度已停止：'+data.error+'。请处理存储异常后重启服务。');if(host.sync)host.sync(data);render()}finally{loading=false;if(refreshAgain){refreshAgain=false;refresh().catch(()=>{})}}}
   function visibleTasks(){const query=$('taskSearch').value.trim().toLowerCase();return data.tasks.filter(t=>(filter==='all'||(filter==='enabled'?t.enabled:!t.enabled))&&(!query||(t.name+' '+t.prompt).toLowerCase().includes(query)))}
   function view(value){const runs=value==='runs';$('taskBatch').classList.toggle('hidden',runs);$('taskBatch').hidden=runs;$('taskOverview').classList.toggle('hidden',runs);$('taskHistory').classList.toggle('hidden',!runs);for(const [id,active] of [['taskViewTasks',!runs],['taskViewRuns',runs]]){$(id).setAttribute('aria-selected',String(active));$(id).tabIndex=active?0:-1}}
   function selection(){
@@ -115,9 +74,9 @@
     return sec<60?sec+' 秒':Math.round(sec/60)+' 分 '+sec%60+' 秒'
   }
   async function openRunConversation(run){
-    if(run.workflowRunId){markNoticeRead(run.id);await window.workflowUI.openReference({workflowId:run.task.workflow.id,runId:run.workflowRunId});return}
+    if(run.workflowRunId){await window.workflowUI.openReference({workflowId:run.task.workflow.id,runId:run.workflowRunId});return}
     if(not(run.sessionId))return
-    try{const value=await request('conversation',{runId:run.id});markNoticeRead(run.id);await host.open(value)}catch(e){notice(e.message)}
+    try{const value=await request('conversation',{runId:run.id});await host.open(value)}catch(e){notice(e.message)}
   }
   function renderRuns(taskId){
     const box=$('taskRuns');box.dataset.taskId=taskId;box.textContent=''
@@ -226,23 +185,11 @@
     }finally{saving=false;validEditor()}
   }
   async function lifecycle(){if(!window.shell||!window.shell.taskPreferences)return;const prefs=await window.shell.taskPreferences();$('taskDesktopOptions').hidden=false;$('taskKeepRunning').checked=prefs.keepRunning;$('taskLaunchAtLogin').checked=prefs.launchAtLogin}
-  window.scheduledTasks={refresh,pushNoticeForTest:pushNotice,onEvent(event){
-    if(event.type==='tasks:notification'){
-      const run=event.runId?(data.runs.filter(r=>r.id===event.runId)[0]||null):null
-      /* 只有「这条会话当前没打开」才提示 —— 正在看着它就别再弹一次 */
-      const open=run&&run.sessionId===window.currentSessionId&&window.currentSessionId
-      notice('任务“'+event.title+'”：'+(event.workflowId&&event.status==='completed'?'已触发':statuses[event.status]||event.status))
-      if(event.runId&&!open)pushNotice({runId:event.runId,title:event.title,status:event.status,workflowId:event.workflowId,workflowRunId:event.workflowRunId,at:Date.now(),read:false})
-    }
-    if(event.type==='tasks:error'){notice(event.message);if(window.shell&&window.shell.taskNotify)window.shell.taskNotify({title:'任务调度异常',status:'failed'}).catch(()=>{})}
+  window.scheduledTasks={refresh,onEvent(event){
+    if(event.type==='tasks:error')notice(event.message)
     refresh().catch(()=>{})
   },init(callbacks){host=callbacks;if(initialized)return;initialized=true;window.scheduledTasks.ready=true
     document.body.appendChild($('taskDialog'))
-    loadNotices();renderNotices()
-    $('taskNoticeBell').addEventListener('click',event=>{event.stopPropagation();const box=$('taskNoticeList');const open=box.classList.contains('hidden');box.classList.toggle('hidden',!open);$('taskNoticeBell').setAttribute('aria-expanded',String(open))})
-    $('taskNoticeClear').addEventListener('click',()=>{notices=notices.map(n=>({...n,read:true}));saveNotices();renderNotices()})
-    document.addEventListener('click',event=>{if(!event.target.closest('.sidebar-footer-actions'))closeNotices()})
-    document.addEventListener('keydown',event=>{if(event.key==='Escape')closeNotices()})
     refresh().catch(()=>{})
     $('taskNew').addEventListener('click',()=>edit());$('taskEditor').addEventListener('submit',e=>save(e).catch(()=>{}));$('taskCancel').addEventListener('click',closeEditor);$('taskCloseEditor').addEventListener('click',closeEditor)
     for(const id of ['taskName','taskPrompt'])$(id).addEventListener('input',validEditor)

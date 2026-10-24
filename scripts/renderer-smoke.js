@@ -1512,8 +1512,6 @@ const checks = `
   ok('定时任务编辑器：权限与工具用内置默认值，不再由用户勾',
     tasksSrc.indexOf('BUILTIN') !== -1 && tasksSrc.indexOf("permission:'readonly'") !== -1
       && tasksSrc.indexOf('BUILTIN.tools.slice()') !== -1)
-  ok('侧栏有通知铃铛与气泡列表容器',
-    htmlSrc.indexOf('id="taskNoticeBell"') !== -1 && htmlSrc.indexOf('id="taskNoticeList"') !== -1)
   ok('运行记录是紧凑列表行，整行可点（不再是大卡片）',
     tasksSrc.indexOf('task-run-row') !== -1 && tasksSrc.indexOf("setAttribute('role','button')") !== -1
       && tasksSrc.indexOf('openRunConversation') !== -1)
@@ -1529,8 +1527,6 @@ const checks = `
     cssSrc.indexOf('.capability-center { display:flex') !== -1
       && cssSrc.indexOf('#capabilityCenter > #capTasks') !== -1
       && cssSrc.indexOf('overflow-y: auto') !== -1)
-  ok('通知气泡不会溢出屏幕（宽度受视口约束）',
-    cssSrc.indexOf('.notice-popover') !== -1 && cssSrc.indexOf('max-width: min(') !== -1)
   ok('空状态的建议按当前工作区内容生成，不再写死三条',
     enhancementsSrc.indexOf('function suggestions(') !== -1
       && enhancementsSrc.indexOf('FALLBACK_SUGGESTIONS') !== -1

@@ -11,6 +11,11 @@ async function wait(fn){for(let i=0;i<300;i++){if(fn())return;await new Promise(
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'agent-task-test-')),base={name:'巡检',prompt:'检查文件',rule:{kind:'daily',time:'09:00',timezone:'Asia/Shanghai'}}
 async function main(){
  try{
+  const nativeSource=fs.readFileSync(path.join(__dirname,'../src/main/main.js'),'utf8'),nativeStart=nativeSource.indexOf("licensedHandle('tasks:request'"),nativeEnd=nativeSource.indexOf("licensedHandle('licensing:request'",nativeStart)
+  let nativeTaskHandler
+  require('vm').runInNewContext(nativeSource.slice(nativeStart,nativeEnd),{licensedHandle:(name,handler)=>{nativeTaskHandler=handler},pluginHost:{get:()=>({run:id=>({id}),list:()=>({tasks:[],runs:[]})})}})
+  for(const action of ['bind-session','delete-session','session-tree','session-preview','tree','project-preview'])await assert.rejects(nativeTaskHandler(null,action,{sessionId:'test'}),/TASK_ACTION_INVALID/)
+  ok('原生任务IPC拒绝知识库动作，正常运行仍正确派发',(await nativeTaskHandler(null,'run',{id:'task'})).run.id==='task')
   const d=definition(base);ok('默认只读、最小工具白名单、补跑关闭',d.permission==='readonly'&&d.tools.length===3&&!d.catchUp)
   assert.throws(()=>definition({...base,permission:'full'}));assert.throws(()=>definition({...base,tools:['browser_eval']}));assert.throws(()=>definition({...base,rule:{kind:'cron'}}));ok('拒绝完全访问、任意脚本和无效规则',true)
   const now=Date.parse('2026-10-17T00:00:00Z');ok('每日按指定时区计算',policy.next(d.rule,now)===Date.parse('2026-10-17T01:00:00Z'))

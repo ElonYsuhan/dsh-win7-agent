@@ -527,11 +527,6 @@ licensedHandle('tasks:request', async (_event, action, data) => {
   if (action === 'list') return tasks.list()
   if (action === 'save') return { task: tasks.save(data) }
   if (action === 'saveWorkflow' || action === 'removeWorkflow') return tasks[action](data)
-  if (action === 'bind-session' || action === 'delete-session') { if(pool.isRunning(raw.sessionId))throw Error('SESSION_BUSY');return action === 'bind-session' ? knowledge.bindSession(raw) : knowledge.deleteSession(raw) }
-  if (action === 'session-tree') return knowledge.sessionTree(raw)
-  if (action === 'session-preview') return knowledge.sessionPreview(raw)
-  if (action === 'tree') return knowledge.tree(raw)
-  if (action === 'project-preview') return knowledge.projectPreview(raw)
   if (action === 'preview') return { nextAt: tasks.preview(data.rule) }
   if (action === 'delete') { tasks.remove(data.id); return {ok:true} }
   if (action === 'run') return {run:tasks.run(data.id)}

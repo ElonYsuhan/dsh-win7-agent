@@ -453,25 +453,6 @@ async function main() {
     ))
     ok('滚得动（scrollTop 真的变了）', Number(moved) > 0, 'scrollTop=' + moved)
 
-    /* 气泡不溢出窗口 */
-    const fitProbe = JSON.parse(String(await evalJs(
-      '(function(){'
-      + 'window.scheduledTasks.pushNoticeForTest({runId:"fit1",title:"每日一报",status:"completed",at:Date.now()});'
-      + 'var pop=document.getElementById("taskNoticeList");'
-      + 'if(!pop.classList.contains("hidden"))document.getElementById("taskNoticeBell").click();'
-      + 'document.getElementById("taskNoticeBell").click();'
-      + 'var box=document.getElementById("taskNoticeList");var r=box.getBoundingClientRect();'
-      + 'var cs=getComputedStyle(box);'
-      + 'return JSON.stringify({left:Math.round(r.left),top:Math.round(r.top),right:Math.round(r.right),bottom:Math.round(r.bottom),'
-      + ' h:Math.round(r.height),maxH:cs.maxHeight,'
-      + ' vw:window.innerWidth,vh:window.innerHeight,'
-      + ' fits:r.right<=window.innerWidth+1&&r.left>=0&&r.bottom<=window.innerHeight+1&&r.top>=0});'
-      + '})()'
-    )))
-    ok('通知气泡完整落在窗口内', fitProbe.fits === true, JSON.stringify(fitProbe))
-    await evalJs('(function(){document.getElementById("taskNoticeClear").click();return true})()')
-    await sleep(200)
-
     /* 空状态建议：跟着工作区内容走 */
     await evalJs('(function(){var c=document.getElementById("messagesInner");c.textContent="";'
       + 'window.agentUI.empty(c);return true})()')
@@ -487,47 +468,8 @@ async function main() {
       suggProbe.count === 3 && suggProbe.first !== '分析当前仓库结构，指出主要模块',
       JSON.stringify(suggProbe))
 
-    /* ---- 通知铃铛 / 运行记录紧凑行 / 执行环境搬进设置（真机）---- */
-    const bellProbe = JSON.parse(String(await evalJs(
-      '(function(){'
-      + 'var b=document.getElementById("taskNoticeBell"),p=document.getElementById("taskNoticeList");'
-      + 'if(!b||!p)return "{}";'
-      + 'if(!p.classList.contains("hidden"))b.click();'
-      + 'b.click();'
-      + 'var cs=getComputedStyle(p),r=p.getBoundingClientRect();'
-      + 'var opened=!p.classList.contains("hidden");'
-      + 'b.click();'
-      + 'return JSON.stringify({bellShown:getComputedStyle(b).display!=="none",'
-      + ' opened:opened, w:Math.round(r.width), emptyShown:!document.getElementById("taskNoticeEmpty").hidden,'
-      + ' closed:document.getElementById("taskNoticeList").classList.contains("hidden")});'
-      + '})()'
-    )))
-    ok('通知铃铛在侧栏里，点开是气泡列表、再点收起',
-      bellProbe.bellShown === true && bellProbe.opened === true && bellProbe.closed === true
-        && bellProbe.w > 200, JSON.stringify(bellProbe))
-
-    /* 注入一条通知，验证红点与列表项，再清掉 */
-    await evalJs('(function(){'
-      + 'window.__bellProbe={};'
-      + 'var ev=new CustomEvent("dummy");'
-      + 'var items=document.getElementById("taskNoticeItems");'
-      + 'window.scheduledTasks.pushNoticeForTest({runId:"probe-run",title:"每日巡检",status:"completed",at:Date.now()});'
-      + 'return true})()')
-    await sleep(400)
-    const noticeProbe = JSON.parse(String(await evalJs(
-      '(function(){'
-      + 'return JSON.stringify({items:document.querySelectorAll(".notice-item").length,'
-      + ' dotHidden:document.getElementById("taskNoticeDot").hidden,'
-      + ' title:document.querySelector(".notice-item-title")?document.querySelector(".notice-item-title").textContent:""});'
-      + '})()'
-    )))
-    ok('有未读通知时铃铛亮红点、气泡列表出现条目',
-      noticeProbe.items >= 1 && noticeProbe.dotHidden === false
-        && noticeProbe.title === '每日巡检', JSON.stringify(noticeProbe))
-    await evalJs('(function(){ document.getElementById("taskNoticeClear").click(); return true })()')
-    await sleep(300)
-    ok('「全部已读」之后红点消失',
-      String(await evalJs('document.getElementById("taskNoticeDot").hidden')) === 'true')
+    ok('侧栏通知入口和通知列表已移除',
+      String(await evalJs('!document.getElementById("taskNoticeBell") && !document.getElementById("taskNoticeList")')) === 'true')
 
     /* 运行记录是紧凑列表行，整行可点 */
     await evalJs('(function(){ window.scheduledTasks.refresh(); return true })()')
@@ -560,7 +502,7 @@ async function main() {
       + '})()'
     )))
     ok('执行环境是系统设置里的独立模块，排在模型下面',
-      envProbe.shown === true && envProbe.order === 'general,model,environment'
+      envProbe.shown === true && envProbe.order === 'general,model,environment,license'
         && envProbe.keepRunning === true && envProbe.hostText.indexOf('执行机器') === 0,
       JSON.stringify(envProbe))
     await evalJs('(function(){ closeSettings(); return true })()')

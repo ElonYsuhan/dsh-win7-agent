@@ -19,9 +19,10 @@ async function main(){
  async function stop(){if(!child)return;child.kill('SIGTERM');await wait(()=>child.exitCode!==null||child.signalCode!==null,'stop');await sleep(100)}
  try{
   await start();const binary=path.join(root,'node_modules/electron/dist',fs.readFileSync(path.join(root,'node_modules/electron/path.txt'),'utf8').trim());await driver.launch(base,{electronPath:binary,noSandbox:process.env.SMOKE_NO_SANDBOX==='1'});await driver.cdp.send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});await wait(()=>driver.evaluate('typeof state!=="undefined" && state.settings && window.scheduledTasks && window.scheduledTasks.ready && document.getElementById("serviceConnection").textContent==="服务已连接"'),'UI')
+  ok('通知入口已移除，侧栏可直接打开设置',await driver.evaluate('!document.getElementById("taskNoticeBell")&&!document.getElementById("taskNoticeList")&&!!document.getElementById("openSettings")'))
   await driver.click('#openCustomize');await driver.click('#capTabTasks');await wait(()=>driver.evaluate('document.getElementById("taskHost")'),'task list')
   ok('能力中心有任务页（执行机器说明已搬进系统设置）',await driver.evaluate('!document.getElementById("capTasks").classList.contains("hidden")'))
-  ok('执行环境在系统设置里且排在模型下面',await driver.evaluate('Array.from(document.querySelectorAll("[data-settings-tab]")).map(b=>b.dataset.settingsTab).join(",")==="general,model,environment"&&!!document.querySelector(\'[data-settings-panel="environment"] #taskKeepRunning\')'))
+  ok('执行环境在系统设置里且排在模型下面',await driver.evaluate('Array.from(document.querySelectorAll("[data-settings-tab]")).map(b=>b.dataset.settingsTab).join(",")==="general,model,environment,license"&&!!document.querySelector(\'[data-settings-panel="environment"] #taskKeepRunning\')'))
   /* 2026-10-17 起高级配置内收为内置默认：权限/工具白名单/补跑/限额都不在界面上了 */
   await driver.click('#taskNew');ok('新建界面不再暴露权限/工具/补跑',await driver.evaluate('!document.getElementById("taskPermission")&&!document.getElementById("taskTools")&&!document.getElementById("taskCatchUp")&&!document.querySelector(".task-advanced")'))
   ok('默认保存即启用',await driver.evaluate('document.getElementById("taskEnabled").checked===true'))

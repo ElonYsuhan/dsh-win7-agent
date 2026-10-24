@@ -2,7 +2,7 @@
 
 const path = require('path')
 const fs = require('fs')
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences, nativeTheme, Tray, Notification, nativeImage } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences, nativeTheme, Tray, nativeImage } = require('electron')
 const serviceManager = require('./service-manager')
 const installer = require('./installer')
 const { hideApplicationMenu, configureWindowMenu } = require('./menu')
@@ -56,7 +56,6 @@ migrateLegacyUserData()
 
 let mainWindow = null
 let settingsWindow = null
-const taskNotificationTrays = new Set()
 let taskTray = null
 let quittingRequested = false
 let config = { mode: 'local', serviceUrl: '', lastPort: 0, theme: 'dark' }
@@ -848,15 +847,3 @@ ipcMain.handle('shell:task-preferences', (_event, value) => {
   }
   return {keepRunning:config.keepRunning===true,launchAtLogin:config.launchAtLogin===true}
 })
-ipcMain.handle('shell:task-notify', (_event, value) => {
-  if(!value||typeof value.title!=='string')throw new Error('TASK_NOTIFICATION_INVALID')
-  if(process.platform==='win32') {
-    const tray=taskTray||new Tray(nativeImage.createFromPath(windowIconPath() || path.join(app.getAppPath(), 'src', 'renderer', 'logo.png')))
-    if(!taskTray)tray.on('balloon-click',()=>{if(mainWindow){mainWindow.show();mainWindow.focus()}})
-    tray.displayBalloon({title:'Agent 定时任务',content:value.title.slice(0,100)+'：需要关注，请查看运行记录。',iconType:'warning',respectQuietTime:true})
-    if(!taskTray){taskNotificationTrays.add(tray);const timer=setTimeout(()=>{if(taskNotificationTrays.delete(tray))tray.destroy()},15000);if(timer.unref)timer.unref()}
-  } else if(Notification.isSupported()) { const notification=new Notification({title:'Agent 定时任务',body:value.title.slice(0,100)+'：需要关注，请查看运行记录。'});notification.on('click',()=>{if(mainWindow){mainWindow.show();mainWindow.focus()}});notification.show() }
-  return {ok:true}
-})
-
-app.on('will-quit',()=>{for(const tray of taskNotificationTrays)tray.destroy();taskNotificationTrays.clear()})
