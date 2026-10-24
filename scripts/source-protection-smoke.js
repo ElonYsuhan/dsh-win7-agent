@@ -1,0 +1,38 @@
+'use strict'
+const fs = require('fs'), path = require('path'), os = require('os'), assert = require('assert'), vm = require('vm'), cp = require('child_process')
+const protection = require('./desktop/source-protection')
+async function main() {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-protection-')))
+  const put = (name, text) => { const file = path.join(dir, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text) }
+  try {
+    put('main.js', "'use strict';module.exports=require('./service/index');if(require.main===module)console.log(JSON.stringify(module.exports))")
+    put('service/index.js', "'use strict';const a=require('../src/main/a');module.exports={value:a.value,cycle:a.cycle,filename:__filename,secret:'CONFIDENTIAL_SENTINEL_4936'}")
+    put('src/main/a.js', "exports.value='中文业务';exports.cycle=require('./b').value")
+    put('src/main/b.js', "exports.value=require('./a').value+'循环'")
+    put('src/main/probe.js', "global.__protectionExecuted=true;module.exports='never'")
+    put('src/main/preload.js', "const {contextBridge}=require('electron');contextBridge.exposeInMainWorld('test',42)")
+    put('src/renderer/app.js', "'use strict';const appState={value:'页面'};window.result=appState.value")
+    put('src/main/runtime/vendor/cordis/index.js', 'VENDOR_UNCHANGED')
+    put('src/main/agent/md-skills/test/SKILL.md', 'Readable Skill contract')
+    put('src/renderer/debug.map', 'DO_NOT_SHIP')
+    const report = await protection.protect(dir)
+    assert.strictEqual(report.records.filter(item => item.mode === 'aes-256-gcm').length, 5)
+    assert(!fs.existsSync(path.join(dir, 'src/renderer/debug.map')))
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'src/main/runtime/vendor/cordis/index.js'), 'utf8'), 'VENDOR_UNCHANGED')
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'src/main/agent/md-skills/test/SKILL.md'), 'utf8'), 'Readable Skill contract')
+    assert(!fs.readFileSync(path.join(dir, 'service/index.js')).includes('CONFIDENTIAL_SENTINEL'))
+    assert(!fs.readFileSync(path.join(dir, 'service/index.js.agc')).includes('CONFIDENTIAL_SENTINEL'))
+    const result = JSON.parse(cp.execFileSync(process.execPath, [path.join(dir, 'main.js')], { encoding: 'utf8' }))
+    assert.strictEqual(result.value, '中文业务'); assert.strictEqual(result.cycle, '中文业务循环'); assert.strictEqual(result.secret, 'CONFIDENTIAL_SENTINEL_4936'); assert.strictEqual(result.filename, path.join(dir, 'service/index.js'))
+    const browser = { window: {} }; vm.runInNewContext(fs.readFileSync(path.join(dir, 'src/renderer/app.js'), 'utf8'), browser); assert.strictEqual(browser.window.result, '页面')
+    let bridgeValue; vm.runInNewContext(fs.readFileSync(path.join(dir, 'src/main/preload.js'), 'utf8'), { require(name) { assert.strictEqual(name, 'electron'); return { contextBridge: { exposeInMainWorld(name, value) { bridgeValue = value } } } } }); assert.strictEqual(bridgeValue, 42)
+    const cipherFile = path.join(dir, 'src/main/probe.js.agc'), original = fs.readFileSync(cipherFile), tampered = Buffer.from(original); tampered[tampered.length - 1] ^= 1; fs.writeFileSync(cipherFile, tampered)
+    assert.throws(() => require(path.join(dir, 'src/main/probe.js'))); assert.strictEqual(global.__protectionExecuted, undefined, 'GCM authentication fails before any source executes')
+    assert.throws(() => protection.verify(dir), /SOURCE_CIPHER_INTEGRITY/)
+    fs.writeFileSync(cipherFile, fs.readFileSync(path.join(dir, 'src/main/a.js.agc'))); assert.throws(() => require(path.join(dir, 'src/main/probe.js')), /authenticate|auth/i, 'Ciphertext cannot be moved between module paths')
+    fs.writeFileSync(cipherFile, original); protection.verify(dir)
+    put('src/main/leak.js', 'unprotected()'); assert.throws(() => protection.verify(dir), /SOURCE_UNPROTECTED_FILE/)
+    console.log('Source protection passed: pinned build tools; GCM tamper/path binding; no plaintext core payload; CommonJS cycles/exports/filenames; sandbox preload; browser globals; vendor/Skills; no maps; fail-closed coverage. Runtime '+process.versions.node)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+}
+main().catch(error => { console.error(error); process.exitCode = 1 })

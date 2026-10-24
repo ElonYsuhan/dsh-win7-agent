@@ -113,6 +113,7 @@ async function prepare(target) {
   fs.mkdirSync(workspace, { recursive: true })
   const input = await runtime.buildTarget(target, { noZip: true, outRoot: workspace })
   const appDir = appDirectory(input, target)
+  const protection = await require('./desktop/source-protection').protect(appDir)
   fs.writeFileSync(path.join(appDir, 'distribution.json'), JSON.stringify({
     formatVersion: 1, target, version: VERSION,
     kind: target.startsWith('mac-') ? 'app-bundle' : target === 'win-x64' ? 'nsis' : 'appimage',
@@ -153,7 +154,7 @@ async function prepare(target) {
   await verify(target, staged, input)
   const payload = inventory(input)
   const delivery = inventory(staged)
-  const report = { formatVersion: 1, target, version: VERSION, sourceCommit, buildMetadata,
+  const report = { formatVersion: 1, target, version: VERSION, sourceCommit, buildMetadata, sourceProtection: { policy: protection.policy, tools: protection.tools, encrypted: protection.records.filter(r => r.mode === 'aes-256-gcm').length, obfuscated: protection.records.filter(r => r.mode === 'obfuscated').length },
     runtime: { electron: '22.3.27', node: '16.17.1', chromium: '108' },
     tools: { electronBuilder: '24.13.3', appBuilder: '4.0.0', nsis: '3.0.4.1', appimage: '12.0.1', appimageRuntime: APPIMAGE_RUNTIME.version, full7zip: 'p7zip 17.06 (17.05 banner)' },
     payload, delivery, verification: 'payload byte comparison and platform headers passed',
@@ -256,12 +257,14 @@ function checksums(directory) {
 }
 
 async function main() {
-  const names = process.argv.slice(2)
-  if (!names.length || names.some(name => name.startsWith('--'))) throw new Error('usage: node scripts/build-desktop.js <all|win-x64|mac-arm64|mac-x64|linux-x64|linux-arm64>')
+  const args = process.argv.slice(2), stageOnly = args.includes('--stage-only')
+  const names = args.filter(name => name !== '--stage-only')
+  if (!names.length || names.some(name => name.startsWith('--'))) throw new Error('usage: node scripts/build-desktop.js <all|win-x64|mac-arm64|mac-x64|linux-x64|linux-arm64> [--stage-only]')
   const targets = [...new Set(names.includes('all') ? runtime.targets : names.map(name => runtime.aliases[name] || name))]
   if (targets.some(target => !runtime.targets.includes(target))) throw new Error('UNKNOWN_DESKTOP_TARGET')
   const prepared = []
   for (const target of targets) prepared.push(await prepare(target))
+  if (stageOnly) { for (const item of prepared) console.log('[desktop-distribution] verified staging ' + item.staged); return }
   // Validate the whole requested batch before replacing any previously working delivery.
   for (const item of prepared) console.log('[desktop-distribution] delivered ' + publish(item))
   checksums(OUTPUT)

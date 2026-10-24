@@ -7056,3 +7056,6 @@ html.dialog-dragging,html.dialog-dragging *{cursor:grabbing!important;user-selec
 /* Slightly denser conversation rows; section spacing stays independent. */
 .sidebar .chat-item,.sidebar .session-item{min-height:32px;}
 .sidebar #chatList,.sidebar .project-session-list{gap:2px;}
+
+/* Keep the browser shortcut unavailable without changing other titlebar actions. */
+#pageShare[hidden]{display:none;}

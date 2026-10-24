@@ -16,6 +16,16 @@ are implemented by upper-layer plugins. Cordis itself does not define them.
 或不可测试的实现。重要变更必须记录问题、边界、兼容方案、验证证据与替换路径。
 完整长期规则见仓库根目录 `AGENTS.md`；平台约束见 `docs/WIN7-COMPAT.md`。
 
+## Desktop source protection boundary
+
+The desktop build transforms its staging copy only. Native CommonJS modules use per-module
+AES-GCM payloads and a minimal Node16 loader; browser scripts and sandbox preloads use
+build-time minification/obfuscation. The loader preserves module identity and caching and
+owns no Agent state, service container, IO policy or workflow semantics. Cordis vendor and
+public interfaces remain unchanged. The replaceable build/loader adapter can evolve toward
+runtime-pinned bytecode later without changing business contracts. Offline key extraction
+and runtime inspection remain possible. See docs/DESKTOP-DELIVERY.md for scope and evidence.
+
 ## Four layers and dependency direction
 
 | Layer | Responsibility | Implementation |

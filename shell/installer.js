@@ -62,7 +62,7 @@ function computePackageBuildId(root) {
       if (item.name === 'node_modules' || item.name === metadata.NAME || item.isSymbolicLink()) continue
       const rel = relative ? relative + '/' + item.name : item.name
       if (item.isDirectory()) visit(path.join(dir, item.name), rel, depth + 1)
-      else if (/\.(js|json|css|html)$/.test(item.name)) { hash.update(rel + '\0'); hash.update(fs.readFileSync(path.join(dir, item.name))); hash.update('\0') }
+      else if (/\.(js|agc|json|css|html)$/.test(item.name)) { hash.update(rel + '\0'); hash.update(fs.readFileSync(path.join(dir, item.name))); hash.update('\0') }
     }
   }
   visit(root, '', 0)

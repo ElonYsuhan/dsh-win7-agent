@@ -97,6 +97,20 @@ architecture for future Agent iterations, not an optional integration.
   保留 `Agent.app`，总目录统一生成 `SHA256SUMS.txt`。源码保护与在线更新仍单独验收，
   不能把平台封装说成源码加密或自动更新完成。最终验收以新交付契约为准。
 
+# 默认源码保护流水线（2026-10-24）
+
+- 默认平台封装必须先执行 `agent-source-v1`：构建期固定 Terser 5.31.0 与
+  javascript-obfuscator 4.1.1，仅devDependencies；Node16内置crypto加载逐模块AES-GCM
+  载荷。自研CommonJS加密，页面与沙箱preload压缩混淆；不降低sandbox或开放Node。
+- 必须生成并验证source-protection.json、覆盖率和载荷摘要；失败停止交付，不回退明文。
+  vendor、Skill资源、许可及可编辑示例按资源契约保留。加载器不得引入Agent业务状态。
+- 内置密钥不能保证绝对保密，也不是授权签名密钥。禁止将ASAR或混淆说成不可反编译。
+  V8字节码仍需按固定运行时/平台独立验证，不能因本层保护而宣称已实现。
+- `--stage-only`保留保护/封装/验签，只暂存供真实包回归。性能基线及legacy原始目录
+  仅供内部排查，不作为对外交付。保护包要验证离线直接启动、真实Cordis/工作流和性能。
+- 软件授权采用设备绑定、离线签名、人工迁移方向，方案见docs/SOFTWARE-LICENSING.md。
+  私钥不得进入客户端；未实施/未配置时不得显示已授权或偷偷启用强制锁定。
+
 # 知识库 SQLite 的限定组件例外
 
 用户于 2026-10-18 确认知识库落地方案并授权实施。为实现方案中的真实文件事务，

@@ -67,6 +67,7 @@ for (const id of ['sidebarToggle', 'pageActions', 'pageRefresh', 'pageShare', 'p
   check(id + ': belongs to the independent titlebar', header && header[1].includes('id="' + id + '"'))
   check(id + ': has one DOM instance', (html.match(new RegExp('id="' + id + '"', 'g')) || []).length === 1)
 }
+check('browser shortcut is hidden', /<button[^>]*id="pageShare"[^>]*\bhidden\b/.test(html) && read('src/renderer/style.css').includes('#pageShare[hidden]{display:none;}'))
 check('titlebar has a restore action for file-only mode', header && header[1].includes('id="restoreChat"'))
 for (const file of ['shell/loading.html', 'shell/settings.html', 'shell/offline.html', 'shell/update.html']) {
   const local = read(file)

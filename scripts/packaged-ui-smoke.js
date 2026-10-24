@@ -63,6 +63,7 @@ async function run() {
     }
     await delay(1500)
     const results = []
+    assert(await evaluate("document.getElementById('pageShare').hidden && getComputedStyle(document.getElementById('pageShare')).display==='none'"), 'browser shortcut must be hidden')
     for (const theme of ['dark', 'light']) {
       await evaluate('document.documentElement.setAttribute("data-theme",' + JSON.stringify(theme) + ')')
       await delay(200)
