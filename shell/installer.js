@@ -18,6 +18,7 @@ const fs = require('fs')
 const path = require('path')
 const { execFileSync, spawn } = require('child_process')
 const crypto = require('crypto')
+const metadata = require(fs.existsSync(path.join(__dirname, 'src/main/platform/build-metadata.js')) ? './src/main/platform/build-metadata' : '../src/main/platform/build-metadata')
 
 const MANIFEST_NAME = 'install.json'
 const TRASH_PREFIX = '.old-'
@@ -49,11 +50,16 @@ function sleep(ms) {
 /** Fingerprint shipped application code, independent of the public version. */
 function packageBuildId(packageDir, platform) {
   const root = platform === 'darwin' ? path.join(packageDir, 'Contents', 'Resources', 'app') : path.join(packageDir, 'resources', 'app')
+  const built = metadata.read(root)
+  return built ? built.packageBuildId : computePackageBuildId(root)
+}
+
+function computePackageBuildId(root) {
   const hash = crypto.createHash('sha256')
   function visit(dir, relative, depth) {
     if (depth > 16) throw new Error('APP_BUILD_DEPTH')
     for (const item of fs.readdirSync(dir, { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name, 'en'))) {
-      if (item.name === 'node_modules' || item.isSymbolicLink()) continue
+      if (item.name === 'node_modules' || item.name === metadata.NAME || item.isSymbolicLink()) continue
       const rel = relative ? relative + '/' + item.name : item.name
       if (item.isDirectory()) visit(path.join(dir, item.name), rel, depth + 1)
       else if (/\.(js|json|css|html)$/.test(item.name)) { hash.update(rel + '\0'); hash.update(fs.readFileSync(path.join(dir, item.name))); hash.update('\0') }
@@ -477,6 +483,7 @@ function relaunch(packageDir, options) {
 }
 
 module.exports = {
+  computePackageBuildId,
   allowsDirectoryTakeover,
   isTransientPackage,
   packageBuildId,

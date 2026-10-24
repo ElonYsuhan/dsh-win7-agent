@@ -126,6 +126,7 @@ function currentRunning() {
 }
 
 function addRun(sessionId) {
+  if (renderedConversation && renderedConversation.id === sessionId) renderedConversation = null
   if (not(sessionId)) return
   state.runs[sessionId] = true
 }
@@ -738,7 +739,11 @@ function getAllSessions() {
   return result.sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned)) || String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))
 }
 
+// One visible conversation only; never keep a cache of hidden conversation DOM trees.
+let renderedConversation = null
+
 function updateSessionMessages(sessionId, messages, memory) {
+  if (renderedConversation && renderedConversation.id === sessionId) renderedConversation = null
   const session = findSessionById(sessionId)
   if (not(session) || not(Array.isArray(messages))) return
   session.messages = messages
@@ -945,6 +950,7 @@ function renderMessages(session) {
     scheduleWaitingHint()
   }
   scrollToBottom()
+  if(session&&!currentRunning())renderedConversation={id:session.id,session,messages:session.messages,memory:session.memory,processTimeline:session.processTimeline,processHtml:session.processHtml,updatedAt:session.updatedAt}
 }
 
 async function selectSession(sessionId) {
@@ -983,6 +989,15 @@ async function selectSession(sessionId) {
         await refreshState()
       }
     }
+  }
+  const shown=renderedConversation
+  if(state.currentSessionId===sessionId&&shown&&shown.id===sessionId&&shown.session===session&&shown.messages===session.messages&&shown.memory===session.memory&&shown.processTimeline===session.processTimeline&&shown.processHtml===session.processHtml&&shown.updatedAt===session.updatedAt&&!currentRunning()&&!state.liveRun&&!pendingProcessSaves.has(sessionId)){
+    // Returning from a module to an unchanged idle conversation does not rebuild Markdown
+    // or push the entire history back to storage. Still reconcile actual execution state.
+    syncRunningState().then(()=>flushPendingMessage()).catch(()=>{})
+    if(state.pendingMessages.length>0)scheduleQueueFlush()
+    applyRunState()
+    return
   }
   state.currentSessionId = sessionId
   saveCurrentSessionId(sessionId)
@@ -1964,6 +1979,7 @@ function messagesContent() {
 }
 
 function clearMessages() {
+  renderedConversation = null
   const container = messagesContent()
   const plan = byId('taskPlan')
   if (plan && plan.parentNode === container) byId('messages').insertBefore(plan, byId('runStatus'))

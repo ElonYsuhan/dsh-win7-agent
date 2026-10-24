@@ -647,7 +647,7 @@ function nextNodeId(type){
   renderExecutionSummary(n)
   $('workflowNodeDescription').value=n?(n.properties.description||''):''
   $('workflowNodeDescription').disabled=!n
-  // 属性面板只保留名称/指令/执行操作；补充内容收进「节点执行设计 → 更多设置」，交互类型与驳回退回在预览上方。
+  // 人工操作通过设计会话配置，不再生成不可见的手工配置表单。
   $('workflowHumanExtras').classList.add('hidden')
   // 交互类型只在「节点执行设计」里改；这里仅按已有处理方式给出一句状态描述。
   const preset=n?interactionPreset(n.properties):'handle'
@@ -657,8 +657,7 @@ function nextNodeId(type){
   $('workflowRestOptions').classList.toggle('hidden',!n||n.type!=='workflow/rest')
   $('workflowRestUrl').value=n&&n.properties.rest?n.properties.rest.url:''
   for(const radio of document.querySelectorAll('[name=workflowRestMethod]'))radio.checked=!!n&&radio.value===(n.properties.rest&&n.properties.rest.method||'GET')
-  renderStructured(n)
-  renderHumanExtras(n)
+  if(human){$('workflowStructuredOptions').textContent='';$('workflowSimpleExtras').textContent=''}else renderStructured(n)
   $('workflowNodeMode').textContent=n?(human?{handle:'人工办理 · 完成后继续',review:'人工审阅 · 已阅后继续',approve:'人工审批 · 通过或驳回'}[preset]:'自动执行 · 完成后继续'):'选择节点查看配置'
   const hint=$('workflowParamHint')
   if(hint){

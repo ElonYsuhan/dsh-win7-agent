@@ -39,6 +39,13 @@ Windows 安装与升级必须在 Win7 SP1 x64 验证，不能使用仅新 Window
 
 ### 已接入的平台封装
 
+2026-10-24 增加 `desktop-build.json`：构建阶段生成当前载荷 packageBuildId 和 uiBuild，
+记录源码提交、架构及固定运行时。Shell/服务启动仅读取有界小清单，不再为了比较同版
+构建而同步扫描全部代码。共用 `platform/build-metadata` 读取与验证字段；开发目录、旧包
+或无效清单仍按真实文件计算。每次重新封装重建指纹，不缓存清单以免同路径替换后读旧值。
+清单是构建身份，不能替代签名或安全校验；安装/发布时仍验证完整载荷。
+手工更改包内代码必须重打包更新清单，不属于受支持的更新方式。
+
 构建工具沿用锁定 `electron-builder 24.13.3`、`app-builder-bin 4.0.0`，其固定下载清单
 使用 NSIS 3.0.4.1 / nsis-resources 3.4.1、AppImage 12.0.1。目标 Electron 仍为22.3.27。
 旧 AppImage ARM64 启动头依赖开发用的 libz.so，不能作为自包含交付。因此仅 Linux

@@ -3,14 +3,26 @@
 .workflow-design-heading{flex:none;margin-bottom:2px;gap:12px;}
 .workflow-design-heading h2{margin-bottom:0;}
 .workflow-design-close{flex:none;}
-.workflow-design-workspace{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(380px,1.2fr);flex:1;min-height:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.workflow-design-workspace{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(380px,1.1fr);flex:1;min-height:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
 .workflow-design-chat,.workflow-design-preview-pane{display:flex;flex-direction:column;min-width:0;min-height:0;}
 .workflow-design-chat{border-right:1px solid var(--border);background:var(--panel-2);}
-.workflow-design-messages{flex:1;min-height:80px;overflow:auto;padding:16px;}
-.workflow-design-message{margin-bottom:16px;font-size:12px;line-height:1.7;}
-.workflow-design-message strong{font-size:11px;color:var(--muted);}
+.workflow-design-chat-heading{display:flex;align-items:center;gap:8px;flex:none;min-height:48px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;background:var(--panel);}
+.workflow-design-chat-heading>.icon{display:flex;color:var(--muted);}
+.workflow-design-status{display:inline-flex;align-items:center;gap:5px;margin-left:auto;color:var(--muted);font-size:11px;font-weight:400;white-space:nowrap;}
+.workflow-design-status::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;}
+.workflow-design-status[data-state=running],.workflow-design-status[data-state=ready]{color:var(--focus);}
+.workflow-design-status[data-state=error]{color:var(--warning-text);}
+.workflow-design-messages{flex:1;min-height:80px;overflow:auto;overscroll-behavior:contain;padding:18px 16px;display:flex;flex-direction:column;gap:18px;}
+.workflow-design-message{display:flex;align-items:flex-start;gap:8px;flex:none;min-width:0;font-size:12px;line-height:1.75;}
+.workflow-design-message.is-user{flex-direction:row-reverse;}
+.workflow-design-avatar{display:grid;place-items:center;flex:none;width:26px;height:26px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--muted);}
+.workflow-design-avatar .icon{display:flex;}
+.workflow-design-bubble{min-width:0;max-width:calc(100% - 42px);padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel);}
+.workflow-design-message.is-user .workflow-design-bubble{background:var(--selection-bg);}
+.workflow-design-message strong{display:block;font-size:10px;font-weight:500;color:var(--muted);}
 .workflow-design-message p{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;}
-.workflow-design-message.is-user{padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);}
+.workflow-design-pending{display:flex;align-items:center;gap:8px;flex:none;margin-left:34px;font-size:12px;color:var(--muted);}
+.workflow-design-pending[hidden]{display:none;}
 .workflow-design-suggestions{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px;}
 .workflow-design-suggestions button{font-size:11px;min-height:28px;padding:4px 8px;}
 .workflow-design-composer{flex:none;padding:12px 16px;border-top:1px solid var(--border);background:var(--panel);}
@@ -20,21 +32,6 @@
 .workflow-design-composer-actions button{min-height:34px;padding:6px 12px;font-size:12px;}
 .workflow-design-composer-actions .primary{background:var(--send-bg);color:var(--send-text);border-color:transparent;}
 .workflow-design-request-state{margin:7px 0;font-size:11px;min-height:16px;}
-/* 更多设置：附件 / 填写项 / 步骤说明与数据协议，折叠在左栏底部。 */
-.workflow-design-more{flex:none;max-height:38%;overflow:auto;border-top:1px solid var(--border);background:var(--panel);}
-.workflow-design-more[hidden]{display:none;}
-.workflow-design-more>summary{padding:9px 16px;font-size:11px;color:var(--muted);cursor:pointer;list-style:none;}
-.workflow-design-more>summary::-webkit-details-marker{display:none;}
-.workflow-design-more>summary::after{content:'＋';float:right;}
-.workflow-design-more[open]>summary::after{content:'－';}
-.workflow-design-more>*:not(summary){padding:0 16px;}
-.workflow-design-more>*:last-child{padding-bottom:12px;}
-.workflow-design-config-section{margin:12px 0 6px;font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.02em;}
-.workflow-design-more details{margin:8px 0;border:1px solid var(--border);border-radius:7px;background:var(--panel-2);}
-.workflow-design-more details>summary{padding:7px 9px;font-size:11px;cursor:pointer;}
-.workflow-design-more label{display:block;font-size:11px;margin:8px 0;}
-.workflow-design-more input,.workflow-design-more select,.workflow-design-more textarea{display:block;width:100%;margin-top:5px;box-sizing:border-box;}
-.workflow-design-more textarea{min-height:64px;resize:vertical;font-size:11px;}
 .workflow-design-preview-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);}
 .workflow-design-preview-header h3{font-size:13px;margin:0;}
 .workflow-design-tabs{display:flex;gap:4px;}
@@ -46,7 +43,8 @@
 .workflow-design-settings label{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;margin:0;font-size:11px;color:var(--muted);white-space:nowrap;}
 .workflow-design-settings label[hidden]{display:none;}
 .workflow-design-settings select{min-height:30px;font-size:12px;min-width:180px;max-width:260px;}
-.workflow-design-preview,.workflow-design-protocol{flex:1;min-height:0;overflow:auto;padding:16px;}
+.workflow-design-preview-stage{position:relative;display:flex;flex:1;min-height:0;overflow:hidden;}
+.workflow-design-preview,.workflow-design-protocol{flex:1;min-width:0;min-height:0;overflow:auto;padding:16px;}
 .workflow-design-preview[hidden],.workflow-design-protocol[hidden],.workflow-design-composer button[hidden]{display:none;}
 .workflow-design-instructions{font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 16px;}
 .workflow-design-preview>details{font-size:12px;margin-top:16px;}
@@ -65,3 +63,15 @@
 .workflow-design-actions{flex:none;gap:8px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--border);margin-top:0;}
 .workflow-design-actions .muted{flex:1;min-width:140px;margin:0;font-size:11px;line-height:1.6;}
 @media(max-width:760px){.task-dialog .workflow-design-card{height:calc(100vh - 24px);padding:16px;}.workflow-design-workspace{grid-template-columns:1fr;overflow:auto;}.workflow-design-chat{min-height:340px;border-right:0;border-bottom:1px solid var(--border);}.workflow-design-preview-pane{min-height:430px;}.workflow-design-preview-header{flex-wrap:wrap;}.workflow-design-actions .muted{flex-basis:100%;}}
+
+.workflow-design-generation{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--dialog-overlay);}
+.workflow-design-generation[hidden]{display:none;}
+.workflow-design-generation-card{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:100%;padding:24px;border:1px solid var(--border);border-radius:var(--dialog-radius);background:var(--panel);text-align:center;}
+.workflow-design-generation-card strong{font-size:14px;font-weight:600;}
+.workflow-design-generation-card p{margin:0;color:var(--muted);font-size:12px;line-height:1.7;}
+.workflow-design-spinner{display:inline-block;flex:none;width:15px;height:15px;box-sizing:border-box;border:2px solid var(--border);border-top-color:var(--focus);border-radius:50%;animation:workflow-design-spin .9s linear infinite;}
+.workflow-design-generation-card>.workflow-design-spinner{width:28px;height:28px;border-width:3px;}
+@keyframes workflow-design-spin{to{transform:rotate(360deg);}}
+@media(prefers-reduced-motion:reduce){.workflow-design-spinner{animation:none;border-top-color:var(--focus);}}
+.task-dialog .workflow-design-workbench .workflow-current-task .workflow-decision label.workflow-radio{display:inline-flex;flex-direction:row;align-items:center;gap:8px;width:auto;margin:4px 0;}
+.task-dialog .workflow-design-workbench .workflow-current-task .workflow-radio input[type=radio],.task-dialog .workflow-design-workbench .workflow-current-task .workflow-radio input[type=checkbox]{display:inline-block;flex:none;width:14px;height:14px;min-height:0;margin:0;padding:0;}

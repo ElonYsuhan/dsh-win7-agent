@@ -330,6 +330,12 @@ Agent 业务契约或状态 reducer。隔离测试覆盖启动分支、同版本
 
 ### Reopening an overwritten desktop package
 
+Desktop builds also record immutable package/UI fingerprints in `desktop-build.json`.
+The small reader in `platform/build-metadata` belongs to the replaceable Shell/IO
+adapter layer. Build-time hashing replaces repeated startup directory scans; old
+packages and development trees retain content hashing. The manifest is not a
+signature or authorization source, and the Cordis execution/state contracts are unchanged.
+
 macOS LaunchServices may only activate an already running process when the same
 app is reopened. The shell therefore captures its package fingerprint at boot
 and compares disk contents on `activate` and `second-instance`. Changed contents

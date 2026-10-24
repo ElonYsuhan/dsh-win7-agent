@@ -119,6 +119,14 @@ async function prepare(target) {
     directoryTakeover: target.startsWith('mac-')
   }, null, 2) + '\n')
   const imageRuntime = target.startsWith('linux-') ? await appImageRuntime(target, appDir) : null
+  // Compute once on the build host, rather than opening hundreds of small files at startup.
+  const sourceCommit = command('git', ['rev-parse', 'HEAD'], { stdio: 'pipe', encoding: 'utf8' }).trim()
+  const buildMetadata = {
+    formatVersion: 1, target, version: VERSION, sourceCommit, electron: '22.3.27', node: '16.17.1', chromium: '108',
+    uiBuild: require('../src/main/agent/ui-build').computeUiBuild(path.join(appDir, 'src', 'renderer')),
+    packageBuildId: require('../shell/installer').computePackageBuildId(appDir)
+  }
+  fs.writeFileSync(path.join(appDir, 'desktop-build.json'), JSON.stringify(buildMetadata, null, 2) + '\n')
   const staged = path.join(workspace, 'delivery')
   // Only scratch output is cleared. The previous delivery remains until verification succeeds.
   fs.rmSync(staged, { recursive: true, force: true })
@@ -145,7 +153,7 @@ async function prepare(target) {
   await verify(target, staged, input)
   const payload = inventory(input)
   const delivery = inventory(staged)
-  const report = { formatVersion: 1, target, version: VERSION, sourceCommit: command('git', ['rev-parse', 'HEAD'], { stdio: 'pipe', encoding: 'utf8' }).trim(),
+  const report = { formatVersion: 1, target, version: VERSION, sourceCommit, buildMetadata,
     runtime: { electron: '22.3.27', node: '16.17.1', chromium: '108' },
     tools: { electronBuilder: '24.13.3', appBuilder: '4.0.0', nsis: '3.0.4.1', appimage: '12.0.1', appimageRuntime: APPIMAGE_RUNTIME.version, full7zip: 'p7zip 17.06 (17.05 banner)' },
     payload, delivery, verification: 'payload byte comparison and platform headers passed',

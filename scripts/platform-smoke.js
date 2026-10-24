@@ -21,6 +21,8 @@ function load(file, platform, overrides) {
   const context = {
     module: { exports: {} },
     exports: {},
+    __dirname: path.dirname(path.join(ROOT, file)),
+    __filename: path.join(ROOT, file),
     Buffer,
     console,
     Date: Object.assign(function () { return new Date() }, { now: () => 1700000000000 }),
