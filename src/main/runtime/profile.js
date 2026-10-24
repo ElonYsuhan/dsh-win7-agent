@@ -5,6 +5,7 @@ const { foundation } = require('./plugins/foundation')
 function defaultProfile(options) {
   return [
     ...foundation(options),
+    require('./plugins/licensing'),
     require('./plugins/skill-library'),
     require('./plugins/model'),
     require('./plugins/plans'),

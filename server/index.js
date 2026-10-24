@@ -249,6 +249,22 @@ function serveStatic(request, response, pathname) {
 }
 
 async function handleApi(request, response, url) {
+  if (url.pathname.startsWith('/api/licensing/')) {
+    if (!isLoopbackAddress(request.socket && request.socket.remoteAddress)) { json(response,403,{error:'FORBIDDEN'}); return true }
+    let licenseHost;try{licenseHost=new URL('http://'+request.headers.host).hostname.replace(/^\[|\]$/g,'')}catch(_){json(response,403,{error:'FORBIDDEN_HOST'});return true}
+    if(licenseHost!=='localhost'&&!isLoopbackAddress(licenseHost)){json(response,403,{error:'FORBIDDEN_HOST'});return true}
+    const origin=request.headers.origin
+    if(origin && origin!=='http://'+request.headers.host && origin!=='https://'+request.headers.host){json(response,403,{error:'FORBIDDEN_ORIGIN'});return true}
+    const service=pluginHost.requireService('licensing'),action=url.pathname.slice('/api/licensing/'.length)
+    if(request.method==='GET' && ['status','request'].includes(action)){json(response,200,service[action]());return true}
+    if(request.method==='POST' && ['activate','trial'].includes(action)){
+      if(!String(request.headers['content-type']||'').startsWith('application/json')){json(response,415,{error:'JSON_REQUIRED'});return true}
+      try{const data=await readBodyLimit(request,96*1024);json(response,200,action==='trial'?service.startTrial():service.activate(data||{}))}catch(error){json(response,400,{error:error.message})}return true
+    }
+    json(response,404,{error:'LICENSE_ACTION_INVALID'});return true
+  }
+  const safe=['/api/ui-store','/api/stop','/api/reset','/api/shutdown','/api/tasks/stop','/api/workflows/stop','/api/workflows/pause','/api/workflows/cancelDesign','/api/term/kill']
+  if(!['GET','HEAD'].includes(request.method)&&!safe.includes(url.pathname))pluginHost.requireService('licensing').assert('all')
   if (await require('./extension-api').handleExtensionApi(request,response,url,{extensions:pluginHost.get('extensions'),json,readBodyLimit}))return true
   if (await require('./task-api').handleTaskApi(request, response, url, { tasks: pluginHost.get('tasks'), json, readBody })) return true
   if (await require('./workflow-api').handleWorkflowApi(request,response,url,{workflows:pluginHost.get('workflows'),json,readBody,emit:broadcast}))return true
@@ -523,7 +539,7 @@ function createServer() {
       }
       json(response, 405, { error: 'METHOD_NOT_ALLOWED' })
     } catch (error) {
-      json(response, 500, { error: error.message })
+      json(response, error.code==='LICENSE_REQUIRED'?403:500, { error: error.message })
     }
   })
 }

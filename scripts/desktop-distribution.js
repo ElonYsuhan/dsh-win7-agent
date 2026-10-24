@@ -113,6 +113,7 @@ async function prepare(target) {
   fs.mkdirSync(workspace, { recursive: true })
   const input = await runtime.buildTarget(target, { noZip: true, outRoot: workspace })
   const appDir = appDirectory(input, target)
+  const licensing = require('./desktop/license-policy').stamp(appDir)
   const protection = await require('./desktop/source-protection').protect(appDir)
   fs.writeFileSync(path.join(appDir, 'distribution.json'), JSON.stringify({
     formatVersion: 1, target, version: VERSION,
@@ -154,7 +155,7 @@ async function prepare(target) {
   await verify(target, staged, input)
   const payload = inventory(input)
   const delivery = inventory(staged)
-  const report = { formatVersion: 1, target, version: VERSION, sourceCommit, buildMetadata, sourceProtection: { policy: protection.policy, tools: protection.tools, encrypted: protection.records.filter(r => r.mode === 'aes-256-gcm').length, obfuscated: protection.records.filter(r => r.mode === 'obfuscated').length },
+  const report = { formatVersion: 1, target, version: VERSION, sourceCommit, buildMetadata, licensing, sourceProtection: { policy: protection.policy, tools: protection.tools, encrypted: protection.records.filter(r => r.mode === 'aes-256-gcm').length, obfuscated: protection.records.filter(r => r.mode === 'obfuscated').length },
     runtime: { electron: '22.3.27', node: '16.17.1', chromium: '108' },
     tools: { electronBuilder: '24.13.3', appBuilder: '4.0.0', nsis: '3.0.4.1', appimage: '12.0.1', appimageRuntime: APPIMAGE_RUNTIME.version, full7zip: 'p7zip 17.06 (17.05 banner)' },
     payload, delivery, verification: 'payload byte comparison and platform headers passed',

@@ -1,0 +1,21 @@
+.license-gate{z-index:2147483000;}
+.license-gate-card{width:540px;gap:12px;}
+.license-gate-card>p{margin:0;font-size:13px;line-height:1.7;}
+.license-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 18px;}
+.license-badge{display:inline-flex;align-items:center;gap:7px;font-size:14px;}
+.license-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--muted);}
+.license-badge[data-state=licensed]::before,.license-badge[data-state=trial]::before{background:var(--focus);}
+.license-countdown{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.license-info{display:grid;grid-template-columns:90px minmax(0,1fr);gap:12px;font-size:13px;padding:0 0 18px;border-bottom:1px solid var(--border);}
+.license-info dt{color:var(--muted);}.license-info dd{margin:0;overflow-wrap:anywhere;}
+.license-label{font-size:13px;font-weight:600;margin:18px 0 10px;}
+.license-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;min-height:134px;padding:20px;border:1px dashed var(--border);background:var(--panel-2);text-align:center;font-size:12px;}
+.license-drop strong{font-size:13px;font-weight:500;}.license-upload-icon{font-size:26px;line-height:1;color:var(--muted);}
+.license-drop.is-dragging{border-color:var(--focus);background:var(--selection-bg);}
+.license-error{min-height:20px;line-height:1.6;font-size:12px;overflow-wrap:anywhere;color:var(--muted);margin:8px 0;}
+.license-device{font-size:12px;margin:10px 0 18px;}.license-device summary{cursor:pointer;}.license-device p{line-height:1.7;}.license-device code{display:block;font-size:11px;overflow-wrap:anywhere;user-select:text;}
+.license-device-actions{display:flex;gap:8px;margin-top:12px;}.license-device-actions button{font-size:12px;}
+.license-actions{margin-top:18px;border-top:1px solid var(--border);padding-top:16px;}
+.license-trial-help{font-size:11px;line-height:1.6;text-align:right;margin:10px 0 0;}
+#licenseSettings{max-width:560px;}
+@media(max-width:600px){.license-info{grid-template-columns:76px minmax(0,1fr);}.license-drop{padding:16px;}.license-device-actions{flex-wrap:wrap;}}

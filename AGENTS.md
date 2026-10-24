@@ -109,7 +109,8 @@ architecture for future Agent iterations, not an optional integration.
 - `--stage-only`保留保护/封装/验签，只暂存供真实包回归。性能基线及legacy原始目录
   仅供内部排查，不作为对外交付。保护包要验证离线直接启动、真实Cordis/工作流和性能。
 - 软件授权采用设备绑定、离线签名、人工迁移方向，方案见docs/SOFTWARE-LICENSING.md。
-  私钥不得进入客户端；未实施/未配置时不得显示已授权或偷偷启用强制锁定。
+  私钥不得进入客户端或签发工具包。用户已明确启用发布包强制授权蒙版与一次10分钟试用；
+  公钥缺失必须构建失败。开发模式与生产策略分开，不提供客户端环境变量绕过。
 
 # 知识库 SQLite 的限定组件例外
 

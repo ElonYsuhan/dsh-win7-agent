@@ -3,7 +3,7 @@ const fs = require('fs'), path = require('path'), os = require('os'), crypto = r
 const contract = require('../../contracts/tasks'), policy = require('../../flow/task-policy')
 const { TaskRepository } = require('../../tasks/repository')
 module.exports = {
-  name: 'core/tasks', inject: ['agentConfig', 'agents', 'tools', 'contracts', 'workflows'],
+  name: 'core/tasks', inject: ['agentConfig', 'agents', 'tools', 'contracts', 'workflows', 'licensing'],
   apply(ctx) {
     let fault = ''
     let repo = null, pool, emit = () => {}, timer, active = null, closed = false, clock = () => Date.now(), pending = Promise.resolve(), jobs = new Set()
@@ -23,7 +23,7 @@ module.exports = {
       return repo.append({ version: 1, sequence: 1, id, taskId: task.id, sessionId: status === 'skipped' || task.workflow ? '' : 'task_' + crypto.createHash('sha256').update(id).digest('hex').slice(0,32), task: JSON.parse(JSON.stringify(task)), trigger, scheduledAt, createdAt: now(), status, summary: summary || '' })
     }
     async function execute(run) {
-      if (active || closed || run.task.workflow&&!ctx.workflows.canStart()) return
+      if (!ctx.licensing.status().allowed || active || closed || run.task.workflow&&!ctx.workflows.canStart()) return
       if (!run.task.workflow && pool.runningCount() >= Math.max(1, pool.maxConcurrentRuns - 1)) return
       active = run
       const monotonicStart = process.hrtime.bigint(), duration = () => Math.round(Number(process.hrtime.bigint() - monotonicStart)/1000000)
@@ -71,7 +71,7 @@ module.exports = {
     const workflowBusy=task=>!!task.workflow&&ctx.workflows.hasActive({id:task.workflow.id})
     async function tick() {
       requireRepo()
-      if (fault) return
+      if (fault || !ctx.licensing.status().allowed) return
       for (const task of repo.tasks.slice()) {
         const trigger = policy.due(task, now()); if (!trigger) continue
         const overlap = workflowBusy(task)||Array.from(repo.runs.values()).some(r=>r.taskId===task.id&&['running','pending'].includes(r.status))
@@ -120,7 +120,7 @@ module.exports = {
       },
       removeWorkflow(raw){requireRepo();const result=ctx.workflows.remove(raw);try{for(const t of repo.tasks.filter(t=>t.workflow&&t.workflow.id===raw.id))service.remove(t.id);return result}catch(error){return{...result,syncError:error.message}}},
       remove(id) { requireRepo(); if(active&&active.taskId===id)throw new Error('TASK_RUNNING_STOP_FIRST'); tasksSave(repo.tasks.filter(t=>t.id!==id)); for(const r of repo.runs.values())if(r.taskId===id&&r.status==='pending')repo.transition(r.id,{status:'cancelled',endedAt:now(),summary:'任务已删除'});notify() },
-      run(id) { requireRepo(); if(fault)throw new Error('TASK_STORAGE_FAULT: '+fault);const task=repo.tasks.find(t=>t.id===id);if(!task)throw new Error('TASK_NOT_FOUND'); if(workflowBusy(task)||Array.from(repo.runs.values()).some(r=>r.taskId===id&&['running','pending'].includes(r.status)))throw new Error('TASK_ALREADY_RUNNING');const run=createRun(task,'manual',now(),'pending');notify();launch(run);return run },
+      run(id) { ctx.licensing.assert('chat'); requireRepo(); if(fault)throw new Error('TASK_STORAGE_FAULT: '+fault);const task=repo.tasks.find(t=>t.id===id);if(!task)throw new Error('TASK_NOT_FOUND'); if(workflowBusy(task)||Array.from(repo.runs.values()).some(r=>r.taskId===id&&['running','pending'].includes(r.status)))throw new Error('TASK_ALREADY_RUNNING');const run=createRun(task,'manual',now(),'pending');notify();launch(run);return run },
       stop(id) { requireRepo();const workflowRuns=Array.from(repo.runs.values()).some(run=>run.workflowRunId&&(!id||run.taskId===id))?new Map(ctx.workflows.list().runs.map(run=>[run.id,run])):new Map();for(const run of repo.runs.values())if(run.workflowRunId&&(!id||run.taskId===id)){const target=workflowRuns.get(run.workflowRunId);if(target&&['pending','running','waiting','paused'].includes(target.status))ctx.workflows.stop({id:target.id})}if(active&&(!id||active.taskId===id)){if(active.task.workflow){const current=repo.runs.get(active.id);if(current.status==='running')repo.transition(active.id,{status:'cancelled',endedAt:now(),summary:'用户取消尚未触发的流程'})}else pool.abort(active.sessionId)}for(const r of repo.runs.values())if(r.status==='pending'&&(!id||r.taskId===id))repo.transition(r.id,{status:'cancelled',endedAt:now(),summary:'用户停止'});notify() },
       conversation(runId) { requireRepo();const r=repo.runs.get(runId);if(!r||!r.sessionId)throw new Error('TASK_RUN_NOT_FOUND');if(pool.isRunning(r.sessionId)){const worker=pool.acquire(r.sessionId);return {run:r,session:{messages:worker.messages,memory:worker.memory,execution:worker.state.execution}}}const file=path.join(pool.sessionDir(r.sessionId),'last-session.json');return {run:r,session:fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):{messages:[]}} },
       tick, async close() { if(closed)return;closed=true;if(timer)clearInterval(timer);if(active&&!active.task.workflow)pool.abort(active.sessionId);await pending;await Promise.allSettled(Array.from(jobs));if(repo)repo.close() }

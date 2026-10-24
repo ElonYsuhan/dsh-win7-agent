@@ -71,6 +71,7 @@
   window.dsh = {
     isDesktop: not(nativeShell) ? false : true,
     getState: () => request('GET', '/api/state'),
+    licenseRequest: (action,data) => ['status','request'].includes(action)?request('GET','/api/licensing/'+action):request('POST','/api/licensing/'+action,data||{}),
     saveSettings: (patch) => request('POST', '/api/settings', patch),
     pickWorkspace: async () => {
       const current = await request('GET', '/api/state')

@@ -6,6 +6,7 @@
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
   <title>Agent</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="licensing.css">
   <link rel="stylesheet" href="workflow-ribbon.css">
   <link rel="stylesheet" href="workflow-execution-designer.css">
   <link rel="stylesheet" href="workflow-simulation.css">
@@ -432,6 +433,13 @@
       </div>
     </div>
   </div>
+  <div id="licenseGate" class="modal license-gate" role="dialog" aria-modal="true" aria-labelledby="licenseGateTitle" aria-describedby="licenseGateDescription">
+    <section class="modal-card license-gate-card">
+      <h2 id="licenseGateTitle">软件授权</h2>
+      <p id="licenseGateDescription" class="muted">请导入本机授权文件，或开启一次10分钟试用。</p>
+      <div id="licenseGateContent"></div>
+    </section>
+  </div>
   <div id="settingsModal" class="modal hidden">
     <div class="modal-card settings-card settings-layout">
       <aside class="settings-nav">
@@ -440,12 +448,14 @@
                 <button class="settings-nav-item" data-settings-tab="model"><span class="icon" data-icon="model"></span><span>&#27169;&#22411;</span></button>
                 <button class="settings-nav-item" data-settings-tab="environment"><span class="icon" data-icon="plugin"></span><span>能力中心</span></button>
 
+        <button class="settings-nav-item" data-settings-tab="license"><span class="icon" data-icon="shield-check" aria-hidden="true"></span><span>软件授权</span></button>
       </aside>
       <section class="settings-content">
         <div class="settings-content-head">
           <h2 id="settingsTitle">&#35774;&#32622;</h2>
           <button id="closeSettings" class="icon-button" title="&#20851;&#38381;"><span class="icon" data-icon="close"></span></button>
         </div>
+        <div class="settings-panel hidden" data-settings-panel="license"><div id="licenseSettings"></div></div>
         <div class="settings-panel" data-settings-panel="general">
           <div class="settings-row">
             <div class="settings-row-label"><div class="settings-row-title">&#22806;&#35266;</div><div class="settings-row-desc">&#20027;&#39064;&#19982;&#30028;&#38754;</div></div>
@@ -542,6 +552,7 @@
   <script src="ui-enhancements.js"></script>
   <script src="select-control.js"></script>
   <script src="tasks.js"></script>
+  <script src="licensing.js"></script>
   <script src="app.js"></script>
   <script src="dialogs.js"></script>
   <script src="dialog-drag.js"></script>

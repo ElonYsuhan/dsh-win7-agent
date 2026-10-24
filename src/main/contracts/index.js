@@ -11,6 +11,7 @@ const EVENTS = Object.freeze({
 })
 const TERMINAL_EVENTS = Object.freeze([EVENTS.COMPLETE, EVENTS.CANCEL, EVENTS.FAIL, EVENTS.EXHAUST, EVENTS.BLOCK, EVENTS.INTERRUPT, EVENTS.TIMEOUT])
 const SERVICES = Object.freeze({
+  licensing: ['status', 'request', 'activate', 'startTrial', 'assert'],
   contracts: ['assertEvent', 'assertModelResult', 'assertTool', 'assertArguments', 'assertDecision', 'assertLimits', 'assertService', 'sanitizeHistory'],
   flow: ['limits', 'retry', 'next', 'normalizeCalls', 'outcome', 'systemPrompt'],
   state: ['initial', 'reduce', 'restore', 'release'],

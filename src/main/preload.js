@@ -179,6 +179,7 @@ contextBridge.exposeInMainWorld('dsh', {
   mcpRequest: (action, data) => ipcRenderer.invoke('mcp:request', action, data),
   isDesktop: true,
   getState: () => ipcRenderer.invoke('app:get-state'),
+  licenseRequest: (action,data) => ipcRenderer.invoke('licensing:request',action,data),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
   pickWorkspace: () => ipcRenderer.invoke('workspace:pick'),
   createWorkspace: () => ipcRenderer.invoke('workspace:create'),

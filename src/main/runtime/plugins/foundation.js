@@ -10,8 +10,8 @@ function foundation(options) {
     { name: 'core/config', apply(ctx) { ctx.provide('agentConfig', options) } },
     { name: 'core/permissions', apply(ctx) { ctx.provide('permissions', require('../../agent/permission-policy')) } },
     {
-      name: 'core/tools', inject: ['permissions', 'contracts'],
-      apply(ctx) { ctx.provide('tools', new ToolRegistry(ctx.permissions, ctx.contracts)) }
+      name: 'core/tools', inject: ['permissions', 'contracts', 'licensing'],
+      apply(ctx) { ctx.provide('tools', new ToolRegistry(ctx.permissions, ctx.contracts, () => ctx.licensing.assert('tools'))) }
     },
     {
       name: 'core/prompts',

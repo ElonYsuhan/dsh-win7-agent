@@ -503,3 +503,15 @@ saveWorkflow/removeWorkflow 是现有 tasks 服务的协调入口：先校验图
 资料选择界面与文件IO可独立替换；核心清单和实例事实保持平台无关。继续固定
 Node16/Chromium108，不增加生产依赖。新设计入口每次创建会话以隔离草稿上下文，
 已有节点分析会话兼容。协议、容量边界、恢复和回归范围见WORKFLOWS.md的流程支撑资料章节。
+
+## Licensing boundary
+
+The native Cordis licensing service owns offline Ed25519 verification, platform identity and
+durable trial/license facts. Contracts and evaluation remain pure. Transport writes, model/tool
+execution, scheduled dispatch and workflow node boundaries consume the same service; the UI
+is not an authorization authority. Development uses an explicit disabled policy; distribution
+builds require external public material and replace/protect the policy module. No client runtime
+flag disables enforcement. The platform adapter uses Node16 built-ins and Win7 system reg.exe;
+actual Windows hardware testing is distinct from embedded Node and static compatibility checks.
+Future online leases or identity adapters replace the service implementation without changing
+Agent state semantics. See SOFTWARE-LICENSING.md for offline limits and validation evidence.

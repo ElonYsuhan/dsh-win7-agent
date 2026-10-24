@@ -190,19 +190,25 @@ ipcMain.on('shell:titlebar-dblclick', (event) => {
   applyTitlebarDoubleClick(BrowserWindow.fromWebContents(event.sender), titlebarDoubleClickAction())
 })
 
-ipcMain.handle('window:theme', () => normalizeTheme(settings && settings.data.theme))
+// Transport gate uses the Cordis licensing service. Window exit and cancellation
+// remain available; no UI-controlled switch can disable packaged enforcement.
+function licensedHandle(channel,handler){
+  const publicChannels=['window:theme','window:state','window:action','app:get-state','licensing:request','chat:stop','chat:reset','ui-store:get','ui-store:put','shell:open-path','shell:open-external']
+  ipcMain.handle(channel,(event,...args)=>{const cancellation=channel==='workflows:request'&&['stop','pause','cancelDesign'].includes(args[0])||channel==='tasks:request'&&args[0]==='stop'||channel==='term:kill';if(!publicChannels.includes(channel)&&!cancellation)pluginHost.requireService('licensing').assert('all');return handler(event,...args)})
+}
+licensedHandle('window:theme', () => normalizeTheme(settings && settings.data.theme))
 ipcMain.on('window:theme', (event, value) => {
   if (!mainWindow || mainWindow.isDestroyed() || BrowserWindow.fromWebContents(event.sender) !== mainWindow) return
   if (value !== 'light' && value !== 'dark') return
   applyWindowTheme([mainWindow], value, nativeTheme)
 })
 
-ipcMain.handle('window:state', (event) => windowState(BrowserWindow.fromWebContents(event.sender)))
-ipcMain.handle('window:action', (event, action) => applyWindowAction(BrowserWindow.fromWebContents(event.sender), action))
+licensedHandle('window:state', (event) => windowState(BrowserWindow.fromWebContents(event.sender)))
+licensedHandle('window:action', (event, action) => applyWindowAction(BrowserWindow.fromWebContents(event.sender), action))
 
-ipcMain.handle('app:get-state', () => stateValue())
+licensedHandle('app:get-state', () => stateValue())
 
-ipcMain.handle('settings:save', async (_event, patch) => {
+licensedHandle('settings:save', async (_event, patch) => {
   const next = settings.update(patch || {})
   await pluginHost.configure()
   if (patch && (Object.prototype.hasOwnProperty.call(patch, 'mcpServers') || Object.prototype.hasOwnProperty.call(patch, 'disabledBuiltinMcp'))) {
@@ -242,7 +248,7 @@ function applyWorkspace(chosen) {
   return stateValue()
 }
 
-ipcMain.handle('workspace:pick', async () => {
+licensedHandle('workspace:pick', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '\u9009\u62e9\u672c\u5730\u5de5\u4f5c\u533a',
     properties: ['openDirectory', 'createDirectory']
@@ -251,7 +257,7 @@ ipcMain.handle('workspace:pick', async () => {
   return applyWorkspace(result.filePaths[0])
 })
 
-ipcMain.handle('workspace:pick-folder', async () => {
+licensedHandle('workspace:pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '\u9009\u62e9\u6587\u4ef6\u5939',
     buttonLabel: '\u9009\u62e9',
@@ -261,7 +267,7 @@ ipcMain.handle('workspace:pick-folder', async () => {
   return result.filePaths[0]
 })
 
-ipcMain.handle('workspace:create', async () => {
+licensedHandle('workspace:create', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '\u65b0\u5efa\u5de5\u4f5c\u533a',
     buttonLabel: '\u521b\u5efa\u5e76\u9009\u62e9',
@@ -271,7 +277,7 @@ ipcMain.handle('workspace:create', async () => {
   return applyWorkspace(result.filePaths[0])
 })
 
-ipcMain.handle('workspace:set', (_event, target) => {
+licensedHandle('workspace:set', (_event, target) => {
   const resolved = path.resolve(String(target || ''))
   if (not(fs.existsSync(resolved)) || not(fs.statSync(resolved).isDirectory())) {
     throw new Error('WORKSPACE_NOT_FOUND: ' + resolved)
@@ -279,7 +285,7 @@ ipcMain.handle('workspace:set', (_event, target) => {
   return applyWorkspace(resolved)
 })
 
-ipcMain.handle('workspace:clear', () => {
+licensedHandle('workspace:clear', () => {
   settings.update({ workspacePath: '' })
   pool.setWorkspace('')
   pool.clear()
@@ -287,7 +293,7 @@ ipcMain.handle('workspace:clear', () => {
   return ''
 })
 
-ipcMain.handle('chat:send', async (_event, payload) => {
+licensedHandle('chat:send', async (_event, payload) => {
   const text = typeof payload === 'string' ? payload : String(payload && payload.text ? payload.text : '')
   const sessionId = typeof payload === 'string' ? '' : String((payload && payload.sessionId) || '')
   const history = payload && Array.isArray(payload.history) ? payload.history : undefined
@@ -297,22 +303,22 @@ ipcMain.handle('chat:send', async (_event, payload) => {
   return true
 })
 
-ipcMain.handle('chat:stop', (_event, sessionId) => {
+licensedHandle('chat:stop', (_event, sessionId) => {
   pool.abort(sessionId)
   return true
 })
 
-ipcMain.handle('chat:reset', async (_event, sessionId) => {
+licensedHandle('chat:reset', async (_event, sessionId) => {
   await forceResetAgent(sessionId)
   return true
 })
 
-ipcMain.handle('chat:clear', (_event, sessionId) => {
+licensedHandle('chat:clear', (_event, sessionId) => {
   pool.clear(sessionId)
   return true
 })
 
-ipcMain.handle('asset:save', (_event, payload) => {
+licensedHandle('asset:save', (_event, payload) => {
   if (not(assetStore) || not(payload) || not(payload.dataUrl)) throw new Error('ASSET_REQUIRED')
   const sessionDir = payload.sessionId ? pool.sessionDir(payload.sessionId) : ''
   return assetStore.saveDataUrl(payload.dataUrl, {
@@ -322,12 +328,12 @@ ipcMain.handle('asset:save', (_event, payload) => {
   })
 })
 
-ipcMain.handle('asset:read', (_event, id) => {
+licensedHandle('asset:read', (_event, id) => {
   if (not(assetStore)) throw new Error('ASSET_STORE_MISSING')
   return { id: String(id || ''), dataUrl: assetStore.readDataUrl(id) }
 })
 
-ipcMain.handle('models:list', async (_event, payload) => {
+licensedHandle('models:list', async (_event, payload) => {
   const models = await fetchModelList(payload && payload.baseURL, payload && payload.apiKey)
   return { models }
 })
@@ -342,7 +348,7 @@ function fileApi() {
   return fileApiModule
 }
 
-ipcMain.handle('fs:roots', () => {
+licensedHandle('fs:roots', () => {
   const api = fileApi()
   const data = settings.data || {}
   const projects = Array.isArray(data.projects) ? data.projects : []
@@ -354,12 +360,12 @@ ipcMain.handle('fs:roots', () => {
   }
 })
 
-ipcMain.handle('fs:tree', async (_event, payload) => {
+licensedHandle('fs:tree', async (_event, payload) => {
   const api = fileApi()
   return api.describeTree(settings, payload && payload.path, payload && payload.depth)
 })
 
-ipcMain.handle('fs:file', async (_event, target) => {
+licensedHandle('fs:file', async (_event, target) => {
   const api = fileApi()
   return api.describeFile(settings, target)
 })
@@ -367,7 +373,7 @@ ipcMain.handle('fs:file', async (_event, target) => {
 /* IPC 这条没有 <img src> 能直接用的地址，所以把字节包成 data URL 交回去 */
 const FS_PREVIEW_MAX_BYTES = 32 * 1024 * 1024
 
-ipcMain.handle('fs:preview-url', async (_event, target) => {
+licensedHandle('fs:preview-url', async (_event, target) => {
   const api = fileApi()
   const file = await api.readWorkspaceFile(settings, target, FS_PREVIEW_MAX_BYTES)
   return 'data:' + api.mimeOf(file.absolute) + ';base64,' + file.buffer.toString('base64')
@@ -378,7 +384,7 @@ ipcMain.handle('fs:preview-url', async (_event, target) => {
  * 解不了 GBK —— 开发态只保证 UTF-8（真机上跑的是服务端那条路，由渲染层用
  * TextDecoder 解 GBK，见 src/renderer/panel.js 的 decodeBytes）。
  */
-ipcMain.handle('fs:text', async (_event, target) => {
+licensedHandle('fs:text', async (_event, target) => {
   const api = fileApi()
   const file = await api.readWorkspaceFile(settings, target, 32 * 1024 * 1024)
   return file.buffer.toString('utf8')
@@ -389,7 +395,7 @@ ipcMain.handle('fs:text', async (_event, target) => {
  * （GBK / UTF-16 / BOM 都在 panel.js 处理），主进程只管把字节落盘，
  * 与 server/file-api.js 的 HTTP 那条路完全同一套规则。
  */
-ipcMain.handle('fs:write', async (_event, payload) => {
+licensedHandle('fs:write', async (_event, payload) => {
   const api = fileApi()
   const data = String((payload && payload.data) || '')
   const info = await api.writeWorkspaceFile(settings, payload && payload.path, Buffer.from(data, 'base64'),
@@ -401,8 +407,8 @@ ipcMain.handle('fs:write', async (_event, payload) => {
    与 server/index.js 的 HTTP /api/ui-store 完全同一套语义（server/ui-store.js）。
    开发态（electron .）走这两条 IPC；打包壳的 window.dsh 由 web-bridge（HTTP）注入，
    不经过这里 —— 两边落盘行为一致，别只改一头。 */
-ipcMain.handle('ui-store:get', () => ({ ok: true, store: uiStore.snapshot() }))
-ipcMain.handle('ui-store:put', async (_event, store) => {
+licensedHandle('ui-store:get', () => ({ ok: true, store: uiStore.snapshot() }))
+licensedHandle('ui-store:put', async (_event, store) => {
   const saved = await uiStore.save(store)
   return { ok: true, updatedAt: saved.updatedAt }
 })
@@ -418,16 +424,16 @@ function terminalApi() {
 /** 每个 webContents 一条订阅；页面刷新 / 窗口销毁时自动解绑，别攒一堆死监听 */
 const terminalSubscriptions = new Map()
 
-ipcMain.handle('term:state', (_event, sid) => terminalApi().state(sid))
+licensedHandle('term:state', (_event, sid) => terminalApi().state(sid))
 
-ipcMain.handle('term:start', (_event, cwd) => terminalApi().start(cwd))
+licensedHandle('term:start', (_event, cwd) => terminalApi().start(cwd))
 
-ipcMain.handle('term:write', (_event, payload) => {
+licensedHandle('term:write', (_event, payload) => {
   const api = terminalApi()
   return api.write(payload && payload.sid, payload && payload.text)
 })
 
-ipcMain.handle('term:kill', (_event, sid) => terminalApi().kill(sid))
+licensedHandle('term:kill', (_event, sid) => terminalApi().kill(sid))
 
 ipcMain.on('term:subscribe', (event, sid) => {
   const key = event.sender.id
@@ -466,23 +472,23 @@ ipcMain.on('term:unsubscribe', (event, sid) => {
   terminalSubscriptions.delete(key)
 })
 
-ipcMain.handle('shell:open-path', async (_event, target) => {
+licensedHandle('shell:open-path', async (_event, target) => {
   const pathToOpen = target && path.isAbsolute(target) ? target : pool.getWorkspace()
   if (not(pathToOpen)) return 'NO_PATH'
   return shell.openPath(pathToOpen)
 })
 
 /* 只放行 http/https，禁止 file: / 自定义协议被渲染层当成外链打开 */
-ipcMain.handle('shell:open-external', async (_event, target) => {
+licensedHandle('shell:open-external', async (_event, target) => {
   const link = String(target || '')
   if (not(/^https?:\/\//i.test(link))) return 'BLOCKED'
   await shell.openExternal(link)
   return 'OK'
 })
 
-ipcMain.handle('workflows:request',async(_event,action,data)=>{const service=pluginHost.get('workflows');service.attach(sendEvent);if(action==='list')return service.list();if(!['save','remove','run','detail','stop','submit','context','template','pause','resume','retry','artifact','design','designOptions','validateDesign','simulate','cancelDesign','importMaterial'].includes(action))throw Error('WORKFLOW_ACTION_INVALID');return service[action](data||{})})
+licensedHandle('workflows:request',async(_event,action,data)=>{const service=pluginHost.get('workflows');service.attach(sendEvent);if(action==='list')return service.list();if(!['save','remove','run','detail','stop','submit','context','template','pause','resume','retry','artifact','design','designOptions','validateDesign','simulate','cancelDesign','importMaterial'].includes(action))throw Error('WORKFLOW_ACTION_INVALID');return service[action](data||{})})
 
-ipcMain.handle('knowledge:request', async (_event, action, data) => {
+licensedHandle('knowledge:request', async (_event, action, data) => {
   const knowledge = pluginHost.get('knowledge')
   const raw = data || {}
   if (typeof sendEvent === 'function') knowledge.attach(sendEvent)
@@ -505,9 +511,9 @@ ipcMain.handle('knowledge:request', async (_event, action, data) => {
   throw new Error('KNOWLEDGE_ACTION_INVALID')
 })
 
-ipcMain.handle('extensions:request',async(_event,action,data)=>{const service=pluginHost.get('extensions');if(action==='list')return service.list();if(!['inspect','discard','install','enable','remove'].includes(action))throw Error('EXTENSION_ACTION_INVALID');return service[action](data||{})})
+licensedHandle('extensions:request',async(_event,action,data)=>{const service=pluginHost.get('extensions');if(action==='list')return service.list();if(!['inspect','discard','install','enable','remove'].includes(action))throw Error('EXTENSION_ACTION_INVALID');return service[action](data||{})})
 
-ipcMain.handle('mcp:request', async (_event, action, data) => {
+licensedHandle('mcp:request', async (_event, action, data) => {
   const mcp = pluginHost.get('mcp')
   if (mcp === undefined || mcp === null) throw new Error('MCP_UNAVAILABLE')
   if (action === 'list') return mcp.status()
@@ -516,7 +522,7 @@ ipcMain.handle('mcp:request', async (_event, action, data) => {
   throw new Error('MCP_ACTION_INVALID')
 })
 
-ipcMain.handle('tasks:request', async (_event, action, data) => {
+licensedHandle('tasks:request', async (_event, action, data) => {
   const tasks = pluginHost.get('tasks')
   if (action === 'list') return tasks.list()
   if (action === 'save') return { task: tasks.save(data) }
@@ -533,3 +539,5 @@ ipcMain.handle('tasks:request', async (_event, action, data) => {
   if (action === 'conversation') return tasks.conversation(data.runId)
   throw new Error('TASK_ACTION_INVALID')
 })
+
+licensedHandle('licensing:request',(_event,action,data)=>{const service=pluginHost.requireService('licensing');if(!['status','request','activate','trial'].includes(action))throw Error('LICENSE_ACTION_INVALID');return action==='trial'?service.startTrial():service[action](data||{})})

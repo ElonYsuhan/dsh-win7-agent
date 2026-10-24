@@ -5,7 +5,8 @@ const defaultPolicy = require('../agent/permission-policy')
 const defaultContracts = require('../contracts')
 
 class ToolRegistry {
-  constructor(policy, contracts) {
+  constructor(policy, contracts, authorize) {
+    this.authorize = authorize || (() => true)
     this.contracts = contracts || defaultContracts
     this.policy = policy || defaultPolicy
     this.tools = new Map()
@@ -65,6 +66,7 @@ class ToolRegistry {
   }
 
   async execute(name, args, context) {
+    this.authorize()
     const unattended = context && context.settings && context.settings.unattended
     if (unattended && !unattended.tools.includes(name)) return 'DENIED: unattended ' + name + ': outside task tool allowlist'
     const tool = this.get(name)
@@ -127,6 +129,7 @@ class ToolRegistry {
     }
     if (context.signal.aborted) throw new Error('ABORTED')
     if (!tool.active) return 'DISABLED: ' + name + ' was unloaded while awaiting approval'
+    this.authorize() // Recheck after a potentially long permission prompt.
     try { return await tool.execute(args || {}, context || {}) } catch (error) {
       if (settings.unattended && /PATH_ESCAPE|COMMAND_BLOCKED/.test(error.message)) return 'DENIED: unattended ' + name + ': ' + error.message
       throw error

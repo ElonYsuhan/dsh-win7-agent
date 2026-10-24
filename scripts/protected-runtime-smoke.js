@@ -13,7 +13,10 @@ try {
   fs.symlinkSync(path.join(root, 'examples'), path.join(dir, 'examples'), 'junction')
   fs.copyFileSync(path.join(app, 'package.json'), path.join(dir, 'package.json'))
   for (const test of ['cordis-runtime-smoke.js', 'workflow-v2-smoke.js', 'workflow-node-design-smoke.js']) {
-    fs.copyFileSync(path.join(root, 'scripts', test), path.join(dir, 'scripts', test))
+    // Explicit in-process test fixture; shipped client has no environment/UI bypass.
+    const fixture = '{ licensing: { policy: { version: 1, enforced: false, publicKeys: {} } }, '
+    const source = fs.readFileSync(path.join(root, 'scripts', test), 'utf8').replace(/new PluginHost\(\{/g, 'new PluginHost('+fixture).replace(/new PluginHost\(\)/g, 'new PluginHost('+fixture+'})')
+    fs.writeFileSync(path.join(dir, 'scripts', test), source)
     const result = cp.spawnSync(executable, [path.join(dir, 'scripts', test)], { cwd: dir, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 120000 })
     process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr || '')
     if (result.error) throw result.error

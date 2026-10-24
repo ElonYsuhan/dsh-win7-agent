@@ -10,6 +10,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function port() { const s = net.createServer(); await new Promise(r => s.listen(0, '127.0.0.1', r)); const value = s.address().port; await new Promise(r => s.close(r)); return value }
 async function sample(bundle, cycles) {
   const userData = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-protection-perf-'))), debug = await port()
+  const device=await require('../src/main/licensing/device').deviceIdentity(),issuer=require('./license-authority/issuer'),license=issuer.issue({requestText:JSON.stringify({version:1,product:'dsh-agent',deviceDigest:device.deviceDigest,platform:device.platform,arch:device.arch,name:device.name}),customer:'隔离性能验收',days:1})
+  fs.mkdirSync(path.join(userData,'agent-home/licensing'),{recursive:true})
+  fs.writeFileSync(path.join(userData,'agent-home/licensing/state.json'),JSON.stringify({version:1,lastSeenAt:Date.now(),trial:null,license:license.text,sequences:{[license.claims.licenseId]:license.claims.sequence}}))
   fs.writeFileSync(path.join(userData, 'config.json'), JSON.stringify({ mode: 'local', theme: 'light' }))
   const environment = { ...process.env }; delete environment.ELECTRON_RUN_AS_NODE
   const begin = Date.now(), child = cp.spawn(path.join(bundle, 'Contents/MacOS/Electron'), ['--user-data-dir='+userData, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port='+debug], { env: environment, stdio: ['ignore','pipe','pipe'] })
@@ -29,7 +32,7 @@ async function sample(bundle, cycles) {
     const cdp=new CdpSession(socket)
     async function evaluate(expression) { const r=await cdp.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value }
     let ready=false
-    for(let i=0;i<500;i++){try{ready=await evaluate("typeof state!=='undefined'&&!!state.runPoll&&!!window.workflowUI&&!!window.knowledgeUI&&!!window.extensionUI")}catch(_){}if(ready)break;await sleep(20)}
+    for(let i=0;i<500;i++){try{ready=await evaluate("typeof state!=='undefined'&&!!state.runPoll&&!!window.workflowUI&&!!window.knowledgeUI&&!!window.extensionUI&&window.licensingUI&&!window.licensingUI.isLocked()")}catch(_){}if(ready)break;await sleep(20)}
     assert(ready,'UI ready: '+log)
     await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r(true))))')
     const readyMs=Date.now()-begin
@@ -58,6 +61,7 @@ async function main(){
   assert.strictEqual(process.platform,'darwin');assert(Number.isInteger(count)&&count>=1&&count<=60)
   const baselineRoot=await require('./build-desktop').buildTarget('mac-'+process.arch,{noZip:true,outRoot:path.join(root,'release/.desktop-build/performance-baseline')})
   const baselineBundle=path.join(baselineRoot,'Agent.app'),app=path.join(baselineBundle,'Contents/Resources/app')
+  require('./desktop/license-policy').stamp(app)
   fs.writeFileSync(path.join(app,'distribution.json'),JSON.stringify({formatVersion:1,target:'mac-'+process.arch,version:require('../package.json').version,kind:'app-bundle',directoryTakeover:true}))
   const baselineMeta={formatVersion:1,target:'mac-'+process.arch,version:require('../package.json').version,electron:'22.3.27',node:'16.17.1',chromium:'108',uiBuild:require('../src/main/agent/ui-build').computeUiBuild(path.join(app,'src/renderer')),packageBuildId:require('../shell/installer').computePackageBuildId(app)}
   fs.writeFileSync(path.join(app,'desktop-build.json'),JSON.stringify(baselineMeta))
@@ -65,7 +69,7 @@ async function main(){
   const samples={baseline:[],protected:[]}
   for(let i=0;i<count;i++)for(const kind of i%2?['protected','baseline']:['baseline','protected']){const value=await sample(kind==='baseline'?baselineBundle:protectedBundle,i===0?20:1);samples[kind].push(value);console.log(kind+' '+(i+1)+'/'+count+' ready='+value.readyMs+'ms')}
   const baseline=summary(samples.baseline),protectedStats=summary(samples.protected)
-  const report={platform:os.platform(),release:os.release(),arch:os.arch(),cpu:os.cpus()[0].model,cpuCount:os.cpus().length,memoryBytes:os.totalmem(),storage:cp.execFileSync('diskutil',['info','/'],{encoding:'utf8'}),power:cp.execFileSync('pmset',['-g','batt'],{encoding:'utf8'}),samplesPerBuild:count,dataset:'isolated empty user data',notes:'Alternating independent process launches. OS caches not flushed; module actions aligned at requestAnimationFrame to reduce frame-phase jitter and followed by two paint frames; windowObserved is CDP page detection, not native compositor first paint; no Win7/physical Linux claim; real-history workload and service/renderer child RSS need separate profiling.',baseline,protected:protectedStats,relativeStartup:protectedStats.readyP95Ms/baseline.readyP95Ms,relativeFirstModule:protectedStats.firstModuleP95Ms/baseline.firstModuleP95Ms,relativeRepeatModule:protectedStats.repeatModuleP95Ms/baseline.repeatModuleP95Ms,samples}
+  const report={platform:os.platform(),release:os.release(),arch:os.arch(),cpu:os.cpus()[0].model,cpuCount:os.cpus().length,memoryBytes:os.totalmem(),storage:cp.execFileSync('diskutil',['info','/'],{encoding:'utf8'}),power:cp.execFileSync('pmset',['-g','batt'],{encoding:'utf8'}),samplesPerBuild:count,dataset:'isolated empty user data with device-bound signed test license in both builds',notes:'Alternating independent process launches. OS caches not flushed; module actions aligned at requestAnimationFrame to reduce frame-phase jitter and followed by two paint frames; windowObserved is CDP page detection, not native compositor first paint; no Win7/physical Linux claim; real-history workload and service/renderer child RSS need separate profiling.',baseline,protected:protectedStats,relativeStartup:protectedStats.readyP95Ms/baseline.readyP95Ms,relativeFirstModule:protectedStats.firstModuleP95Ms/baseline.firstModuleP95Ms,relativeRepeatModule:protectedStats.repeatModuleP95Ms/baseline.repeatModuleP95Ms,samples}
   report.accepted=count>=30&&report.relativeStartup<=1.1&&report.relativeFirstModule<=1.1&&report.relativeRepeatModule<=1.1&&protectedStats.readyP95Ms<=3000&&protectedStats.firstModuleP95Ms<=500&&protectedStats.repeatModuleP95Ms<=150
   fs.mkdirSync(path.join(root,'release/validation'),{recursive:true});fs.writeFileSync(path.join(root,'release/validation/source-protection-perf.json'),JSON.stringify(report,null,2)+'\n')
   console.log(JSON.stringify({baseline,protected:protectedStats,relativeStartup:report.relativeStartup,relativeFirstModule:report.relativeFirstModule,relativeRepeatModule:report.relativeRepeatModule,accepted:report.accepted}))
