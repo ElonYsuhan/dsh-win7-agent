@@ -163,7 +163,7 @@
     try{const design=await validateDraft(JSON.parse(json.value));if(state.closed)return;state.design=design;syncSettings();renderPreview();showMode(false);feedback.textContent='协议校验通过，预览已更新。'}catch(error){if(!state.closed){feedback.textContent=error.message;json.setAttribute('aria-invalid','true');json.focus()}}finally{if(!state.closed)validate.disabled=false}
    }
    function keydown(event){
-    if(state.closed)return
+    if(state.closed||event.defaultPrevented)return
     if(event.key==='Escape'&&!event.isComposing){event.preventDefault();event.stopImmediatePropagation();close(false)}
     if(event.key==='Tab'){
      const controls=Array.from(overlay.querySelectorAll('button,input,select,textarea,a[href],[tabindex="0"]')).filter(control=>!control.disabled&&control.getClientRects().length),first=controls[0],last=controls[controls.length-1]
