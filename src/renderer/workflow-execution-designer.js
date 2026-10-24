@@ -51,7 +51,7 @@
    document.body.append(overlay)
    const state={closed:false,applying:false,requestId:'',generation:0,design:baseline(original),history:[],jsonMode:false,close:null}
    const rejectTargets=(window.workflowUI&&window.workflowUI.detectRejectTarget)?window.workflowUI.detectRejectTarget(workflow,original.id):{candidates:[],detected:null}
-   const append=(role,text)=>{const row=el('article',undefined,'workflow-design-message is-'+role),avatar=el('span',undefined,'workflow-design-avatar'),bubble=el('div',undefined,'workflow-design-bubble'),label=el('strong',role==='user'?'你':'设计助手'),body=el('p',String(text||'').slice(0,20000));avatar.append(icon(role==='user'?'wf-human':'customize'));bubble.append(label,body);row.append(avatar,bubble);messages.insertBefore(row,pending);while(messages.querySelectorAll('.workflow-design-message').length>14)messages.querySelector('.workflow-design-message').remove();messages.scrollTop=messages.scrollHeight}
+   const append=(role,text)=>{const row=el('article',undefined,'workflow-design-message is-'+role),avatar=el('span',undefined,'workflow-design-avatar'),bubble=el('div',undefined,'workflow-design-bubble'),body=el('p',String(text||'').slice(0,20000));row.setAttribute('aria-label',role==='user'?'你的消息':'设计助手的消息');avatar.append(icon(role==='user'?'wf-human':'customize'));bubble.append(body);row.append(avatar,bubble);messages.insertBefore(row,pending);while(messages.querySelectorAll('.workflow-design-message').length>14)messages.querySelector('.workflow-design-message').remove();messages.scrollTop=messages.scrollHeight}
    const setStatus=(phase,text)=>{status.dataset.state=phase;status.textContent=text}
    function setGenerating(value){
     const disabled=value||state.applying

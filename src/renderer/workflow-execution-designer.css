@@ -19,8 +19,7 @@
 .workflow-design-avatar .icon{display:flex;}
 .workflow-design-bubble{min-width:0;max-width:calc(100% - 42px);padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel);}
 .workflow-design-message.is-user .workflow-design-bubble{background:var(--selection-bg);}
-.workflow-design-message strong{display:block;font-size:10px;font-weight:500;color:var(--muted);}
-.workflow-design-message p{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;}
+.workflow-design-message p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;}
 .workflow-design-pending{display:flex;align-items:center;gap:8px;flex:none;margin-left:34px;font-size:12px;color:var(--muted);}
 .workflow-design-pending[hidden]{display:none;}
 .workflow-design-suggestions{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px;}
