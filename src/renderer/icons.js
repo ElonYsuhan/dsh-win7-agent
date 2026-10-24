@@ -65,7 +65,7 @@
     download: '<svg ' + base + '><path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"/></svg>',
     file: '<svg ' + base + '><path d="M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"/><path d="M13 3v6h6"/></svg>',
     'chevron-right': '<svg ' + base + '><path d="M9 6l6 6-6 6"/></svg>',
-    refresh: '<svg ' + base + '><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4.5V10h-5.5"/></svg>',
+    refresh: '<svg ' + base + '><path d="M20 12a8 8 0 1 1-2.34-5.66L20 8"/><path d="M20 3.5V8h-4.5"/></svg>',
     external: '<svg ' + base + '><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></svg>',
     terminal: '<svg ' + base + '><rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="M6.5 9.5l2.5 2.5-2.5 2.5"/><line x1="11.5" y1="15" x2="16.5" y2="15"/></svg>',
     warning: '<svg ' + base + '><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17h.01"/></svg>',

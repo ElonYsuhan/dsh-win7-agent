@@ -110,6 +110,12 @@ body {
   gap: 4px;
 }
 
+/* The circular refresh glyph needs a little more optical size than square icons. */
+#pageRefresh .icon svg {
+  width: 20px;
+  height: 20px;
+}
+
 .titlebar-divider {
   flex: 0 0 1px;
   height: 18px;
