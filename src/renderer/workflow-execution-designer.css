@@ -27,8 +27,15 @@
 .workflow-design-composer{flex:none;padding:12px 16px;border-top:1px solid var(--border);background:var(--panel);}
 .workflow-design-composer label{display:block;font-size:12px;margin-bottom:8px;}
 .workflow-design-composer textarea{display:block;width:100%;min-height:76px;max-height:160px;resize:vertical;}
-.workflow-design-composer-actions{display:flex;gap:8px;justify-content:flex-end;}
-.workflow-design-composer-actions button{min-height:34px;padding:6px 12px;font-size:12px;}
+.workflow-design-composer-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;justify-content:flex-end;}
+.workflow-design-composer-options{display:flex;align-items:center;flex:1;min-width:0;gap:8px;flex-wrap:wrap;}
+.workflow-design-composer .workflow-design-option{display:flex;flex-direction:row;align-items:center;gap:5px;min-width:0;margin:0;color:var(--muted);}
+.workflow-design-option>.icon{display:flex;flex:none;}
+.workflow-design-composer .workflow-design-option select{width:auto;min-width:0;max-width:160px;min-height:30px;margin:0;padding:4px 8px;font-size:11px;}
+.workflow-design-option .select-control{width:auto;min-width:0;max-width:160px;}
+.workflow-design-option .select-trigger{min-height:30px;padding:4px 8px;font-size:11px;gap:6px;}
+.workflow-design-option .dropdown-menu{min-width:160px;max-width:260px;}
+.workflow-design-composer-actions>button{min-height:34px;min-width:74px;padding:6px 12px;font-size:12px;}
 .workflow-design-composer-actions .primary{background:var(--send-bg);color:var(--send-text);border-color:transparent;}
 .workflow-design-request-state{margin:7px 0;font-size:11px;min-height:16px;}
 .workflow-design-preview-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);}

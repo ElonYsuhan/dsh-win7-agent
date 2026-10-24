@@ -66,6 +66,16 @@ work before providers disappear. `agent/agent-loop.js` is a compatibility export
 
 ## Contracts at real boundaries
 
+The node designer resolves request-local model IDs from configured providers in
+its existing Cordis plugin; catalog transport omits connection secrets. The pure
+`workflow-designer-options` contract validates this selection. User-selected node
+run permissions map to the existing `agent.permission` / `tool.permission` fields,
+then flow through immutable workflow run snapshots and the existing tool registry.
+Design proposals cannot elevate the selected permission. All three permission
+levels retain the fixed Headless allowlist and limits; no new tool loop or service
+container is introduced. The implementation uses Node16/Chromium108 primitives;
+the transport/model adapter can later change without changing the design protocol.
+
 - `contracts.SERVICES` specifies service method requirements checked at executor
   activation. Incomplete providers fail activation rather than silently falling
   back to another execution path.

@@ -5,10 +5,10 @@
  const object=value=>value&&typeof value==='object'&&!Array.isArray(value)
  const icon=name=>{const item=el('span',undefined,'icon');item.setAttribute('aria-hidden','true');if(window.renderIcon)item.innerHTML=window.renderIcon(name);return item}
  const api=(action,data)=>window.dsh.workflowRequest(action,data)
- let active=null,serial=0
+ let active=null,serial=0,preferredModel=null
  const TYPE_TITLES={handle:'办理 · 完成并继续',review:'审阅 · 已审阅，继续',approve:'审批 · 通过或驳回'}
  function baseline(node){
-  const design={version:1,instruction:String(node.text||node.description||''),inputSchema:node.inputSchema||null,outputSchema:node.outputSchema||null,bindings:node.bindings||{}}
+  const design={version:1,instruction:String(node.text||node.description||''),inputSchema:node.inputSchema||null,outputSchema:node.outputSchema||null,bindings:node.bindings||{},...(['agent','tool'].includes(node.type)?{runPermission:(node.type==='tool'?node.tool&&node.tool.permission:node.agent&&node.agent.permission)||'readonly'}:{})}
   if(node.type==='human'){
    const modes=Array.isArray(node.humanModes)?node.humanModes:[node.humanKind||'review']
    design.interaction=clone(node.interaction||{version:1,type:modes.includes('approval')?'approve':modes.includes('read')?'review':'handle',returnTo:'previous-human'})
@@ -31,7 +31,10 @@
    const messages=el('div',undefined,'workflow-design-messages');messages.setAttribute('role','log');messages.setAttribute('aria-live','polite');messages.setAttribute('aria-label','节点执行设计会话')
    const pending=el('article',undefined,'workflow-design-pending'),pendingSpinner=el('span',undefined,'workflow-design-spinner');pendingSpinner.setAttribute('aria-hidden','true');pending.append(pendingSpinner,el('span','正在设计执行操作…'));pending.hidden=true;messages.append(pending)
    const prompts=el('div',undefined,'workflow-design-suggestions'),composer=el('form',undefined,'workflow-design-composer'),messageLabel=el('label','描述你需要的执行操作'),input=el('textarea'),composerActions=el('div',undefined,'workflow-design-composer-actions'),requestState=el('p','','workflow-design-request-state muted'),stop=el('button','停止生成'),send=el('button','生成设计','primary')
-   input.rows=3;input.maxLength=4000;input.placeholder=original.type==='human'?'例如：上传材料，填写任务名称、负责人和截止时间，审阅后通过或驳回。':'例如：明确本步骤的处理指令，并返回包含结论、依据、风险的结构化结果。';input.id=id+'Prompt';messageLabel.htmlFor=input.id;composer.append(messageLabel,input);stop.type='button';stop.hidden=true;send.type='submit';composerActions.append(stop,send);composer.append(requestState,composerActions)
+   const composerOptions=el('div',undefined,'workflow-design-composer-options'),modelField=el('label',undefined,'workflow-design-option'),modelSelect=el('select'),follow=el('option','跟随当前模型');modelSelect.id=id+'Model';modelSelect.setAttribute('aria-label','设计模型');modelField.htmlFor=modelSelect.id;follow.value='';modelSelect.append(follow);modelSelect.disabled=true;modelField.append(icon('model'),modelSelect);composerOptions.append(modelField)
+   const permissionField=el('label',undefined,'workflow-design-option'),permissionSelect=el('select'),hasRunPermission=['agent','tool'].includes(original.type);permissionSelect.id=id+'Permission';permissionSelect.setAttribute('aria-label','节点运行权限');permissionField.htmlFor=permissionSelect.id;for(const [value,text]of [['readonly','只读'],['workspace','工作区修改'],['full','完全访问']]){const option=el('option',text);option.value=value;permissionSelect.append(option)}permissionSelect.value=baseline(original).runPermission||'readonly';permissionSelect.disabled=!hasRunPermission;permissionField.append(icon('shield-check'),permissionSelect);composerOptions.append(permissionField)
+   let modelChoices=[],modelsLoading=true
+   input.rows=3;input.maxLength=4000;input.placeholder=original.type==='human'?'例如：上传材料，填写任务名称、负责人和截止时间，审阅后通过或驳回。':'例如：明确本步骤的处理指令，并返回包含结论、依据、风险的结构化结果。';input.id=id+'Prompt';messageLabel.htmlFor=input.id;composer.append(messageLabel,input);stop.type='button';stop.dataset.designAction='stop';stop.hidden=true;send.type='submit';composerActions.append(composerOptions,stop,send);composer.append(requestState,composerActions)
    for(const text of original.type==='human'?['增加文件上传和资料说明','设计一张任务登记表','增加通过与驳回操作']:['明确输入与输出字段','完善结构化评估结果']){const suggestion=el('button',text);suggestion.type='button';suggestion.addEventListener('click',()=>{input.value=text;input.focus()});prompts.append(suggestion)}
    chat.append(chatHeading,messages,prompts,composer)
    const previewHeader=el('header',undefined,'workflow-design-preview-header'),previewTitle=el('h3','执行操作预览'),tabs=el('div',undefined,'workflow-design-tabs'),previewTab=el('button','操作预览'),jsonTab=el('button','协议 JSON')
@@ -55,8 +58,10 @@
    const setStatus=(phase,text)=>{status.dataset.state=phase;status.textContent=text}
    function setGenerating(value){
     const disabled=value||state.applying
-    generationMask.hidden=!value;pending.hidden=!value;stage.setAttribute('aria-busy',String(disabled));composer.setAttribute('aria-busy',String(disabled));stop.hidden=!value;send.disabled=disabled;input.disabled=state.applying;send.textContent=value?'生成中…':'生成设计'
+    generationMask.hidden=!value;pending.hidden=!value;stage.setAttribute('aria-busy',String(disabled));composer.setAttribute('aria-busy',String(disabled));stop.hidden=!value;send.hidden=value;send.disabled=disabled;input.disabled=state.applying
     for(const control of [apply,validate,previewTab,jsonTab,typeSelect,rejectSelect])control.disabled=disabled
+    permissionSelect.disabled=disabled||!hasRunPermission
+    modelSelect.disabled=disabled||modelsLoading
     if(value){setStatus('running','正在生成');requestState.textContent='正在按节点设计技能生成操作，可随时停止。';messages.scrollTop=messages.scrollHeight}
    }
    const clearError=()=>{feedback.textContent='';json.removeAttribute('aria-invalid');input.removeAttribute('aria-invalid')}
@@ -70,6 +75,7 @@
    }
    // 交互类型与驳回退回目标：直接改设计数据，预览立刻跟着变。
    function syncSettings(){
+    if(hasRunPermission){permissionSelect.value=state.design.runPermission||'readonly';if(window.agentSelect)window.agentSelect.refresh(permissionSelect)}
     const interaction=state.design.interaction
     typeSelect.value=interaction&&interaction.type||'handle'
     const canReject=!!interaction&&interaction.type!=='handle'
@@ -133,7 +139,7 @@
     clearError();cancelPending();const generation=state.generation,requestId='node_design_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10);state.requestId=requestId
     const history=state.history.slice(-8);state.history.push({role:'user',content:message});state.history=state.history.slice(-8);append('user',message);input.value='';setGenerating(true)
     try{
-     const result=await api('design',{requestId,node:original,workflow,message,history,design:state.design})
+     const result=await api('design',{requestId,node:original,workflow,message,history,design:state.design,runPermission:hasRunPermission?permissionSelect.value:undefined,model:modelSelect.value?modelChoices[Number(modelSelect.value)-1]:undefined})
      if(state.closed||generation!==state.generation)return
      const design=checkedDesign(result);state.design=design;const reply=String(result.reply||'已更新当前节点的执行设计，请在右侧预览并确认。');state.history.push({role:'assistant',content:reply});state.history=state.history.slice(-8);append('assistant',reply)
      if(Array.isArray(result.warnings)&&result.warnings.length)feedback.textContent=result.warnings.map(w=>typeof w==='string'?w:w.message||'').filter(Boolean).join('；')
@@ -170,6 +176,16 @@
    rejectSelect.addEventListener('change',()=>{if(!state.design.interaction)return;state.design.interaction.returnTo=rejectSelect.value||'previous-human';renderPreview()})
    closeButton.addEventListener('click',()=>close(false));cancel.addEventListener('click',()=>close(false));previewTab.addEventListener('click',()=>{if(state.jsonMode&&json.value!==JSON.stringify(state.design,null,2))validateJson();else showMode(false)});jsonTab.addEventListener('click',()=>showMode(true));validate.addEventListener('click',validateJson);apply.addEventListener('click',applyDesign);composer.addEventListener('submit',generate);stop.addEventListener('click',()=>cancelPending('已停止生成，保留当前设计。'))
    input.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)&&!event.isComposing){event.preventDefault();composer.requestSubmit()}})
+   modelSelect.addEventListener('change',()=>{preferredModel=modelSelect.value?clone(modelChoices[Number(modelSelect.value)-1]):null})
+   permissionSelect.title=hasRunPermission?'保存后用于当前节点实际运行，仍受工具白名单、工作目录范围和执行限额约束。':'此节点不执行文件或命令工具；运行权限仅适用于 Agent 与工具节点。'
+   permissionField.title=permissionSelect.title
+   permissionSelect.addEventListener('change',()=>{if(!hasRunPermission)return;let edited=state.design;if(state.jsonMode){try{edited=JSON.parse(json.value);if(!object(edited))throw Error('协议需要对象')}catch(_){permissionSelect.value=state.design.runPermission||'readonly';if(window.agentSelect)window.agentSelect.refresh(permissionSelect);feedback.textContent='请先修正协议 JSON，再修改运行权限。';return}}edited.runPermission=permissionSelect.value;state.design.runPermission=permissionSelect.value;json.value=JSON.stringify(edited,null,2);requestState.textContent='运行权限已调整，应用并保存流程后生效。'})
+   api('designOptions',{}).then(value=>{
+    if(state.closed)return
+    follow.textContent='当前模型'+(value.current&&value.current.model?' · '+value.current.model:'')
+    for(const provider of value.providers||[]){const group=el('optgroup');group.label=provider.name;for(const name of provider.models||[]){modelChoices.push({providerId:provider.id,model:name});const option=el('option',name);option.value=String(modelChoices.length);group.append(option)}modelSelect.append(group)}
+    if(preferredModel){const index=modelChoices.findIndex(choice=>choice.providerId===preferredModel.providerId&&choice.model===preferredModel.model);modelSelect.value=index<0?'':String(index+1)}
+   }).catch(()=>{if(!state.closed)follow.textContent='当前模型（列表未加载）'}).finally(()=>{modelsLoading=false;if(!state.closed)modelSelect.disabled=state.applying||!!state.requestId})
    document.addEventListener('keydown',keydown,true)
    append('assistant',original.type==='human'?'描述这个节点需要怎样办理，例如填写信息、上传材料或审阅审批。我会生成右侧操作，确认后再应用。':'描述这个节点要完成的任务，我会完善执行指令与输入输出。确认预览后再应用。');requestState.textContent='Ctrl / ⌘ + Enter 生成设计';syncSettings();renderPreview();requestAnimationFrame(()=>{if(!state.closed)input.focus()})
   })

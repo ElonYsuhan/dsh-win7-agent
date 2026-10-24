@@ -1,9 +1,10 @@
 'use strict'
 // One declarative editor protocol; execution still consumes canonical node fields.
 const Schema=require('./workflow-schema'),Interaction=require('./workflow-interaction'),Processing=require('./workflow-processing')
+const Agent=require('./workflow-agent')
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)
 const clone=value=>JSON.parse(JSON.stringify(value))
-const KEYS=['version','instruction','interaction','inputSchema','outputSchema','processing','bindings']
+const KEYS=['version','instruction','interaction','inputSchema','outputSchema','processing','bindings','runPermission']
 function bounded(raw){
  if(!object(raw)||JSON.stringify(raw).length>128000)throw Error('节点执行设计需要对象，最多128000字')
  const inspect=(value,depth)=>{if(depth>16)throw Error('节点执行设计嵌套过深');if(typeof value==='string'&&/<\s*\/?\s*(?:script|iframe|html|body|input|form|button|style|object|embed)\b|javascript\s*:/i.test(value))throw Error('执行设计只接受声明式数据，不接受 HTML 或脚本');if(object(value)||Array.isArray(value))for(const [key,item]of Object.entries(value)){if(['__proto__','constructor','prototype'].includes(key))throw Error('节点执行设计字段无效');inspect(item,depth+1)}}
@@ -30,6 +31,7 @@ function validate(raw,node,workflow){
  const mapped=bindings(raw.bindings,node,workflow)
  if(inputSchema&&Object.keys(mapped).some(key=>!Object.prototype.hasOwnProperty.call(inputSchema.properties,key)))throw Error('输入映射字段必须在输入 Schema 中声明')
  const result={version:1,instruction:raw.instruction,interaction:null,inputSchema,outputSchema,processing:null,bindings:mapped}
+ if(raw.runPermission!==undefined){if(!['agent','tool'].includes(node.type))throw Error('此节点不执行工具，不能配置工具运行权限');result.runPermission=Agent.permission(raw.runPermission)}
  if(node.type==='human'){
   result.interaction=Interaction.configuration(raw.interaction||{version:1,type:'review',returnTo:'previous-human'})
   const processing=raw.processing||{version:1,blocks:[{type:'instructions'},...(inputSchema?[{type:'form'}]:[]),{type:'conclusion',title:'备注',required:false}]}
@@ -49,10 +51,11 @@ function fromNode(node){
   processing=node.processing||!node.interaction?Processing.view(node):{version:1,blocks:[{type:'instructions'},...(node.inputSchema?[{type:'form'}]:[]),...(modes.includes('upload')?[{type:'attachments',required:true}]:[]),{type:'conclusion',title:'备注',required:false}]}
   processing={...processing,blocks:processing.blocks.map(block=>block.type==='attachments'&&modes.includes('upload')?{...block,required:true}:block)}
  }
- return validate({version:1,instruction:node.text||'',inputSchema:node.inputSchema||null,outputSchema:node.outputSchema||null,bindings:node.bindings||{},interaction,processing},node)
+ return validate({version:1,instruction:node.text||'',inputSchema:node.inputSchema||null,outputSchema:node.outputSchema||null,bindings:node.bindings||{},interaction,processing,...(['agent','tool'].includes(node.type)?{runPermission:Agent.permission(node.type==='tool'?node.tool&&node.tool.permission:node.agent&&node.agent.permission)}:{})},node)
 }
 function apply(node,raw,workflow){
  const design=validate(raw,node,workflow),result={...clone(node),text:design.instruction,inputSchema:design.inputSchema,outputSchema:design.outputSchema,bindings:design.bindings}
+ if(design.runPermission!==undefined){const key=node.type==='tool'?'tool':'agent';result[key]={...result[key],permission:design.runPermission}}
  if(node.type==='human'){result.interaction=design.interaction;result.processing=design.processing;result.humanModes=[design.interaction.type==='approve'?'approval':design.interaction.type==='review'?'read':'review',...(design.processing.blocks.some(b=>b.type==='attachments'&&b.required===true)?['upload']:[])];result.humanKind=result.humanModes[0]}
  return result
 }

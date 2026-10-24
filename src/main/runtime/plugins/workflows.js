@@ -76,6 +76,7 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
    const job=Promise.resolve().then(()=>importMaterial(raw));jobs.add(job);job.then(()=>jobs.delete(job),()=>jobs.delete(job));return job
   },
   design:raw=>ctx.workflowDesigner.design(raw),
+  designOptions:()=>ctx.workflowDesigner.designOptions(),
   validateDesign:raw=>ctx.workflowDesigner.validateDesign(raw),
   simulate:raw=>ctx.workflowDesigner.simulate(raw),
   cancelDesign:raw=>ctx.workflowDesigner.cancelDesign(raw),

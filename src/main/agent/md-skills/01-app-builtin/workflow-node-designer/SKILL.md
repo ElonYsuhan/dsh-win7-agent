@@ -31,6 +31,7 @@ description: 仅用于工作流节点的处理表单、备注、审阅审批和�
 - 人工节点默认只有一段处理说明、可选备注与审阅批复。只有确有业务需要才增加表单、附件或必填项。不要把每步都设计成大表单。
 - `interaction.type` 可为 `handle`（办理完成继续）、`review`（已阅后继续，也可驳回）或 `approve`（通过或驳回）。驳回必须填写原因。`returnTo` 默认 `previous-human`，也可选当前流程已有的上游人工节点 ID；不得虚构节点。
 - 自动节点的 `interaction`、`processing` 必须为 `null`，保留自动执行语义；只设计处理指令和输入/输出 Schema，不能暗中改成人工节点。
+- Agent 与工具节点另可带 `runPermission`（readonly/workspace/full），必须原样保留当前设计上下文中的用户选择，或省略让服务端补回。模型不能自行调整权限、工具白名单或执行限额。其他节点不允许此字段。
 - `processing.blocks` 最多12块，只允许 `instructions`、`reference`、`form`、`attachments`、`conclusion`。`form`、`attachments`、`conclusion` 各最多一块。
 - `instructions` 使用 `text` 可选覆盖说明；`reference` 使用 `source:input` 或 `partial`；`form` 由 `inputSchema` 渲染；`attachments` 使用 `required:true/false`，最多3个、合计512KB；`conclusion` 使用 `required:true/false`。
 - 有 `inputSchema` 的人工节点必须有 `form` 块，反之亦然。备注无需配置成额外表单字段。

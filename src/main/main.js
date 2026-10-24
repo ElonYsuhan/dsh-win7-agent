@@ -480,7 +480,7 @@ ipcMain.handle('shell:open-external', async (_event, target) => {
   return 'OK'
 })
 
-ipcMain.handle('workflows:request',async(_event,action,data)=>{const service=pluginHost.get('workflows');service.attach(sendEvent);if(action==='list')return service.list();if(!['save','remove','run','detail','stop','submit','context','template','pause','resume','retry','artifact','design','validateDesign','simulate','cancelDesign','importMaterial'].includes(action))throw Error('WORKFLOW_ACTION_INVALID');return service[action](data||{})})
+ipcMain.handle('workflows:request',async(_event,action,data)=>{const service=pluginHost.get('workflows');service.attach(sendEvent);if(action==='list')return service.list();if(!['save','remove','run','detail','stop','submit','context','template','pause','resume','retry','artifact','design','designOptions','validateDesign','simulate','cancelDesign','importMaterial'].includes(action))throw Error('WORKFLOW_ACTION_INVALID');return service[action](data||{})})
 
 ipcMain.handle('knowledge:request', async (_event, action, data) => {
   const knowledge = pluginHost.get('knowledge')

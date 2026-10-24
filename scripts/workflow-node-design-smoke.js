@@ -17,10 +17,10 @@ for(let i=0;i<12;i++){const id='h'+i;fanInNodes.push({id,type:'human',interactio
 fanInNodes.push({id:'e',type:'end'});fanInEdges.push({from:'h11',to:'e'})
 assert(Simulation.simulate({workflow:{name:'有界汇合',nodes:fanInNodes,edges:fanInEdges}}).issues.some(i=>i.message.includes('预算')))
 async function main(){
- const home=fs.mkdtempSync(path.join(os.tmpdir(),'workflow-node-design-'));let host,requests=0,mode='valid',lastRequest,aborted=0,delayedAborts=0
+ const home=fs.mkdtempSync(path.join(os.tmpdir(),'workflow-node-design-'));let host,requests=0,mode='valid',fixtureDesign=null,lastRequest,lastPath,lastAuthorization,aborted=0,delayedAborts=0
  const releaseTransports=[]
- const sockets=new Set(),endpoint=http.createServer((request,response)=>{let text='';request.on('data',chunk=>text+=chunk);request.on('end',()=>{requests++;lastRequest=JSON.parse(text);assert.strictEqual(lastRequest.max_tokens,4096);assert(!lastRequest.tools||!lastRequest.tools.length,'Designer has no tool capability');assert(lastRequest.messages[0].content.includes('NodeDataEnvelope V1'));assert(lastRequest.messages[0].content.includes('ExecutionDesign V1'));if(mode==='slow'){response.on('close',()=>aborted++);return}
-  const design={...Design.fromNode(human),instruction:'核查出处后给出结论',interaction:{version:1,type:'approve',returnTo:'previous-human'},inputSchema:field,outputSchema:field,processing:{version:1,blocks:[{type:'instructions'},{type:'form'},{type:'attachments',required:true},{type:'conclusion',title:'备注',required:false}]}}
+ const sockets=new Set(),endpoint=http.createServer((request,response)=>{let text='';request.on('data',chunk=>text+=chunk);request.on('end',()=>{requests++;lastRequest=JSON.parse(text);lastPath=request.url;lastAuthorization=request.headers.authorization;assert.strictEqual(lastRequest.max_tokens,4096);assert(!lastRequest.tools||!lastRequest.tools.length,'Designer has no tool capability');assert(lastRequest.messages[0].content.includes('NodeDataEnvelope V1'));assert(lastRequest.messages[0].content.includes('ExecutionDesign V1'));if(mode==='slow'){response.on('close',()=>aborted++);return}
+  const design=fixtureDesign?JSON.parse(JSON.stringify(fixtureDesign)):{...Design.fromNode(human),instruction:'核查出处后给出结论',interaction:{version:1,type:'approve',returnTo:'previous-human'},inputSchema:field,outputSchema:field,processing:{version:1,blocks:[{type:'instructions'},{type:'form'},{type:'attachments',required:true},{type:'conclusion',title:'备注',required:false}]}}
   if(mode==='script')design.script='process.exit()'
   const delta=mode==='tool'?{tool_calls:[{index:0,id:'forbidden',type:'function',function:{name:'run_command',arguments:'{"command":"echo forbidden"}'}}]}:{content:mode==='invalid'?'not JSON':JSON.stringify({reply:'已生成核查表单与审批操作',design})}
   response.writeHead(200,{'content-type':'text/event-stream'});response.end('data: '+JSON.stringify({choices:[{delta,finish_reason:delta.tool_calls?'tool_calls':'stop'}]})+'\n\ndata: [DONE]\n\n')
@@ -43,11 +43,26 @@ async function main(){
   assert.throws(()=>Simulation.example(Schema.schema({type:'array',minItems:100,items:longText})),/32000.*预算/)
   await new Promise(resolve=>endpoint.listen(0,'127.0.0.1',resolve))
   const settings=new Settings(home);settings.update({workspacePath:home,baseURL:'http://127.0.0.1:'+endpoint.address().port+'/v1',model:'mock',apiKey:'test'})
+  settings.update({models:[...settings.data.models,{id:'design-provider',name:'设计专用供应商',baseURL:'http://127.0.0.1:'+endpoint.address().port+'/design/v1',apiKey:'design-test-key',model:'design-base',modelList:['design-base','design-fast']}]})
   host=new PluginHost({workspaceRoot:home,settings});await host.ready();const service=host.get('workflows')
   assert.throws(()=>service.validateDesign({design:basic}),/节点类型/)
   const before=service.list(),result=await service.design({requestId:'design_valid',node:human,workflow:graph,message:'需要核查结论表单、上传资料，并由人工审批',history:[{role:'user',content:'只设计这个节点'}]})
   assert.strictEqual(result.skill.id,'01-app-builtin/workflow-node-designer');assert.strictEqual(result.design.interaction.type,'approve');assert(result.design.processing.blocks.some(b=>b.type==='attachments'&&b.required));assert(lastRequest.messages.some(m=>m.content.includes('只设计这个节点')))
   assert.strictEqual(service.list().workflows.length,before.workflows.length,'Design does not save a definition');assert.strictEqual(service.list().runs.length,before.runs.length,'Design does not create an execution')
+  const options=service.designOptions();assert.strictEqual(options.current.model,'mock');assert(options.providers.find(p=>p.id==='design-provider').models.includes('design-fast'));assert(!JSON.stringify(options).includes('design-test-key')&&!JSON.stringify(options).includes('/design/v1'),'Model catalog exposes no connection secrets')
+  const settingsBefore=JSON.stringify(settings.data),selected=await service.design({requestId:'selected_model',node:human,message:'设计核查方案',model:{providerId:'design-provider',model:'design-fast'}})
+  assert.strictEqual(lastRequest.model,'design-fast');assert.strictEqual(lastPath,'/design/v1/chat/completions');assert.strictEqual(lastAuthorization,'Bearer design-test-key');assert.strictEqual(selected.model.providerId,'design-provider');assert.strictEqual(JSON.stringify(settings.data),settingsBefore,'Designer model selection never changes global model or permission settings')
+  const requestsBeforeInvalid=requests
+  for(const model of [{providerId:'missing',model:'design-fast'},{providerId:'design-provider',model:'not-configured'},{providerId:'design-provider',model:'design-fast',baseURL:'http://bad.invalid'}])await assert.rejects(service.design({requestId:'invalid_model_'+requests,node:human,message:'设计',model}),/模型/)
+  await assert.rejects(service.design({requestId:'invalid_permission',node:human,message:'设计',runPermission:'full'}),/权限/)
+  assert.strictEqual(requests,requestsBeforeInvalid,'Invalid model/permission choices are rejected before transport')
+  const agentNode={id:'agent',type:'agent',text:'核查',agent:{tools:['read_file'],permission:'readonly'}}
+  fixtureDesign=Design.fromNode(agentNode);delete fixtureDesign.runPermission
+  for(const permission of ['readonly','workspace','full']){const proposal=await service.design({requestId:'permission_'+permission,node:agentNode,message:'完善执行要求',runPermission:permission});assert.strictEqual(proposal.design.runPermission,permission);const applied=Design.apply(agentNode,proposal.design);assert.strictEqual(applied.agent.permission,permission);assert.deepStrictEqual(applied.agent.tools,['read_file']);assert(lastRequest.messages.at(-1).content.includes('"runPermission":"'+permission+'"'))}
+  fixtureDesign.runPermission='full';await assert.rejects(service.design({requestId:'model_escalation',node:agentNode,message:'完善执行要求',runPermission:'readonly'}),/AI 不能更改/)
+  fixtureDesign=null
+  assert.throws(()=>Design.validate({...basic,runPermission:'full'},human),/不执行工具/)
+  const toolNode={id:'tool',type:'tool',tool:{name:'read_file',permission:'readonly',arguments:{path:'input.txt'}}},toolDesign=Design.fromNode(toolNode);toolDesign.runPermission='full';assert.strictEqual(Design.apply(toolNode,toolDesign).tool.permission,'full')
   const applied=Design.apply(human,result.design,graph);assert(applied.humanModes.includes('upload'));assert.strictEqual(applied.type,'human');assert.strictEqual(applied.inputSchema.properties.finding.title,'核查结论')
   const flow={...graph,nodes:graph.nodes.map(n=>n.id==='h'?applied:n)}
   const first=service.simulate({workflow:flow});assert.strictEqual(first.mode,'simulation');assert.strictEqual(first.passed,false);assert(first.issues.some(i=>i.nodeId==='h'&&i.severity==='needs_input'))
