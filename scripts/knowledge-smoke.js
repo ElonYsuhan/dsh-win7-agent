@@ -20,7 +20,13 @@ async function main(){const home=fs.mkdtempSync(path.join(os.tmpdir(),'知识库
   assert.strictEqual((await kb.search({query:'数据库'},'/other')).items.length,0);await assert.rejects(kb.source({id:source},'/other'),/UNAVAILABLE/)
   const broken=await kb.importBuffer({baseId:id,documentId:imported.documentId,name:'损坏.docx'},Buffer.from('bad zip'))
   await wait(async()=> (await kb.list()).jobs.find(j=>j.id===broken.id).phase==='failed');assert((await kb.search({query:'数据库'},scope)).items.length)
-  await assert.rejects(kb.importBuffer({baseId:id,name:'a.pdf'},Buffer.from('x')),/UNSUPPORTED/)
+  const pdf=await kb.importBuffer({baseId:id,name:'a.pdf'},Buffer.from('%PDF-1.4\n'))
+  await wait(async()=> (await kb.list()).jobs.find(j=>j.id===pdf.id).phase==='ready');assert.strictEqual(Number((await kb.list()).documents.find(d=>d.id===pdf.documentId).chunk_count),0)
+  const pdfFile=await kb.file({baseId:id,id:pdf.documentId});assert.strictEqual(Buffer.from(pdfFile.bytes,'base64').toString(),'%PDF-1.4\n');assert.strictEqual(pdfFile.kind,'pdf')
+  const arbitrary=[['原件.custom',Buffer.from([0,255,3,4])],['data.json',Buffer.from('{"任意格式":"可检索标记"}')],['没有扩展名',Buffer.from('无扩展文件检索内容')],['空文件',Buffer.alloc(0)],['a'.repeat(180)+'.csv',Buffer.from('长文件名,验证')]]
+  for(const [name,bytes]of arbitrary){const item=await kb.importBuffer({baseId:id,name},bytes);await wait(async()=> (await kb.list()).jobs.find(j=>j.id===item.id).phase==='ready');const original=await kb.file({baseId:id,id:item.documentId});assert.deepStrictEqual(Buffer.from(original.bytes,'base64'),bytes);assert(original.download);await assert.rejects(kb.file({baseId:emptyBase,id:item.documentId}),/NOT_FOUND/)}
+  assert((await kb.search({query:'可检索标记'},scope)).items.length);assert((await kb.search({query:'无扩展文件'},scope)).items.length)
+  const brokenOriginal=await kb.file({baseId:id,id:imported.documentId});assert(Buffer.from(brokenOriginal.bytes,'base64').toString().includes('SQLite'))
   const word=await kb.importBuffer({baseId:id,name:'报告.docx'},writeZip(createWord({paragraphs:[{text:'离线检索与来源定位'}]})))
   const sheet=await kb.importBuffer({baseId:id,name:'预算.xlsx'},writeZip(createSheet({sheets:[{name:'预算',cells:[{cell:'A1',value:'年度预算'},{cell:'B1',value:123}]}]})))
   await wait(async()=>{const s=await kb.list();return [word.id,sheet.id].every(id=>s.jobs.find(j=>j.id===id).phase==='ready')})

@@ -3,9 +3,14 @@ const fs=require('fs'),path=require('path')
 const {readZip}=require('../mcp/documents/zip'),O=require('../mcp/documents/ooxml'),X=require('../mcp/documents/xml')
 const media={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',bmp:'image/bmp',ico:'image/x-icon',svg:'image/svg+xml',pdf:'application/pdf',mp3:'audio/mpeg',wav:'audio/wav',ogg:'audio/ogg',m4a:'audio/mp4',mp4:'video/mp4',webm:'video/webm',mov:'video/quicktime'}
 async function preview(target){
- const title=path.basename(target),ext=path.extname(target).slice(1).toLowerCase(),handle=await fs.promises.open(target,'r')
+ const title=path.basename(target),handle=await fs.promises.open(target,'r')
  let bytes,size
  try{const stat=await handle.stat();size=stat.size;if(!stat.isFile())throw Error('无法预览目录');if(size>24*1024*1024)return {title,size,kind:'unsupported',notice:'文件较大，请使用系统程序打开'};const buffer=Buffer.alloc(size+1);let offset=0;while(offset<buffer.length){const result=await handle.read(buffer,offset,buffer.length-offset,offset);if(!result.bytesRead)break;offset+=result.bytesRead}if(offset>size)throw Error('文件正在变化，请重试');bytes=buffer.subarray(0,offset)}finally{await handle.close()}
+ return previewBytes(bytes,title)
+}
+function previewBytes(bytes,title){
+ const size=bytes.length,ext=path.extname(title).slice(1).toLowerCase()
+ if(!size)return {title,size,kind:'text',bytes:''}
  if(media[ext])return {title,size,kind:ext==='pdf'?'pdf':media[ext].split('/')[0],mime:media[ext],bytes:bytes.toString('base64')}
  if(['docx','xlsx','pptx','odt','ods','odp'].includes(ext)){
   if(size>8*1024*1024)return {title,size,kind:'unsupported',notice:'Office 内容预览上限为 8 MB，请使用系统程序打开'}
@@ -20,4 +25,4 @@ async function preview(target){
  if(size>2*1024*1024)return {title,size,kind:'unsupported',notice:'文本预览上限为 2 MB，请使用系统程序打开'}
  return {title,size,kind:ext==='md'||ext==='markdown'?'markdown':'text',bytes:bytes.toString('base64')}
 }
-module.exports={preview}
+module.exports={preview,previewBytes}

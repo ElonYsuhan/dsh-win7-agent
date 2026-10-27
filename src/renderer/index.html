@@ -7,6 +7,7 @@
   <title>Agent</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="licensing.css">
+  <link rel="stylesheet" href="knowledge-upload.css">
   <link rel="stylesheet" href="workflow-ribbon.css">
   <link rel="stylesheet" href="workflow-execution-designer.css">
   <link rel="stylesheet" href="workflow-simulation.css">
@@ -149,11 +150,15 @@
         <button id="knowledgeOverview" class="hidden" type="button">← 全部知识库</button>
         <div class="knowledge-scroll"><div id="knowledgeBases" class="knowledge-grid"></div>
           <div id="knowledgeDetail" class="hidden">
-            <aside class="knowledge-file-pane" aria-label="资料文件列表">
-              <button id="knowledgeImport" type="button" disabled><span class="knowledge-add-icon" aria-hidden="true">＋</span><span>添加资料</span></button>
+            <aside id="knowledgeFilePane" class="knowledge-file-pane" aria-label="资料文件列表">
+              <button id="knowledgeImport" type="button" disabled aria-describedby="knowledgeUploadHint"><span class="knowledge-add-icon" aria-hidden="true">＋</span><span>添加资料</span></button>
+              <p id="knowledgeUploadHint" class="knowledge-upload-hint muted">支持多选、拖拽及任意格式，每文件最多8MB</p>
               <label for="knowledgeFileQuery" class="knowledge-sr-only">搜索当前知识库的文件名和内容</label><input id="knowledgeFileQuery" type="search" placeholder="搜索文件名、内容" maxlength="200">
               <p id="knowledgeFileStatus" class="muted" role="status"></p><div id="knowledgeDocuments"></div>
-              <input id="knowledgeFile" type="file" accept=".txt,.md,.docx,.xlsx" hidden>
+              <input id="knowledgeFile" type="file" multiple hidden aria-label="选择资料文件，支持多选和任意格式">
+              <p id="knowledgeUploadProgress" class="knowledge-upload-progress muted" role="status" aria-live="polite" aria-atomic="true"></p>
+              <button id="knowledgeUploadCancel" class="knowledge-upload-cancel" type="button" hidden>停止后续上传</button>
+              <details id="knowledgeUploadResults" class="knowledge-upload-results" hidden><summary>本次导入结果</summary><ul id="knowledgeUploadItems" aria-label="各文件导入结果"></ul></details>
             </aside>
             <main class="knowledge-preview-pane" aria-label="资料预览"><div id="knowledgeSharedPreview"></div><h2 id="knowledgeDocumentsTitle" class="knowledge-sr-only">资料</h2><p id="knowledgeProjectSummary" class="hidden"></p><section id="knowledgeResults" class="hidden" aria-label="搜索结果"></section><section id="knowledgeSource" class="knowledge-source" aria-label="来源原文">选择左侧文件以预览资料</section></main>
           </div>

@@ -21,6 +21,7 @@ async function handleKnowledgeApi(request,response,url,options){
    else if(route==='/session-preview')result=await knowledge.sessionPreview(data)
    else if(route==='/tree')result=await knowledge.tree(data)
    else if(route==='/project-preview')result=await knowledge.projectPreview(data)
+   else if(route==='/file')result=await knowledge.file(data)
    else if(route==='/preview')result=await knowledge.preview(data)
    else if(route==='/delete')result=await knowledge.remove(data)
    else if(route==='/cancel')result=await knowledge.cancel(data)

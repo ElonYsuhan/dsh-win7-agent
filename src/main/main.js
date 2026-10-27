@@ -502,6 +502,7 @@ licensedHandle('knowledge:request', async (_event, action, data) => {
   if (action === 'session-preview') return knowledge.sessionPreview(raw)
   if (action === 'tree') return knowledge.tree(raw)
   if (action === 'project-preview') return knowledge.projectPreview(raw)
+  if (action === 'file') return knowledge.file(raw)
   if (action === 'preview') return knowledge.preview(raw)
   if (action === 'import') return knowledge.importBuffer(raw, Buffer.from(raw.bytes))
   if (action === 'delete') return knowledge.remove(raw)

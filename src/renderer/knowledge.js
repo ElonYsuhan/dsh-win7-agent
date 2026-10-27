@@ -2,11 +2,12 @@
 ;(function () {
   const $ = id => document.getElementById(id), page = $('knowledgePage')
   if (!page) return
-  let snapshot = { bases: [], documents: [], jobs: [] }, selected = '', editingBase = '', updating = ''
+  let snapshot = { bases: [], documents: [], jobs: [] }, selected = '', editingBase = ''
   let detail = false, bindingBase = '', previewId = '', fileMatches = null, fileSearchTimer = null, fileSearchToken = 0
   let busy = false, again = false, pending = false, sourceToken = 0, searchToken = 0, priorFocus = null
   const groupStates = new Map()
   let previewUrl = null, selectedFile = ''
+  let uploading=false, stopUploads=false, uploadBaseName='', uploads=[],  uploadedCount=0
   const views = new Map()
   function disposeView(state){for(const tab of state.tabs)if(tab.url)URL.revokeObjectURL(tab.url);state.tabs=[]}
   function view() {
@@ -31,7 +32,7 @@
     let bar=$('knowledgeTabs'),body=$('knowledgePreviewBody');if(!bar){bar=el('div',undefined,'panel-tabs');bar.id='knowledgeTabs';bar.setAttribute('role','tablist');bar.setAttribute('aria-label','知识库文件');body=el('div',undefined,'panel-preview');body.id='knowledgePreviewBody';host.prepend(bar);host.append(body)}
     bar.textContent='';body.textContent='';body.classList.remove('is-fit');
     for(const tab of current.tabs){const group=el('div',undefined,'panel-tab'+(tab.target===current.active?' active':''));const button=action(tab.value.title,()=>{current.active=tab.target;selectedFile=tab.target;renderPreviewTabs();render()});button.setAttribute('role','tab');button.setAttribute('aria-selected',String(tab.target===current.active));const close=action('×',()=>{current.tabs=current.tabs.filter(t=>t!==tab);if(tab.url)URL.revokeObjectURL(tab.url);if(current.active===tab.target)current.active=current.tabs.length?current.tabs[current.tabs.length-1].target:'';selectedFile=current.active;renderPreviewTabs();render()});close.setAttribute('aria-label','关闭 '+tab.value.title);group.append(button,close);bar.append(group)}
-    const active=current.tabs.find(t=>t.target===current.active);if(active){window.filePreview.render(body,active.value);selectedFile=active.target}else body.textContent='选择左侧文件以预览资料'
+    const active=current.tabs.find(t=>t.target===current.active);if(active){window.filePreview.render(body,active.value);if(active.value.download&&active.value.url){const download=action('下载原文件',()=>{const link=el('a');link.href=active.value.url;link.download=active.value.title;document.body.append(link);link.click();link.remove()});download.className='knowledge-download';body.append(download)}selectedFile=active.target}else body.textContent='选择左侧文件以预览资料'
   }
   const treeCache = new Map(), treePending = new Set()
   function fileGroup(key, title) {
@@ -70,11 +71,11 @@
   }
   async function sharedFile(value,target) {
     const current=view(),ext=value.title.split('.').pop().toLowerCase();let text=value.text||'',url=''
-    if(value.bytes){const bytes=Uint8Array.from(atob(value.bytes),c=>c.charCodeAt(0));if(['text','markdown'].includes(value.kind))text=window.filePanel.decodeBytes(bytes).text;else url=URL.createObjectURL(new Blob([bytes],{type:value.mime}))}
+    if(typeof value.bytes==='string'){const bytes=Uint8Array.from(atob(value.bytes),c=>c.charCodeAt(0));if(['text','markdown'].includes(value.kind))text=window.filePanel.decodeBytes(bytes).text;if(value.download||!['text','markdown'].includes(value.kind))url=URL.createObjectURL(new Blob([bytes],{type:value.mime||'application/octet-stream'}))}
     const kind=value.kind==='office'?'text':value.kind==='text'&&!['txt','log','csv'].includes(ext)?'code':value.kind
     const old=current.tabs.find(t=>t.target===target);if(old){if(old.url)URL.revokeObjectURL(old.url);current.tabs=current.tabs.filter(t=>t!==old)}
     const stored={...value,text,url,kind,ext,name:value.title};delete stored.bytes
-    const memoryBytes=(value.bytes?Math.floor(value.bytes.length*3/4):0)+text.length*2
+    const memoryBytes=(typeof value.bytes==='string'?Math.floor(value.bytes.length*3/4):0)+text.length*2
     current.tabs.push({target,url,memoryBytes,value:stored});while(current.tabs.length>12){const tab=current.tabs.shift();if(tab.url)URL.revokeObjectURL(tab.url)}
     current.active=target;selectedFile=target;trimPreviewMemory();renderPreviewTabs();render()
   }
@@ -151,7 +152,7 @@
     }
     if (!snapshot.bases.length) bases.append(el('p', '新建一个知识库，再添加资料。', 'capability-empty'))
     const base = snapshot.bases.find(b => b.id === selected)
-    $('knowledgeImport').disabled = !base; $('knowledgeSearch').disabled = !base
+    $('knowledgeImport').disabled = !base || uploading; $('knowledgeImport').setAttribute('aria-busy',String(uploading));renderUploads(); $('knowledgeSearch').disabled = !base
     $('knowledgeQuery').placeholder = base ? '搜索「' + base.name + '」中的资料' : '请先新建知识库'
     $('knowledgeDocumentsTitle').textContent = base ? base.name + ' · 资料' : '资料'
     const linkedProjects = base ? (snapshot.projects || []).filter(p => (p.folders || []).some(scope => (base.scopes || []).includes(scope))) : []
@@ -174,6 +175,7 @@
       row.addEventListener('click', event => { if (!event.target.closest('button')) previewDocument(doc) })
       const preview = action(doc.name, () => previewDocument(doc), doc.id + ':preview'); preview.className = 'knowledge-document-title'; preview.setAttribute('aria-pressed', String(previewId === doc.id))
       main.append(preview)
+      if (doc.phase === 'ready' && !Number(doc.chunk_count) && !doc.error) main.append(el('p','已保存原件 · 未建立文本索引','muted'))
       if (doc.phase !== 'ready') main.append(el('p', (labels[doc.phase] || '未处理') + (doc.active ? ' · 旧版本仍可用' : ''), 'muted'))
       if (doc.error) main.append(el('p', doc.error, 'muted'))
       row.append(main)
@@ -220,9 +222,9 @@
     const token = ++sourceToken, baseId = selected, box = $('knowledgeSource')
     box.classList.remove('hidden'); box.textContent = '正在加载资料预览…'
     try {
-      const value = await api('preview', { id: doc.id, baseId })
+      const value = await api('file', { id: doc.id, baseId })
       if (token !== sourceToken || baseId !== selected || page.classList.contains('hidden')) return
-      await sharedFile({title:value.title,kind:'text',text:value.parts.map(part=>part.text).join('\n')},'knowledge://'+baseId+'/'+doc.id+'/'+doc.name)
+      await sharedFile(value,'knowledge://'+baseId+'/'+doc.id+'/'+doc.name)
     } catch (e) { if (token === sourceToken) box.textContent = '暂时无法预览：' + e.message }
   }
   function openBinding(base) {
@@ -298,16 +300,47 @@
     } catch (e) { $('knowledgeFormError').textContent = e.message; $('knowledgeName').setAttribute('aria-invalid', 'true') }
     finally { pending = false; $('knowledgeSave').disabled = false }
   })
-  $('knowledgeImport').addEventListener('click', () => { updating = ''; $('knowledgeFile').click() })
-  $('knowledgeFile').addEventListener('change', async () => {
-    const file = $('knowledgeFile').files[0]; if (!file) return
-    const baseId = selected, documentId = updating
-    try {
-      if (file.size > 8 * 1024 * 1024) throw Error('单份资料不能超过 8 MB')
-      notice('正在上传…'); const raw = { baseId, name: file.name }; if (documentId) raw.documentId = documentId
-      await window.dsh.knowledgeUpload(raw, new Uint8Array(await file.arrayBuffer())); await refresh()
-    } catch (e) { notice(e.message) } finally { $('knowledgeFile').value = '' }
-  })
+  function renderUploads(){
+    const progress=$('knowledgeUploadProgress'),results=$('knowledgeUploadResults'),items=$('knowledgeUploadItems'),cancel=$('knowledgeUploadCancel')
+    cancel.hidden=!uploading;cancel.disabled=stopUploads
+    if(!uploads.length){progress.textContent='';results.hidden=true;return}
+    const failed=uploads.filter(item=>item.status==='failed').length,skipped=uploads.filter(item=>item.status==='skipped').length
+    progress.textContent=(uploading?'正在导入':'导入结束')+'「'+uploadBaseName+'」：'+uploadedCount+'/'+uploads.length+' 个已上传'+(failed?'，'+failed+' 个上传失败':'')+(skipped?'，'+skipped+' 个未上传':'')+(uploading?'；'+(uploads.find(item=>item.status==='uploading')||{}).name:'')
+    results.hidden=false;items.textContent=''
+    const docs=new Map(snapshot.documents.map(doc=>[doc.id,doc]))
+    for(const item of uploads){const doc=docs.get(item.documentId),row=el('li');row.dataset.status=item.status
+      let text=item.status==='uploading'?'正在上传':item.status==='failed'?'导入异常：'+item.error:item.status==='skipped'?'已停止，未上传':item.status==='waiting'?'等待上传':'已上传，等待处理'
+      if(item.status==='uploaded'&&doc)text=doc.phase==='ready'?(Number(doc.chunk_count)?'已建立文本索引':'已保存原件，未建立文本索引'):(labels[doc.phase]||'等待处理')+(doc.error?'：'+doc.error:'')
+      row.textContent=item.name+' · '+text;items.append(row)
+    }
+  }
+  async function uploadFiles(source){
+    const files=Array.from(source||[]);if(!files.length)return
+    if(uploading){notice('正在导入资料，请等待本批完成');return}if(!selected){notice('请先选择知识库');return}
+    const baseId=selected;uploadBaseName=(snapshot.bases.find(base=>base.id===baseId)||{}).name||'资料';uploading=true;stopUploads=false;uploadedCount=0;uploads=files.map(file=>({name:file.name,status:'waiting'}));render()
+    try{for(let index=0;index<files.length;index++){
+      const file=files[index],item=uploads[index]
+      if(stopUploads){item.status='skipped';renderUploads();continue}
+      item.status='uploading';renderUploads()
+      try{
+        const limit=snapshot.limits&&snapshot.limits.fileBytes||8*1024*1024;if(file.size>limit)throw Error('单份资料不能超过 '+Math.round(limit/1024/1024)+' MB')
+        const bytes=new Uint8Array(await file.arrayBuffer());let imported
+        for(let attempt=0;attempt<120;attempt++){
+          if(stopUploads)break
+          try{imported=await window.dsh.knowledgeUpload({baseId,name:file.name},bytes);break}catch(error){if(!String(error.message).includes('KNOWLEDGE_QUEUE_FULL'))throw error;if(attempt===119)throw Error('处理队列繁忙，请稍后重试');await new Promise(resolve=>setTimeout(resolve,500))}
+        }
+        if(imported){item.status='uploaded';item.documentId=imported.documentId;uploadedCount++}else item.status='skipped'
+      }catch(error){item.status='failed';item.error=error.message||'导入失败'}
+      renderUploads();await refresh().catch(error=>notice('文件已上传，但列表刷新失败：'+error.message))
+    }}finally{uploading=false;$('knowledgeFile').value='';render();notice('已上传 '+uploadedCount+' 个文件，处理状态见本次导入结果')}
+  }
+  $('knowledgeImport').addEventListener('click',()=>{if(!uploading)$('knowledgeFile').click()})
+  $('knowledgeFile').addEventListener('change',()=>uploadFiles($('knowledgeFile').files).catch(error=>notice(error.message)))
+  $('knowledgeUploadCancel').addEventListener('click',()=>{stopUploads=true;renderUploads()})
+  const uploadPane=$('knowledgeFilePane')
+  for(const type of ['dragenter','dragover'])uploadPane.addEventListener(type,event=>{if(!Array.from(event.dataTransfer.types||[]).includes('Files'))return;event.preventDefault();if(!uploading)uploadPane.classList.add('is-dragging')})
+  uploadPane.addEventListener('dragleave',event=>{if(!uploadPane.contains(event.relatedTarget))uploadPane.classList.remove('is-dragging')})
+  uploadPane.addEventListener('drop',event=>{if(!event.dataTransfer.files.length)return;event.preventDefault();event.stopPropagation();uploadPane.classList.remove('is-dragging');uploadFiles(event.dataTransfer.files).catch(error=>notice(error.message))})
   $('knowledgeSearchForm').addEventListener('submit', event => { event.preventDefault(); search() })
   $('knowledgeQuery').addEventListener('keydown', event => { if (event.key === 'Enter' && event.isComposing) event.preventDefault() })
   document.addEventListener('click', event => { const b = event.target.closest('[data-knowledge-source]'); if (b) source(b.dataset.knowledgeSource) })
