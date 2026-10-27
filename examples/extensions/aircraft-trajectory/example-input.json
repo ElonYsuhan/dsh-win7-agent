@@ -1,0 +1,7 @@
+{
+  "waypoints": [{ "x": 0, "y": 0, "z": 1000 }, { "x": 1000, "y": 0, "z": 1000 }],
+  "speed": 100,
+  "turnRate": 10,
+  "sampleInterval": 1,
+  "maxClimbRate": 20
+}

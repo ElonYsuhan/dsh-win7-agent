@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "publisher": "local",
+  "name": "aircraft-trajectory",
+  "displayName": "飞机轨迹计算 MCP",
+  "description": "连接已有 nexa-kinetix 服务，发现并调用 calculate_aircraft_trajectory；本包仅包含连接配置，不包含或重新实现轨迹计算服务。",
+  "version": "1.0.0",
+  "type": "mcp",
+  "engines": { "extensionApi": 1, "node": "16", "electron": "22", "chromium": "108" },
+  "targets": ["any"],
+  "mcp": {
+    "transport": "http",
+    "permission": "read",
+    "url": "http://127.0.0.1:4331/mcp"
+  }
+}
