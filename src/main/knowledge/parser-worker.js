@@ -1,7 +1,7 @@
 'use strict'
 const {parentPort,workerData}=require('worker_threads'),fs=require('fs'),{TextDecoder}=require('util')
 const {readZip}=require('../mcp/documents/zip'),ooxml=require('../mcp/documents/ooxml'),{LIMITS}=require('../contracts/knowledge'),policy=require('../flow/knowledge-policy')
-try{
+function parse(){try{
  const bytes=fs.readFileSync(workerData.file),format=workerData.format;if(require('crypto').createHash('sha256').update(bytes).digest('hex')!==workerData.hash)throw Error('KNOWLEDGE_OBJECT_CORRUPT');let parts=[]
  if(!['docx','xlsx'].includes(format)){
   const binaryFormats=['pdf','png','jpg','jpeg','gif','webp','bmp','ico','svg','zip','7z','rar','tar','gz','bz2','xz','mp3','wav','ogg','m4a','mp4','webm','mov','exe','dll','so','dylib','sqlite','db','ppt','pptx','doc','xls','odt','ods','odp','blend','glb','fbx'];
@@ -16,4 +16,5 @@ try{
  if(parts.reduce((n,p)=>n+p.text.length,0)>LIMITS.textChars){parentPort.postMessage({chunks:[],notice:'已保存原件；文本超过索引容量，未建立全文索引'});return}
  let chunks;try{chunks=policy.chunks(parts)}catch(error){if(error.message!=='KNOWLEDGE_CHUNK_LIMIT')throw error;parentPort.postMessage({chunks:[],notice:'已保存原件；文本块超过索引容量，未建立全文索引'});return}
  if(!chunks.length){parentPort.postMessage({chunks:[],notice:'已保存原件；未检测到可检索文本'});return}parentPort.postMessage({chunks,notice:format==='xlsx'?'仅索引前 10 个工作表 A1:CV100；公式使用缓存值':format==='docx'?'正文段落及表格文字；不包含页眉、页脚和真实页码':''})
-}catch(error){parentPort.postMessage({error:error.message})}
+}catch(error){parentPort.postMessage({error:error.message})}}
+parse()
