@@ -145,7 +145,8 @@ function request(url, options) {
 
 function jsonRequest(url, method, token, payload) {
   const body = payload ? Buffer.from(JSON.stringify(payload)) : null
-  const headers = { Accept: 'application/json', Authorization: 'token ' + token }
+  // GitHub 强制要求 User-Agent，缺失时直接 403。
+  const headers = { Accept: 'application/json', Authorization: 'token ' + token, 'User-Agent': 'agent-release-publisher' }
   if (body) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = body.length }
   return request(url, { method, headers, body })
 }
@@ -184,7 +185,7 @@ async function uploadGithub(channel, token, release, asset) {
   if (existing) return { skipped: true, url: existing.browser_download_url }
   const body = fs.readFileSync(asset.file)
   const response = await request(channel.upload + '/releases/' + release.id + '/assets?name=' + encodeURIComponent(asset.name), {
-    method: 'POST', headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github+json', 'Content-Type': 'application/octet-stream', 'Content-Length': body.length }, body
+    method: 'POST', headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github+json', 'User-Agent': 'agent-release-publisher', 'Content-Type': 'application/octet-stream', 'Content-Length': body.length }, body
   })
   if (response.status !== 201) throw new Error('上传附件失败: ' + response.status + ' ' + JSON.stringify(response.body).slice(0, 300))
   return { skipped: false, url: response.body.browser_download_url }
