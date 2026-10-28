@@ -8,6 +8,21 @@ const { childEnvironment } = require('./environment')
 
 function not(value) { return value ? false : true }
 
+/* Win7 上的 npm/npx 以 .cmd 暴露，Node 16 不能直接 spawn .cmd，必须经过 shell；
+   但 shell 模式下 Node 只做字符串拼接、不转义路径，命令里带空格就会被 cmd 截断。
+   因此只在确实需要 shell（.cmd/.bat 或裸命令名）时启用，可执行文件路径直接 spawn。 */
+function needsShell(command) {
+  if (process.platform !== 'win32') return false
+  const value = String(command || '')
+  if (/\.(exe|com)$/i.test(value)) return false
+  if (/\.(cmd|bat)$/i.test(value)) return true
+  return !value.includes('/') && !value.includes('\\')
+}
+
+function shellCommand(command) {
+  return /\s/.test(command) && !command.startsWith('"') ? '"' + command + '"' : command
+}
+
 class StdioClient {
   constructor(config, options) {
     this.config = config
@@ -39,16 +54,17 @@ class StdioClient {
   async initialize() {
     if (this.child) return this
     const env = childEnvironment(this.config)
+    const shell = process.platform === 'win32' && this.options.shell !== false && this.config.bundledNode !== true && needsShell(this.config.command)
     const options = {
       cwd: this.config.cwd || undefined,
       env,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
-      /* Win7 上的 npm/npx 通常以 .cmd 暴露；Node 16 不能直接 spawn .cmd。
-         这里只启动用户显式配置的 MCP 命令，和 run_command 一样属于可信本地配置。 */
-      shell: process.platform === 'win32' && this.options.shell !== false && this.config.bundledNode !== true
+      /* 只启动用户显式配置的 MCP 命令，和 run_command 一样属于可信本地配置。 */
+      shell
     }
-    this.child = spawn(this.config.command, this.config.args || [], options)
+    const command = shell ? shellCommand(this.config.command) : this.config.command
+    this.child = spawn(command, this.config.args || [], options)
     this.exitPromise = new Promise((resolve) => {
       this.child.once('close', (code, signal) => {
         if (this.closed === false) this.exitError = 'MCP process exited: ' + (code === null ? String(signal) : String(code))
