@@ -75,6 +75,16 @@
 function fitNodeText(ctx,text,width){let result=String(text||'');if(ctx.measureText(result).width<=width)return result;while(result&&ctx.measureText(result+'…').width>width)result=result.slice(0,-1);return result+'…'}
 // 按宽度折行，超过行数上限时末行省略，保证卡片内文字不溢出。
 function interactionName(config){return config&&{handle:'办理',review:'审阅',approve:'审批'}[config.type]||''}
+// 右下角缩放握柄之外，卡片正文永远给出可读的一句话，避免出现空白卡片。
+const NODE_SUMMARY={start:'流程入口，从这里发起',end:'流程出口，产出交付物',output:'流程出口，产出交付物',human:'人工办理节点',evaluate:'AI 评估并给出结论',ai:'AI 处理节点',agent:'Agent 处理节点',tool:'调用工具',template:'文本整理',rest:'调用 REST 接口'}
+function nodeSummary(n){
+ const props=n.properties||{},body=String(props.text||props.description||'').replace(/\s+/g,' ').trim()
+ if(body)return body
+ const type=String(n.type||'').split('/').pop()
+ if(type==='human'){const step=interactionName(props.interaction);return step?'人工'+step:'人工办理节点'}
+ if(type==='rest'&&props.rest&&props.rest.url)return String(props.rest.method||'GET')+' '+props.rest.url
+ return NODE_SUMMARY[type]||''
+}
 function drawNodeCard(n,ctx,size,selected,hovered){
  const theme=cardTheme,top=-LiteGraph.NODE_TITLE_HEIGHT,height=size[1]-top,width=size[0]
  selected=selected||marqueeHasNode(n)
@@ -85,8 +95,8 @@ function drawNodeCard(n,ctx,size,selected,hovered){
  // 名称在上：标题独占首行，字号与字重都高于正文。
  ctx.font='650 14px '+theme.font;ctx.fillStyle=theme.text;ctx.strokeStyle=theme.text;window.workflowNodeIcons.draw(ctx,n.type,18,top+14,17);ctx.fillText(fitNodeText(ctx,n.title,width-60),42,top+29)
  ctx.beginPath();ctx.moveTo(16,top+40);ctx.lineTo(width-16,top+40);ctx.globalAlpha=.55;ctx.strokeStyle=theme.border;ctx.lineWidth=1;ctx.stroke();ctx.globalAlpha=1
- // 文字在下：贴在卡片底部一行，按卡片宽度省略。
- const body=String((n.properties&&(n.properties.text||n.properties.description))||'').replace(/\s+/g,' ').trim()
+ // 文字在下：贴在卡片底部一行，按卡片宽度省略。没填说明就用类型兜底文案，卡片不留空。
+ const body=nodeSummary(n)
  if(body){ctx.font='11px '+theme.font;ctx.fillStyle=theme.muted;ctx.fillText(fitNodeText(ctx,body,width-36),18,size[1]-9)}
  ctx.restore()
  // Draw outside the text clip so the edge grip stays visible in resize mode.
@@ -172,6 +182,7 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   if(next==='detail'){detailSignature='';$('workflowRunDetail').textContent=''}
   page.classList.toggle('workflow-detail-mode',next==='detail')
   page.classList.toggle('workflow-editor-mode',next==='editor')
+  if(next!=='editor')placeNameField(false)
   $('workflowMainToolbar').classList.toggle('hidden',next==='editor'||next==='detail')
   createEntry.host.classList.toggle('hidden',next!=='flows')
    if(next!=='flows')closeCreateMenu(false)
@@ -207,16 +218,43 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   const d=new Date(ts),pad=n=>String(n).padStart(2,'0')
   return pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())
  }
+ // 列表按“要不要人管”排序：待人工处理 → 运行中 → 有执行记录（近的在前）→ 从未运行。
+ function flowCardEntries(query){
+  return data.workflows.filter(f=>f.name.toLowerCase().includes(query)).map(flow=>{
+   const instances=data.runs.filter(r=>r.workflowId===flow.id),latest=instances[0]||null
+   const waiting=instances.filter(r=>r.status==='waiting').length
+   const rank=waiting?0:latest&&['running','queued'].includes(latest.status)?1:latest?2:3
+   return {flow,instances,latest,waiting,rank,at:latest&&latest.createdAt||0}
+  }).sort((a,b)=>a.rank-b.rank||b.at-a.at||a.flow.name.localeCompare(b.flow.name,'zh'))
+ }
+ // 卡片宽度不够时宁可少显示一步，也不把节点名压成一个字。
+ function fitCardSteps(host){
+  const groups=Array.from(host.querySelectorAll('.workflow-step-group')).filter(group=>group.isConnected)
+  const total=Number(host.dataset.steps||groups.length),more=host.querySelector('.workflow-step-more')
+  const sync=()=>{if(more){const shown=host.querySelectorAll('.workflow-step-group').length;more.textContent='+'+(total-shown);more.hidden=total<=shown}}
+  sync()
+  while(host.scrollWidth>host.clientWidth+1&&host.querySelectorAll('.workflow-step-group').length>1){
+   const last=Array.from(host.querySelectorAll('.workflow-step-group')).pop();last.remove();sync()
+  }
+ }
+ function formatRelativeTime(ts){
+  if(!Number.isFinite(ts))return ''
+  const minutes=Math.floor((Date.now()-ts)/60000)
+  if(minutes<1)return '刚刚'
+  if(minutes<60)return minutes+' 分钟前'
+  if(minutes<1440)return Math.floor(minutes/60)+' 小时前'
+  if(minutes<2880)return '昨天'
+  if(minutes<43200)return Math.floor(minutes/1440)+' 天前'
+  return formatShortTime(ts).slice(0,5)
+ }
  function renderFlows(){
   const list=$('workflowCards');list.textContent=''
   const query=$('workflowSearch').value.trim().toLowerCase()
-  for(const flow of data.workflows.filter(f=>f.name.toLowerCase().includes(query))){
-   const instances=data.runs.filter(r=>r.workflowId===flow.id)
-   const latest=instances[0],state=latest?executionState(latest):'pending'
-   const waitingCount=instances.filter(r=>r.status==='waiting').length
-   const card=node('article',undefined,'workflow-card'+(latest&&['running','waiting'].includes(latest.status)?' is-active':''))
+  for(const {flow,instances,latest,waiting} of flowCardEntries(query)){
+   const state=latest?executionState(latest):'pending'
+   const card=node('article',undefined,'workflow-card'+(waiting?' is-waiting':latest&&['running','queued'].includes(latest.status)?' is-active':''))
    const head=node('div',undefined,'workflow-card-head')
-   const title=node('strong',undefined,'workflow-typed-title');title.title=flow.name;title.append(glyph('workflow'),node('span',flow.name,'workflow-node-title-text'))
+   const title=node('strong',undefined,'workflow-typed-title');title.title=flow.name;title.append(node('span',flow.name,'workflow-node-title-text'))
    const badges=node('div',undefined,'workflow-card-badges')
    badges.append(
     node('span',latest?(labels[latest.status]||latest.status):'未执行','workflow-status-pill'+(latest?' workflow-status-'+state:'')),
@@ -224,29 +262,34 @@ function drawNodeCard(n,ctx,size,selected,hovered){
    )
    head.append(title,badges)
    const steps=node('div',undefined,'workflow-card-steps')
-   const ordered=orderFlowNodes(flow),visibleSteps=ordered.slice(0,4)
+   const ordered=orderFlowNodes(flow),visibleSteps=ordered.slice(0,5)
+   steps.dataset.steps=String(ordered.length)
    visibleSteps.forEach((entry,idx)=>{
-    if(idx>0)steps.append(node('span','→','workflow-step-arrow'))
+    const group=node('span',undefined,'workflow-step-group')
+    if(idx>0)group.append(node('span','→','workflow-step-arrow'))
     const chip=node('span',undefined,'workflow-step-chip');chip.title=entry.title||entry.type
     if(window.workflowNodeIcons)chip.append(glyph(window.workflowNodeIcons.name(entry.type)))
     chip.append(node('span',entry.title||entry.type,'workflow-step-chip-text'))
-    steps.append(chip)
+    group.append(chip);steps.append(group)
    })
    if(ordered.length>visibleSteps.length)steps.append(node('span','+'+(ordered.length-visibleSteps.length),'workflow-step-more'))
    const metaRow=node('div',undefined,'workflow-card-meta')
-   const meta=flow.nodes.length+' 个节点 · '+instances.length+' 个执行实例'+(waitingCount?' · '+waitingCount+' 个待人工处理':latest?' · 最近：'+(labels[latest.status]||latest.status):'')
+   const meta=flow.nodes.length+' 个节点'+(waiting?' · '+waiting+' 个待处理':instances.length?' · 共 '+instances.length+' 次执行':'')
    metaRow.append(node('p',meta,'muted'))
-   if(latest&&latest.createdAt)metaRow.append(node('time',formatShortTime(latest.createdAt),'workflow-card-time'))
+   if(latest&&latest.createdAt){const time=node('time',formatRelativeTime(latest.createdAt),'workflow-card-time');time.title=formatShortTime(latest.createdAt);time.dateTime=new Date(latest.createdAt).toISOString();metaRow.append(time)}
+   else metaRow.append(node('span','从未运行','workflow-card-time is-muted'))
    card.append(head,steps,metaRow)
    const actions=node('div',undefined,'workflow-card-actions');actions.setAttribute('role','group');actions.setAttribute('aria-label','流程操作')
    const action=(key,icon,title,fn)=>{const control=button('',fn,title);control.className='workflow-icon-action';control.dataset.workflowAction=key;control.append(glyph(icon));return control}
+   const runButton=button('',async()=>{notice('');const run=await startRun(flow);if(!run)return;filter=flow.id;activeRun=run.id;runSelection='';pinnedSelection=false;detailSignature='';view('detail');await refresh()},'执行 '+flow.name)
+   runButton.className='workflow-run-action';runButton.dataset.workflowAction='run';runButton.append(glyph('play'),node('span','执行'))
    actions.append(
-    action('run','play','执行 '+flow.name,async()=>{notice('');const run=await startRun(flow);if(!run)return;filter=flow.id;activeRun=run.id;runSelection='';pinnedSelection=false;detailSignature='';view('detail');await refresh()}),
+    runButton,
     action('instances','wf-steps','查看执行实例',()=>{notice('');filter=flow.id;$('workflowSearch').value='';view('runs');renderRuns()}),
     action('edit','edit','编辑流程',()=>{notice('');edit(flow)}),
     action('delete','trash','删除流程',async()=>{if(await window.appDialogs.confirm('删除流程“'+flow.name+'”？已产生的执行记录仍保留。')){const removed=await window.dsh.taskRequest('removeWorkflow',{id:flow.id});if(removed.syncError)notice('流程已删除，但定时任务未清理：'+removed.syncError);if(filter===flow.id)filter='';await refresh()}})
    )
-   card.append(actions);list.append(card)
+   card.append(actions);list.append(card);requestAnimationFrame(()=>fitCardSteps(steps))
   }
   if(!list.children.length)list.append(node('p',query?'没有匹配的流程':'还没有流程，点击右上角“＋ 新建流程”开始。','muted'))
  }
@@ -658,7 +701,8 @@ function nextNodeId(type){
   $('workflowRestOptions').classList.toggle('hidden',!n||n.type!=='workflow/rest')
   $('workflowRestUrl').value=n&&n.properties.rest?n.properties.rest.url:''
   for(const radio of document.querySelectorAll('[name=workflowRestMethod]'))radio.checked=!!n&&radio.value===(n.properties.rest&&n.properties.rest.method||'GET')
-  if(human){$('workflowStructuredOptions').textContent='';$('workflowSimpleExtras').textContent=''}else renderStructured(n)
+  // 属性面板不直接露出补充内容，但要把内容渲染好，「节点执行设计 → 更多设置」会把它搬过去。
+  if(human){$('workflowStructuredOptions').textContent='';renderHumanExtras(n)}else renderStructured(n)
   $('workflowNodeMode').textContent=n?(human?{handle:'人工办理 · 完成后继续',review:'人工审阅 · 已阅后继续',approve:'人工审批 · 通过或驳回'}[preset]:'自动执行 · 完成后继续'):'选择节点查看配置'
   const hint=$('workflowParamHint')
   if(hint){
@@ -701,8 +745,13 @@ function nextNodeId(type){
   for(const [depth,list]of columns){let y=100;for(const n of list){n.pos=[48+depth*(cardTheme.width+72),y];y+=n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+56}}
   dirty=true;graph.setDirtyCanvas(true,true);readableGraph()
  }
- // 流程元信息在右侧共享属性面板，点击画布空白时展示。
-function placeNameField(){const field=$('workflowNameField'),slot=$('workflowFlowNameSlot');if(field&&slot&&field.parentNode!==slot)slot.append(field)}
+ // 画布视图把名称浮在画布左上角，不再单独占一行；其他视图放回右侧「流程属性」。
+function placeNameField(floating){
+ const field=$('workflowNameField');if(!field)return
+ const host=$('workflowCanvasHost'),slot=$('workflowFlowNameSlot')
+ if(floating&&host){if(field.parentNode!==host)host.prepend(field);return}
+ if(slot&&field.parentNode!==slot)slot.append(field)
+}
  function renderStructured(n){
   const host=$('workflowStructuredOptions');host.textContent='';if(!n)return
   const props=n.properties,type=n.type.split('/')[1]
@@ -904,7 +953,7 @@ function edit(flow){
   if(window.applyIcons)window.applyIcons(toolbar)
   setupCanvasTools();setupRibbonActions()
   // Legacy editor:'steps' definitions use the same canvas without rewriting edges.
-  placeNameField();parameter(null)
+  placeNameField(true);parameter(null)
   canvas.startRendering()
   resize()
   const openedCanvas=canvas
@@ -1169,7 +1218,7 @@ function edit(flow){
  function scheduleFields(){const enabled=$('workflowScheduleEnabled').checked,kind=$('workflowScheduleKind').value;$('workflowScheduleFields').hidden=!enabled;$('workflowScheduleTimeField').hidden=kind==='interval';$('workflowScheduleWeekdayField').hidden=kind!=='weekly';$('workflowScheduleMinutesField').hidden=kind!=='interval'}
  function flowSchedule(){return{taskId:scheduleTask&&scheduleTask.id,taskRevision:scheduleTask&&scheduleTask.revision,enabled:$('workflowScheduleEnabled').checked,rule:{kind:$('workflowScheduleKind').value,time:$('workflowScheduleTime').value,weekday:Number($('workflowScheduleWeekday').value),minutes:Number($('workflowScheduleMinutes').value),timezone:$('workflowScheduleTimezone').value.trim()},catchUp:!!(scheduleTask&&scheduleTask.catchUp)}}
  function setSchedule(task){scheduleTask=task||null;const rule=task&&task.rule||{kind:'daily',time:'09:00',weekday:1,minutes:60,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'Asia/Shanghai'};$('workflowScheduleEnabled').checked=!!(task&&task.enabled);for(const[key,value]of Object.entries({Kind:rule.kind,Time:rule.time||'09:00',Weekday:rule.weekday===undefined?1:rule.weekday,Minutes:rule.minutes||60,Timezone:rule.timezone}))$('workflowSchedule'+key).value=value;$('workflowScheduleStatus').textContent=task?(task.enabled?'已同步 · 下次 '+new Date(task.nextAt).toLocaleString():'对应定时任务已暂停'):'尚未启用定时执行';scheduleFields()}
- function loadFlowProperties(flow){materialEditor.load(flow.materials);const target=editing;$('workflowDescription').value=flow.description||'';placeNameField();setSchedule(null);if(!flow.id){scheduleLoaded=true;controls.save.disabled=false;return}scheduleLoaded=false;controls.save.disabled=true;$('workflowScheduleStatus').textContent='正在加载定时配置…';window.dsh.taskRequest('list').then(result=>{if(editing!==target)return;setSchedule(result.tasks.find(t=>t.workflow&&t.workflow.id===flow.id));scheduleLoaded=true}).catch(error=>{if(editing===target){$('workflowScheduleStatus').textContent='加载失败：'+error.message;notice('定时配置加载失败，请重新打开流程，避免覆盖已有设置。')}}).finally(()=>{if(editing===target)controls.save.disabled=!scheduleLoaded})}
+ function loadFlowProperties(flow){materialEditor.load(flow.materials);const target=editing;$('workflowDescription').value=flow.description||'';placeNameField(true);setSchedule(null);if(!flow.id){scheduleLoaded=true;controls.save.disabled=false;return}scheduleLoaded=false;controls.save.disabled=true;$('workflowScheduleStatus').textContent='正在加载定时配置…';window.dsh.taskRequest('list').then(result=>{if(editing!==target)return;setSchedule(result.tasks.find(t=>t.workflow&&t.workflow.id===flow.id));scheduleLoaded=true}).catch(error=>{if(editing===target){$('workflowScheduleStatus').textContent='加载失败：'+error.message;notice('定时配置加载失败，请重新打开流程，避免覆盖已有设置。')}}).finally(()=>{if(editing===target)controls.save.disabled=!scheduleLoaded})}
  $('workflowDescription').addEventListener('input',()=>{dirty=true})
  for(const id of ['Enabled','Kind','Time','Weekday','Minutes','Timezone'])$('workflowSchedule'+id).addEventListener('change',()=>{dirty=true;scheduleFields();$('workflowScheduleStatus').textContent='定时设置将在保存流程时同步'})
  $('workflowName').addEventListener('input',()=>{dirty=true})
@@ -1218,6 +1267,14 @@ function edit(flow){
  }).catch(()=>{})
  const timer=setInterval(()=>{if(!document.hidden&&mode!=='editor')refresh()},1500)
  window.addEventListener('resize',resize)
+ // 卡片变宽变窄时重新分配“显示几步”，否则收起来的步骤回不来。
+ // 观察外层滚动容器而不是卡片本身：重绘只改高度，不会反过来触发自己。
+ if(typeof ResizeObserver==='function'){
+  const scroll=$('workflowCards').closest('.workflow-scroll')
+  let cardWidth=scroll?scroll.clientWidth:0
+  const observer=new ResizeObserver(()=>{const width=scroll?scroll.clientWidth:0;if(!width||Math.abs(width-cardWidth)<8)return;cardWidth=width;if(mode==='flows'&&!disposed)requestAnimationFrame(()=>{if(mode==='flows'&&!disposed)renderFlows()})})
+  if(scroll)observer.observe(scroll)
+ }
  window.addEventListener('beforeunload',()=>{executionMapCleanup();disposed=true;clearInterval(timer);if(canvas)canvas.dispose()})
  async function openDraft(id){
   if(!await confirmLeaveEditor())return

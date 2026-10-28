@@ -146,7 +146,7 @@ async function main() {
     assert.strictEqual(await driver.evaluate(`Object.keys(document.getElementById('workflowCanvas').data.selected_nodes).length`),1,'Shift-click removes from the group')
     // Editor chrome: no 编辑流程 header row, flow properties are on the right, tool strip is centred.
     assert(await driver.evaluate(`(()=>{const h=document.querySelector('#workflowPage > .workflow-header');return !h||getComputedStyle(h).display==='none'})()`),'Editor drops the 编辑流程 header row')
-    assert(await driver.evaluate(`!!document.querySelector('#workflowFlowProperties #workflowNameField')`),'Flow name belongs to the right-hand workflow properties')
+    assert(await driver.evaluate(`(()=>{const f=document.getElementById('workflowNameField'),h=document.getElementById('workflowCanvasHost'),fr=f.getBoundingClientRect(),hr=h.getBoundingClientRect();return f.parentNode===h&&getComputedStyle(f).position==='absolute'&&fr.width>120&&fr.left-hr.left>=0&&fr.left-hr.left<=24&&fr.top-hr.top>=0&&fr.top-hr.top<=24})()`),'Flow name floats in the canvas top-left instead of a separate row')
     assert(await driver.evaluate(`(()=>{const t=document.getElementById('workflowCanvasTools').getBoundingClientRect(),h=document.getElementById('workflowCanvasHost').getBoundingClientRect();return Math.abs(t.top+t.height/2-(h.top+h.height/2))<=2})()`),'Canvas tool strip is vertically centred')
     // The explicit card-size mode works before a card is selected, independently of viewport zoom.
     await driver.click('[data-canvas-action=resize]')

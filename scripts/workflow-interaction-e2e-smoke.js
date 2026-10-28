@@ -100,7 +100,7 @@ async function main() {
     /* 执行：办理 → 审批 → 驳回 → 退回办理 */
     const run = await req('POST', base + '/api/workflows/run', { id: flow.id, confirmed: true })
     await driver.evaluate('workflowUI.openReference(' + JSON.stringify({ runId: run.id, workflowId: flow.id }) + ')', { awaitPromise: true })
-    await wait(() => driver.evaluate('!!document.querySelector(".workflow-current-task form")'), 'handle task')
+    await wait(() => driver.evaluate('!!document.querySelector(".workflow-property-header .workflow-node-title h2")'), 'handle task')
     const handle = await driver.evaluate(`(()=>{const task=document.querySelector('.workflow-current-task');return {title:document.querySelector('.workflow-node-title h2').textContent,files:!!task.querySelector('input[type=file]'),conclusions:!!task.querySelector('.workflow-conclusion-field'),reads:!!task.querySelector('.workflow-review-confirm'),submit:document.querySelector('.workflow-task-actions button[type=submit]').textContent}})()`)
     assert.strictEqual(handle.title, '登记需求')
     assert.strictEqual(handle.files, false, 'Attachment box must not appear on a 办理 step')

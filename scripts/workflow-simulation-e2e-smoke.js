@@ -13,6 +13,7 @@ async function main(){
   const probe=http.createServer();await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));const base='http://127.0.0.1:'+port
   child=spawn(process.execPath,['server/index.js'],{cwd:root,env:{...process.env,AGENT_HOME:home,HOST:'127.0.0.1',PORT:String(port),PORT_MAX_ATTEMPTS:'0'},stdio:['ignore','pipe','pipe']});child.stdout.on('data',chunk=>logs+=chunk);child.stderr.on('data',chunk=>logs+=chunk);await wait(async()=>(await req('GET',base+'/api/health')).ok,'service')
   const binary=path.join(root,'node_modules/electron/dist',fs.readFileSync(path.join(root,'node_modules/electron/path.txt'),'utf8').trim());await driver.launch(base+'/',{electronPath:binary,noSandbox:process.env.SMOKE_NO_SANDBOX==='1'});await driver.cdp.send('Emulation.setDeviceMetricsOverride',{width:1500,height:1000,deviceScaleFactor:1,mobile:false});await wait(()=>driver.evaluate('!!window.workflowSimulation&&!!window.workflowUI'),'simulation UI')
+  await wait(()=>driver.evaluate("!document.getElementById('licenseGate')||document.getElementById('licenseGate').classList.contains('hidden')"),'license gate closed')
   await driver.evaluate('window.__simulationErrors=[];window.addEventListener("error",e=>window.__simulationErrors.push(e.message));window.addEventListener("unhandledrejection",e=>window.__simulationErrors.push(String(e.reason)));true')
   const graph={name:'未保存流程仿真验收',version:2,editor:'canvas',nodes:[
    {id:'s',type:'start',title:'开始',text:'只做模拟验证'},
