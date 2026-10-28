@@ -69,3 +69,15 @@ for(const [peer,direction]of [[rect('b',600,200),'right'],[rect('b',-100,200),'l
  const points=Routing.create([card,peer]).route({start:port.point,end:target.point,source:'a',target:'b',startDirection:port.direction,endDirection:target.direction});assert(points);assert(points.length<=4,'Facing nodes do not take an exterior lap')
 }
 const crowded=Routing.portLayout(card,[{key:'i0',input:true,peers:[rect('b',-100,200)]},{key:'i2',input:true,peers:[rect('c',-100,220)]},{key:'o4',input:false,peers:[rect('d',-100,240)]}]);assert.strictEqual(new Set([...crowded.values()].map(p=>p.point.join(','))).size,3,'Mixed-direction slots on one edge remain distinct')
+// 同一输出端口的多条出线按 startLane 在端口外错开，否则会重叠成一条再分叉。
+const hub=rect('hub',300,200,220,120),fan=[rect('f1',760,40),rect('f2',760,200),rect('f3',760,360)]
+const hubRoutes=Routing.create([hub,...fan]).routeAll([
+ {id:'a',source:'hub',target:'f1',start:[520,232],end:[750,80],startDirection:'right',endDirection:'left',startLane:-12},
+ {id:'b',source:'hub',target:'f2',start:[520,232],end:[750,240],startDirection:'right',endDirection:'left',startLane:0},
+ {id:'c',source:'hub',target:'f3',start:[520,232],end:[750,400],startDirection:'right',endDirection:'left',startLane:12}
+])
+const middles=[...hubRoutes.values()].map(points=>points.slice(1,-1).map(p=>p.join(',')).join(' '))
+assert.strictEqual(new Set(middles).size,3,'Fan-out cables take distinct lanes out of one slot')
+for(const points of hubRoutes.values())for(let i=1;i<points.length;i++)assert(points[i-1][0]===points[i][0]||points[i-1][1]===points[i][1],'Lane offsets keep every segment orthogonal')
+const straight=Routing.create([hub,rect('f',760,200)]).route({start:[520,240],end:[750,240],source:'hub',target:'f',startDirection:'right',endDirection:'left'})
+assert.deepStrictEqual(straight,[[520,240],[750,240]],'A single cable stays a straight line without lane offsets')

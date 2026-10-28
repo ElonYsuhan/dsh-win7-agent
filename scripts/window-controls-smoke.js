@@ -231,7 +231,8 @@ async function runPreloads() {
     await Promise.resolve()
     check(file + ': an older getter cannot overwrite a newer auxiliary-page broadcast', () => assert.strictEqual(race.root.getAttribute('data-theme'), 'light'))
     for (const [platform, side] of [['darwin', 'left'], ['win32', 'right'], ['linux', 'left'], ['linux', 'right']]) {
-      const f = await preloadFixture(file, platform, side)
+      /* ☰ 只注入主界面（带 #app）：启动页没有 app-menu.js，放上去就是个死按钮。 */
+      const f = await preloadFixture(file, platform, side, { mainPage: true })
       const label = file + '/' + platform + '/' + side
       check(label + ': correct classes reserve the button side', () => {
         assert(f.root.classList.contains('shell-window'))

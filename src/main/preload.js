@@ -140,6 +140,15 @@ contextBridge.exposeInMainWorld('desktopWindow', {
     ipcRenderer.send('app:menu-ready')
     return () => ipcRenderer.removeListener('app:command', handler)
   },
+  /* 应用菜单改成渲染层自绘（原生 popup 的两列浮层 CSS 改不动），
+     主进程只负责「开」和「执行」两件事，命令白名单仍在 shell/menu.js。 */
+  menuInvoke: (id) => ipcRenderer.send('app:menu-invoke', id),
+  onMenuOpen: (callback) => {
+    if (typeof callback !== 'function') return () => {}
+    const handler = () => callback()
+    ipcRenderer.on('app:menu-open', handler)
+    return () => ipcRenderer.removeListener('app:menu-open', handler)
+  },
   platform: process.platform,
   getState: () => ipcRenderer.invoke('window:state'),
   action: (value) => ipcRenderer.invoke('window:action', value),
@@ -157,7 +166,9 @@ try {
     wireWindowTheme()
     setupWindowControls()
     wireTitlebarDoubleClick()
-    if (process.platform !== 'darwin') {
+    /* 只有主界面（index.html 带 #app）才注入 ☰：启动页没有 app-menu.js，
+       放上去就是个点了没反应的按钮。 */
+    if (process.platform !== 'darwin' && document.getElementById('app')) {
       const bar = document.getElementById('titlebarDrag')
       if (bar) {
         const button = document.createElement('button')

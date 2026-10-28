@@ -87,16 +87,26 @@
   }
   return best // Never fall back to a line through an obstacle.
  }
+ // 垂直于主方向的一侧，用于把同一端口的多条出线错开成扇面。
+ const perpendicular=direction=>direction==='right'||direction==='left'?[0,1]:[1,0]
+ // 偏移后要补一个直角拐点，否则第一段会变成斜线。
+ const elbow=(point,anchor,direction)=>direction==='right'||direction==='left'?[point[0],anchor[1]]:[anchor[0],point[1]]
  function create(rectangles){
   const rects=rectangles.slice(0,100).map(r=>({...r})).sort((a,b)=>String(a.id)<String(b.id)?-1:String(a.id)>String(b.id)?1:0),byId=new Map(rects.map(r=>[r.id,r])),inflated=new Map()
   const vector=direction=>({left:[-1,0],right:[1,0],up:[0,-1],down:[0,1]})[direction]||[1,0]
   function escape(point,id,direction,padding){const r=byId.get(id),v=vector(direction);if(!r)return[point[0]+v[0]*padding,point[1]+v[1]*padding];return v[0]?[v[0]>0?r.right+padding:r.left-padding,point[1]]:[point[0],v[1]>0?r.bottom+padding:r.top-padding]}
-  function route({start,end,source,target,startDirection='right',endDirection='left'},reserved=[],budget=null){
+  function route({start,end,source,target,startDirection='right',endDirection='left',startLane=0,endLane=0},reserved=[],budget=null){
    for(const padding of [12,4,1]){
     if(!inflated.has(padding))inflated.set(padding,rects.map(r=>({...r,left:r.left-padding,right:r.right+padding,top:r.top-padding,bottom:r.bottom+padding})))
-    const obstacles=inflated.get(padding),a=escape(start,source,startDirection,padding),b=escape(end,target,endDirection,padding)
-    if(obstacles.some(r=>r.id!==source&&hits(start,a,r)||r.id!==target&&hits(b,end,r)))continue
-    const points=search(a,b,obstacles,reserved,{start,end,startVector:vector(startDirection),endVector:vector(endDirection),budget});if(points)return simplify([start,...points,end])
+    const obstacles=inflated.get(padding)
+    let a=escape(start,source,startDirection,padding),b=escape(end,target,endDirection,padding)
+    if(startLane){const side=perpendicular(startDirection);a=[a[0]+side[0]*startLane,a[1]+side[1]*startLane]}
+    if(endLane){const side=perpendicular(endDirection);b=[b[0]+side[0]*endLane,b[1]+side[1]*endLane]}
+    // 错开的引脚会在端口附近多出一个拐点，两段都要单独做穿越检查。
+    const startElbow=startLane?elbow(a,start,startDirection):null,endElbow=endLane?elbow(b,end,endDirection):null
+    const blocked=(from,to,corner,id)=>obstacles.some(r=>r.id!==id&&(corner?hits(from,corner,r)||hits(corner,to,r):hits(from,to,r)))
+    if(blocked(start,a,startElbow,source)||blocked(b,end,endElbow,target))continue
+    const points=search(a,b,obstacles,reserved,{start,end,startVector:vector(startDirection),endVector:vector(endDirection),budget});if(points)return simplify([start,...(startElbow?[startElbow]:[]),...points,...(endElbow?[endElbow]:[]),end])
    }
    return null
   }

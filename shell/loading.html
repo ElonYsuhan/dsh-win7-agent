@@ -10,14 +10,14 @@
   <header id="titlebarDrag" class="titlebar-drag" aria-label="窗口标题栏">
     <span class="titlebar-app-name">Agent</span>
     <span class="titlebar-divider" aria-hidden="true"></span>
-    <span id="windowTitle" class="window-title">启动服务</span>
+    <span id="windowTitle" class="window-title">正在加载</span>
   </header>
   <main class="shell-content">
   <div class="card">
     <h1>Agent</h1>
-    <p class="muted" id="hint">正在启动本地服务，请稍候…</p>
+    <p class="muted" id="hint">正在加载…</p>
 
-    <div class="steps" id="steps">
+    <div class="steps hidden" id="steps">
       <div class="step" data-step="probe"><span class="dot"></span><span class="step-text">检查可用端口</span></div>
       <div class="step" data-step="spawn"><span class="dot"></span><span class="step-text">启动本地 agent 服务</span></div>
       <div class="step" data-step="ready"><span class="dot"></span><span class="step-text">打开聊天界面</span></div>

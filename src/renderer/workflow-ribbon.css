@@ -43,8 +43,8 @@
 .workflow-execution-mini-preview .workflow-task-actions button{max-width:100%;font-size:11px;padding:6px 8px;white-space:normal;}
 
 /* Compact Ribbon without a caption row, and equal outer spacing on every side. */
-.workflow-page.workflow-editor-mode{padding:24px;}
-.workflow-editor-mode .workflow-editor-topbar{padding:4px;margin-bottom:10px;min-height:68px;}
+.workflow-page.workflow-editor-mode{--workflow-gap:12px;--workflow-panel-gap:8px;padding:var(--workflow-gap);}
+.workflow-editor-mode .workflow-editor-topbar{padding:4px;margin-bottom:var(--workflow-gap);min-height:68px;}
 .workflow-editor-mode .workflow-node-group,.workflow-editor-mode .workflow-ribbon-action-group,.workflow-editor-mode .workflow-editor-actions{padding-bottom:0;}
 .workflow-editor-mode .workflow-node-group::after,.workflow-editor-mode .workflow-ribbon-action-group::after,.workflow-editor-mode .workflow-editor-actions::after{content:none;display:none;}
 .workflow-flow-properties{display:flex;flex:1;flex-direction:column;min-height:0;}
@@ -68,8 +68,8 @@
 .workflow-node-text-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:1;}
 .workflow-node-text-layer span{position:absolute;white-space:pre;pointer-events:none;}
 .workflow-node-text-layer span[hidden]{display:none;}
-.workflow-editor-mode .workflow-editor-body{position:relative;grid-template-columns:minmax(0,1fr) var(--workflow-properties-width,270px);}
-.workflow-panel-resizer{position:absolute;right:calc(var(--workflow-properties-width,270px) + 2px);top:0;bottom:0;width:8px;padding:0;border:0;background:transparent;cursor:col-resize;touch-action:none;z-index:4;}
+.workflow-editor-mode .workflow-editor-body{position:relative;gap:var(--workflow-panel-gap,8px);grid-template-columns:minmax(0,1fr) var(--workflow-properties-width,270px);}
+.workflow-panel-resizer{position:absolute;right:var(--workflow-properties-width,270px);top:0;bottom:0;width:var(--workflow-panel-gap,8px);padding:0;border:0;background:transparent;cursor:col-resize;touch-action:none;z-index:4;}
 .workflow-panel-resizer:hover,.workflow-panel-resizer:focus-visible{background:var(--selection-bg);}
 .workflow-panel-dragbar{display:flex;align-items:center;gap:8px;flex:none;padding:8px 12px;border-bottom:1px solid var(--border);cursor:move;touch-action:none;user-select:none;}
 .workflow-panel-dragbar>span{flex:1;font-size:12px;color:var(--muted);}
@@ -78,3 +78,18 @@
 .workflow-parameters.is-floating{position:fixed;z-index:180;box-shadow:0 8px 28px rgba(0,0,0,.18);max-width:calc(100vw - 16px);max-height:calc(100vh - 64px);}
 .workflow-parameters.is-floating .workflow-panel-float-close{display:flex!important;}
 .workflow-editor-body:has(.workflow-parameters.is-floating){grid-template-columns:minmax(0,1fr) 0;}
+.workflow-panel-grip{display:none;}
+.workflow-parameters.is-floating .workflow-panel-grip{display:block;position:absolute;right:0;bottom:0;width:18px;height:18px;padding:0;border:0;border-bottom-right-radius:8px;background:linear-gradient(135deg,transparent 0 50%,var(--border) 50% 100%);cursor:nwse-resize;touch-action:none;z-index:2;}
+body:has(.workflow-parameters.is-floating) .workflow-panel-resizer{display:none;}
+
+/* 布局按钮是个下拉：右下角小三角表示还有别的排列方式。 */
+.workflow-editor-mode #workflowArrange{position:relative;}
+.workflow-editor-mode #workflowArrange::after{content:'';position:absolute;right:7px;bottom:7px;width:0;height:0;border-left:3px solid transparent;border-right:3px solid transparent;border-top:4px solid var(--muted);}
+.workflow-editor-mode #workflowArrange[aria-expanded=true]::after{border-top:0;border-bottom:4px solid var(--workflow-node-selected);}
+.workflow-layout-menu{width:264px;padding:6px;}
+.workflow-canvas-menu.workflow-layout-menu .workflow-layout-item{display:block;min-height:0;padding:7px 10px;border-radius:6px;line-height:1.35;white-space:normal;}
+.workflow-canvas-menu.workflow-layout-menu .workflow-layout-item.is-active{background:var(--selection-bg);color:var(--workflow-node-selected);}
+.workflow-layout-name{display:block;font-size:12px;line-height:18px;font-weight:600;}
+.workflow-layout-desc{display:block;font-size:11px;line-height:16px;color:var(--muted);}
+.workflow-layout-item.is-active .workflow-layout-desc{color:inherit;opacity:.72;}
+.workflow-layout-divider{height:1px;margin:5px 6px;background:var(--border);}

@@ -150,6 +150,13 @@ async function prepare(target) {
     command('codesign', ['--verify', '--deep', '--strict', path.join(staged, 'Agent.app')])
   } else {
     const config = builderConfig(target, path.join(workspace, 'builder'))
+    if (target === 'win-x64') {
+      const launcherInclude = path.join(workspace, 'installer-build.nsh')
+      // NSIS resolves a nested !include only for a backslash-separated absolute
+      // path; forward slashes fail with a misleading "could not find".
+      fs.writeFileSync(launcherInclude, '!define AGENT_PACKAGE_BUILD_ID "' + buildMetadata.packageBuildId + '"\n!include "' + config.nsis.include + '"\n')
+      config.nsis.include = launcherInclude
+    }
     const platform = target === 'win-x64' ? builder.Platform.WINDOWS : builder.Platform.LINUX
     const arch = target.endsWith('arm64') ? builder.Arch.arm64 : builder.Arch.x64
     await builder.build({ projectDir: ROOT, prepackaged: input, config, targets: platform.createTarget(target === 'win-x64' ? 'nsis' : 'AppImage', arch), publish: 'never' })

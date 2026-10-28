@@ -684,16 +684,27 @@ function nextNodeId(type){
   if(agents.length&&!await window.appDialogs.confirm('确认执行“'+flow.name+'”？\n\n'+agents.map(n=>n.title+'：'+(n.type==='tool'?n.tool.name:((n.agent&&n.agent.tools)||[]).join('、')||'无工具')+(n.type==='tool'?'；固定调用一次':'；最多'+(n.agent&&n.agent.maxSteps||6)+'轮、'+(n.agent&&n.agent.maxRequests||6)+'次模型请求、'+(n.agent&&n.agent.maxToolCalls||8)+'次工具调用')+'；超时'+Math.round((n.agent&&n.agent.timeoutMs||120000)/1000)+'秒；'+((n.type==='tool'?n.tool.permission:n.agent&&n.agent.permission)==='workspace'?'允许工作目录内修改':'只读')).join('\n')+'\n\n人工步骤会等待确认，Agent 内部不会请求人工授权。'))return null
   return api('run',{id:flow.id,confirmed:true})
  }
- function arrangeGraph(){
-  if(!graph||!graph._nodes.length)return
-  const nodes=graph._nodes.slice(),degree=new Map(nodes.map(n=>[n.id,0])),children=new Map(nodes.map(n=>[n.id,[]])),rank=new Map(nodes.map(n=>[n.id,0]))
-  for(const link of Object.values(graph.links).filter(Boolean)){degree.set(link.target_id,(degree.get(link.target_id)||0)+1);if(children.has(link.origin_id))children.get(link.origin_id).push(link.target_id)}
-  const queue=nodes.filter(n=>!degree.get(n.id)).map(n=>n.id),ordered=[]
-  while(queue.length){const id=queue.shift();ordered.push(id);for(const next of children.get(id)||[]){rank.set(next,Math.max(rank.get(next)||0,(rank.get(id)||0)+1));degree.set(next,degree.get(next)-1);if(!degree.get(next))queue.push(next)}}
-  if(ordered.length!==nodes.length){notice('请先移除循环连线，再整理布局。');return}
-  const columns=new Map();for(const id of ordered){const depth=rank.get(id);if(!columns.has(depth))columns.set(depth,[]);columns.get(depth).push(graph.getNodeById(id))}
-  for(const [depth,list]of columns){let y=100;for(const n of list){n.pos=[48+depth*(cardTheme.width+72),y];y+=n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+56}}
-  dirty=true;graph.setDirtyCanvas(true,true);readableGraph()
+ // 布局只重写坐标：分层排序、重心法降交叉交给纯函数模块，这里负责映射回 node.pos。
+ // 环形依赖不再拒绝布局，改为把环上的节点接在最后一层之后。
+ let layoutMode='fit'
+ // 同一端口多路出线之间的错开距离（像素）。
+ const FANOUT_LANE=12
+ // 自适应排列的缩放下限：再小卡片文字就不可读，此时宁可让流程略溢出、由用户拖动查看。
+ const READABLE_MIN_SCALE=.5
+ function arrangeGraph(mode,silent){
+  if(!graph||!graph._nodes.length||!window.workflowAutoLayout)return
+  const chosen=window.workflowAutoLayout.DIRECTIONS.includes(mode)?mode:layoutMode
+  const viewport={width:canvas?canvas.canvas.width:0,height:canvas?canvas.canvas.height:0}
+  const nodes=graph._nodes.map(n=>({id:n.id,width:n.size[0],height:n.size[1]+LiteGraph.NODE_TITLE_HEIGHT}))
+  const edges=Object.values(graph.links).filter(Boolean).map(link=>({from:link.origin_id,to:link.target_id}))
+  const result=window.workflowAutoLayout.plan({nodes,edges,direction:chosen,viewport})
+  if(!result.positions.size)return
+  layoutMode=result.direction
+  const PAD=56,offsetY=PAD+LiteGraph.NODE_TITLE_HEIGHT
+  for(const n of graph._nodes){const point=result.positions.get(n.id);if(point)n.pos=[point[0]+PAD,point[1]+offsetY]}
+  dirty=true;graph.setDirtyCanvas(true,true)
+  if(chosen==='fit')fitGraph(READABLE_MIN_SCALE);else readableGraph()
+  if(!silent)notice('已按「'+window.workflowAutoLayout.LABELS[result.direction]+'」重排 '+graph._nodes.length+' 个节点')
  }
  function renderStructured(n){
   const host=$('workflowStructuredOptions');host.textContent='';if(!n)return
@@ -811,13 +822,18 @@ function edit(flow){
   canvas.drawConnections=function(ctx){
    const rectangles=graph._nodes.map(n=>({id:n.id,left:n.pos[0],top:n.pos[1]-LiteGraph.NODE_TITLE_HEIGHT,right:n.pos[0]+n.size[0],bottom:n.pos[1]+n.size[1]})).sort((a,b)=>a.id-b.id),signature=rectangles.map(r=>[r.id,r.left,r.top,r.right,r.bottom].join(',')).join(';')
    if(!router||signature!==geometry){geometry=signature;router=window.workflowLinkRouting.create(rectangles)}
-   const edges=[]
+   const edges=[],fanout=new Map()
    for(const link of Object.values(graph.links).filter(Boolean)){
     const from=graph.getNodeById(link.origin_id),to=graph.getNodeById(link.target_id);if(!from||!to||!from.outputs[link.origin_slot]||!to.inputs[link.target_slot])continue
     const a=from.getConnectionPos(false,link.origin_slot),b=to.getConnectionPos(true,link.target_slot),startDir=from.outputs[link.origin_slot].dir||LiteGraph.RIGHT,endDir=to.inputs[link.target_slot].dir||LiteGraph.LEFT
-    edges.push({id:link.id,link,start:Array.from(a),end:Array.from(b),source:from.id,target:to.id,startDir,endDir,startDirection:directions[startDir],endDirection:directions[endDir]})
+    const edge={id:link.id,link,start:Array.from(a),end:Array.from(b),source:from.id,target:to.id,startDir,endDir,startDirection:directions[startDir],endDirection:directions[endDir]}
+    edges.push(edge)
+    const key=from.id+':'+link.origin_slot,group=fanout.get(key)
+    if(group)group.push(edge);else fanout.set(key,[edge])
    }
-   const nextSignature=geometry+'|'+edges.map(e=>[e.id,e.source,e.target,...e.start,...e.end,e.startDir,e.endDir].join(',')).join(';')
+   // 同一输出端口的多条出线必须在端口外错开，否则会重叠成一条线再分叉。
+   for(const group of fanout.values())if(group.length>1)group.forEach((edge,index)=>{edge.startLane=(index-(group.length-1)/2)*FANOUT_LANE})
+   const nextSignature=geometry+'|'+edges.map(e=>[e.id,e.source,e.target,...e.start,...e.end,e.startDir,e.endDir,e.startLane||0].join(',')).join(';')
    if(nextSignature!==routingSignature){routingSignature=nextSignature;routes.clear();const planned=router.routeAll(edges);for(const edge of edges){const points=planned.get(edge.id);routes.set(edge.id,{points,commands:window.workflowLinkRouting.commands(points,rectangles)})}}
    let blocked=0
    for(const edge of edges){
@@ -876,7 +892,8 @@ function edit(flow){
    if(fromNode&&toNode)fromNode.connect(edge.outputSlot||0,toNode,edge.slot||0)
   }
   syncAllPorts()
-  if(flow.nodes.length>1&&new Set(flow.nodes.map(n=>JSON.stringify(n.pos||[0,0]))).size===1)arrangeGraph()
+  // 新图（所有节点坐标相同）等画布尺寸确定后再排布，否则窗口自适应的判断会失真。
+  const needsLayout=flow.nodes.length>1&&new Set(flow.nodes.map(n=>JSON.stringify(n.pos||[0,0]))).size===1
   dirty=false
   const toolbar=$('workflowNodeTypes');toolbar.textContent=''
   const defs=(data.nodes&&data.nodes.length)?data.nodes:FALLBACK_NODES
@@ -901,7 +918,7 @@ function edit(flow){
   canvas.startRendering()
   resize()
   const openedCanvas=canvas
-  requestAnimationFrame(()=>{if(canvas!==openedCanvas||mode!=='editor')return;resize();readableGraph()})
+  requestAnimationFrame(()=>{if(canvas!==openedCanvas||mode!=='editor')return;resize();if(needsLayout)arrangeGraph('fit',true);else readableGraph()})
  }
  function addEditorNode(type,position){
   const n=LiteGraph.createNode('workflow/'+type.type);n.title=type.name;n.properties.workflowId=nextNodeId(type.type)
@@ -911,8 +928,36 @@ function edit(flow){
   canvas.selectNode(n);parameter(n);dirty=true;queuePortSync();graph.setDirtyCanvas(true,true);return n
  }
  function ribbonButton(control,iconName,text){if(!control)return;control.classList.add('workflow-ribbon-button');control.textContent='';control.append(glyph(iconName),node('span',text,'workflow-ribbon-label'));control.setAttribute('aria-label',text)}
+ // 排列方式是一个下拉：主按钮只负责展开，避免"点了就变、只能重来"。
+ function layoutMenu(){
+  if(!window.workflowAutoLayout)return
+  if(canvasMenu&&canvasMenu.id==='workflowLayoutMenu'){closeCanvasMenu(true);return}
+  closeCanvasMenu(false)
+  const control=$('workflowArrange')
+  if(!control)return
+  const bounds=control.getBoundingClientRect(),menu=node('div',undefined,'workflow-canvas-menu workflow-layout-menu')
+  menu.id='workflowLayoutMenu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','节点排列方式')
+  for(const key of window.workflowAutoLayout.DIRECTIONS){
+   const item=button('',()=>{closeCanvasMenu(true);arrangeGraph(key)},window.workflowAutoLayout.NOTES[key])
+   item.className='workflow-layout-item';item.dataset.layout=key
+   item.setAttribute('role','menuitemradio');item.setAttribute('aria-checked',String(layoutMode===key))
+   if(layoutMode===key)item.classList.add('is-active')
+   item.append(node('span',window.workflowAutoLayout.LABELS[key],'workflow-layout-name'),node('span',window.workflowAutoLayout.NOTES[key],'workflow-layout-desc'))
+   menu.append(item)
+  }
+  const fit=button('',()=>{closeCanvasMenu(true);fitGraph()},'不改排布，只缩放到能看全整张图')
+  fit.className='workflow-layout-item';fit.dataset.layout='contain';fit.setAttribute('role','menuitem')
+  fit.append(node('span','缩放看全','workflow-layout-name'),node('span','不改排布，只把整张图缩进窗口','workflow-layout-desc'))
+  menu.append(node('div',undefined,'workflow-layout-divider'),fit)
+  menu.style.left=Math.max(8,Math.min(bounds.left,innerWidth-268))+'px'
+  menu.style.top=Math.max(8,Math.min(bounds.bottom+6,innerHeight-280))+'px'
+  canvasMenu=menu;canvasMenuReturn=control;control.setAttribute('aria-expanded','true');page.append(menu)
+  const first=menu.querySelector('.workflow-layout-item')
+  if(first)first.focus()
+  menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeCanvasMenu(true)}else if(event.key==='Tab')closeCanvasMenu(true)})
+ }
  function setupRibbonActions(){
-  let arrange=$('workflowArrange');if(!arrange){arrange=button('',arrangeGraph,'整理节点布局');arrange.id='workflowArrange';$('workflowSimulate').before(arrange)}
+  let arrange=$('workflowArrange');if(!arrange){arrange=button('',layoutMenu,'选择节点排列方式');arrange.id='workflowArrange';arrange.setAttribute('aria-haspopup','menu');arrange.setAttribute('aria-controls','workflowLayoutMenu');arrange.setAttribute('aria-expanded','false');$('workflowSimulate').before(arrange)}
   for(const [id,title,items]of [['workflowRibbonViews','视图',[arrange]],['workflowRibbonValidation','验证',[$('workflowSimulate')]]]){let group=$(id);const controls=items.filter(Boolean);if(!group&&controls.length){group=node('div',undefined,'workflow-ribbon-action-group');group.id=id;group.dataset.ribbonGroup=title;group.setAttribute('role','group');group.setAttribute('aria-label',title);controls[0].before(group);group.append(...controls)}}
   $('workflowEditorActions').dataset.ribbonGroup='流程'
   for(const [id,iconName,text]of [['workflowArrange','wf-layout','整理布局'],['workflowSimulate','wf-test','自测验证'],['workflowBack','wf-back','返回'],['workflowSave','wf-save','保存流程']])ribbonButton($(id),iconName,text)
@@ -972,16 +1017,16 @@ function edit(flow){
   canvas.setDirty(true,true)
  }
  let canvasMenu=null,canvasMenuReturn=null
- function closeCanvasMenu(restore){if(!canvasMenu)return;const focus=canvasMenuReturn||$('workflowCanvas');canvasMenu.remove();canvasMenu=null;canvasMenuReturn=null;const control=$('workflowCanvasZoomButton');if(control)control.setAttribute('aria-expanded','false');if(restore&&focus.isConnected)focus.focus()}
+ function closeCanvasMenu(restore){if(!canvasMenu)return;const focus=canvasMenuReturn||$('workflowCanvas');canvasMenu.remove();canvasMenu=null;canvasMenuReturn=null;for(const id of ['workflowCanvasZoomButton','workflowArrange']){const control=$(id);if(control)control.setAttribute('aria-expanded','false')}if(restore&&focus.isConnected)focus.focus()}
  function showCanvasMenu(x,y){
   closeCanvasMenu(false);const menu=node('div',undefined,'workflow-canvas-menu');canvasMenu=menu;menu.setAttribute('role','menu');menu.setAttribute('aria-label','画布视图');menu.style.left=Math.max(8,Math.min(x,innerWidth-180))+'px';menu.style.top=Math.max(8,Math.min(y,innerHeight-60))+'px'
   const reset=button('恢复100%',()=>{canvas.ds.changeScale(1);canvas.setDirty(true,true);updateZoom();closeCanvasMenu(true)});reset.setAttribute('role','menuitem');menu.append(reset);page.append(menu);reset.focus()
   menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeCanvasMenu(true)}else if(event.key==='Tab')closeCanvasMenu(true)})
  }
- function fitGraph(){
+ function fitGraph(minScale){
   if(!canvas)return
   if(!graph._nodes.length){canvas.ds.scale=1;canvas.ds.offset[0]=0;canvas.ds.offset[1]=0}
-  else{const bounds=graph._nodes.map(n=>n.getBounding()),x=Math.min(...bounds.map(b=>b[0])),y=Math.min(...bounds.map(b=>b[1])),right=Math.max(...bounds.map(b=>b[0]+b[2])),bottom=Math.max(...bounds.map(b=>b[1]+b[3]));canvas.ds.scale=Math.max(.1,Math.min(1.5,(canvas.canvas.width-140)/Math.max(1,right-x),(canvas.canvas.height-100)/Math.max(1,bottom-y)));canvas.ds.offset[0]=canvas.canvas.width/(2*canvas.ds.scale)-(x+right)/2;canvas.ds.offset[1]=canvas.canvas.height/(2*canvas.ds.scale)-(y+bottom)/2}
+  else{const bounds=graph._nodes.map(n=>n.getBounding()),x=Math.min(...bounds.map(b=>b[0])),y=Math.min(...bounds.map(b=>b[1])),right=Math.max(...bounds.map(b=>b[0]+b[2])),bottom=Math.max(...bounds.map(b=>b[1]+b[3]));canvas.ds.scale=Math.max(minScale||.1,Math.min(1.5,(canvas.canvas.width-140)/Math.max(1,right-x),(canvas.canvas.height-100)/Math.max(1,bottom-y)));canvas.ds.offset[0]=canvas.canvas.width/(2*canvas.ds.scale)-(x+right)/2;canvas.ds.offset[1]=canvas.canvas.height/(2*canvas.ds.scale)-(y+bottom)/2}
   canvas.setDirty(true,true);updateZoom()
  }
  // Reading and editing start at actual size. A long graph may extend outside
@@ -1058,7 +1103,7 @@ function edit(flow){
  const pointer=typeof LiteGraph!=='undefined'?LiteGraph.pointerevents_method:'pointer'
  document.addEventListener(pointer+'down',event=>{
   if(mode==='editor'&&event.button===0)updatePortHints(event)
-  if(canvasMenu&&!canvasMenu.contains(event.target)&&!event.target.closest('[data-canvas-action=zoom]'))closeCanvasMenu(false)
+  if(canvasMenu&&!canvasMenu.contains(event.target)&&!event.target.closest('[data-canvas-action=zoom]')&&!event.target.closest('#workflowArrange'))closeCanvasMenu(false)
   if(mode==='editor'&&event.button===0){const hit=cardResizeHit(event);if(hit){if(canvasMode==='resize')canvas.selectNode(hit.node);cardResizeGesture={...hit,start:splitPoint(event),pos:Array.from(hit.node.pos),size:Array.from(hit.node.size),custom:hit.node.properties.cardSize&&Array.from(hit.node.properties.cardSize)};canvas.canvas.focus();event.preventDefault();event.stopImmediatePropagation();return}}
   if(mode==='editor'&&canvasMode==='resize'&&canvas&&event.target===canvas.canvas&&event.button===0){const point=splitPoint(event),n=graph.getNodeOnPos(point[0],point[1],canvas.visible_nodes);if(n){canvas.selectNode(n);canvas.canvas.focus();event.preventDefault();event.stopImmediatePropagation();return}}
   if(mode!=='editor'||canvasMode!=='split'||event.target!==$('workflowCanvas')||event.button!==0)return

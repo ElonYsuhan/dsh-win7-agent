@@ -52,7 +52,7 @@ function describe(state) {
 function apply(state) {
   if (not(state)) return
   const phase = state.phase
-  byId('hint').textContent = describe(state)
+  byId('hint').textContent = phase === 'failed' || phase === 'unconfigured' ? describe(state) : '正在加载…'
   renderSteps(phase)
 
   const detail = byId('detail')
@@ -63,7 +63,7 @@ function apply(state) {
     if (busy.length) lines.push('已跳过被占用的端口: ' + busy.join(', '))
   }
   if (phase === 'failed' && state.message) lines.push(state.message)
-  if (lines.length) {
+  if (lines.length && phase === 'failed') {
     detail.textContent = lines.join('\n')
     detail.classList.remove('hidden')
   } else {

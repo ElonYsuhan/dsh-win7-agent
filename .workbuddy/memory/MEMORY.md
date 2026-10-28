@@ -34,12 +34,22 @@
 - 打包：Node ≥20（Windows 本机 `/c/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-6/node.exe
   scripts/build-desktop.js win-x64`），**必须放开沙箱 + 前台**（后台任务拿不到授权），
   带 `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=200000`；日志须有 `exe branding applied: Agent.exe`。
-  产物 `release/desktop/Agent-<target>-<version>/` + 同名 zip；`node scripts/clean-release.js`（先 --dry-run）
-  做保留策略：每平台只留最新 zip + 活动中的解压目录。**0.4.3 起有源码保护（obfuscate/terser）**，
+  产物是**单入口**（2026-10-24 交付契约）：`release/desktop/Agent-<target>/` 里只有 `Agent.exe`
+  （win NSIS 安装器）/ `Agent.app` / `Agent.AppImage`，中间目录在 `release/.desktop-build/`；
+  构建链入口 `scripts/desktop-distribution.js`（`build-desktop.js <target>` 转调它）。
+  仓库镜像在 `installers/Agent-<target>/`，改完要同步 `installers/SHA256SUMS.txt` + `build-info.json`。**0.4.3 起有源码保护（obfuscate/terser）**，
   node_modules 需装 `javascript-obfuscator` + `terser`（devDeps，锁里已有）。
 - 打包后必做：包内与 zip 内改动文件哈希对源码逐字节一致（mac 前缀
   `Agent-mac-arm64-<v>/Agent.app/Contents/Resources/app`，win/linux 是 `Agent-<target>/resources/app`；
   少这层前缀 → 取到空串 `e3b0c44298fc1c14`，看着像「包坏了」）。
+- **NSIS 两个坑（2026-10-28，`scripts/desktop/installer.nsh`）**：① 嵌套 `!include` 只认反斜杠绝对路径，
+  写成 `E:/...` 会报 `!include: could not find`（误导：文件明明在）；② 被 include 的 `.nsh` **不能含非 ASCII**，
+  无 BOM UTF-8 的中文注释直接 `Bad text encoding`（行号指向第一处中文），注释一律英文。
+  Windows 单文件包的启动体验：`installer.nsh` 的 `customInit` 在 `.onInit` 里比对
+  `HKCU\Software\Agent\OfflineLauncher` 的 BuildId，命中就 `Exec` 已装 exe 后 `Quit`（此阶段 Quit 不建窗口），
+  所以第二次双击分发包 = 直启；`customInstall` 要显式 `CreateShortCut "$DESKTOP\Agent.lnk"`，
+  因为 electron-builder 在 `isUpdated` 分支不重建桌面快捷方式。实测：首装 9.5s（解包物理成本）、
+  直启 0.65s、桌面快捷方式 0.53s。
 
 ## Windows 本机环境（这台开发机，2026-10-14/16/28 踩过）
 - **全仓 CRLF**：任何跨行的 `indexOf('…\n')` / `slice` 断言先归一 `\r\n`→`\n`，否则**静默假红**
@@ -83,6 +93,19 @@
 - 改这种压缩风格的单行函数后务必 `node --check` + 括号平衡扫描：少一个 `}` 会让后续函数掉出 IIFE 作用域，
   症状是莫名的 `xxx is not defined`。
 
+## 画布布局与连线（2026-10-28）
+- 排版算法全在 `src/renderer/workflow-auto-layout.js`（纯函数，UMD，**别塞回 workflows.js**）：
+  最长路径分层 → 重心法 4 轮降交叉 → `horizontal`/`vertical`/`layered` 三种落位；
+  `fit` 是三种里按 `fitScale*4 - |ln(长宽比/视口比)|` 挑一个。**环不再拒绝布局**（接在最深层之后）。
+- 入口是 Ribbon 的 `#workflowArrange` **下拉菜单**（不是直接执行），默认 `layoutMode='fit'`；
+  新图在 `requestAnimationFrame` 里排，因为 `canvas.canvas.width` 要等 resize 后才准。
+- 缩放：`fitGraph(minScale)` 带下限，自适应用 `READABLE_MIN_SCALE=.5`；横向/纵向/分层仍
+  `readableGraph()`（100% 可读 + 长图定位起始节点）—— 这是既有产品决策，别改成"自动 fit"。
+- 连线正交布线的**扇出分道**：`route()` 的 `startLane/endLane` 垂直偏移 + `elbow()` 拐点；
+  穿越检查必须拆两段判（`hits()` 对斜线一律 return true）。分组键是 `(source, origin_slot)`，间距 12px。
+- 对账打包源码：`source-protection.json` 的 `records[].sourceSha256` 是**混淆前**内容的哈希，
+  必须按 `path` 精确匹配——`endsWith('/workflows.js')` 会先命中 `src/main/contracts/workflows.js`。
+
 ## 渲染层架构（改之前先懂这几条）
 - **思考过程 = 步骤时间线**（2026-10-17 P0）：一轮一个 `details.thinking-block.process-timeline`，
   每步 `div.tl-step.tl-think|tl-tool` + `tl-running|tl-ok|tl-err`；标题由 `toolStepTitle()` 翻人话；
@@ -103,6 +126,10 @@
   不依赖 titleBarOverlay → **Win7 也能用**。preload 按 chrome 模式打 `shell-window` +
   `shell-mac`(40px) / `shell-win`(48px)；双击顶栏 win32=maximize。
   守卫：shell-chrome-smoke + window-controls-smoke（CSS 里所有 `-webkit-app-region` 选择器必须挂平台类）。
+- **应用菜单（☰）是渲染层自绘的**（`src/renderer/app-menu.js` + `.app-menu`），不是 `menu.popup()`：
+  原生弹层两列顶边差 17px、16px 字号、配色不跟主题，且没有任何样式入口。主进程只 `send('app:menu-open')`
+  和收 `app:menu-invoke` 白名单执行；原生模板留着只为**加速键**，并且 Alt 已不再翻出菜单栏。
+  ☰ 只在带 `#app` 的主界面注入，启动页没有。
 
 ## 主题 / 视觉
 - 两套主题：灰黑（`--bg #212121`）与白（`--bg #ffffff`），去蓝青、去渐变、去普通阴影，

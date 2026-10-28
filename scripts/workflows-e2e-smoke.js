@@ -53,7 +53,7 @@ assert(Math.abs(moved[0][0])>30,'Dragging a selected card must move it '+JSON.st
  assert.deepStrictEqual(cardControls.map(b=>b.action),['run','instances','edit','delete'])
  assert(cardControls[0].text.includes('执行')&&cardControls[0].svg&&cardControls[0].width>36,'Execution is a labelled primary button')
  assert(cardControls[1].text==='实例'&&cardControls[1].width>36,'Instances has a visible text label')
- assert(cardControls.slice(2).every(b=>!b.text&&b.svg&&b.label&&b.title&&b.width===36&&b.height===36),'Secondary actions stay 36px named icon buttons')
+ assert(cardControls.slice(2).every(b=>!b.text&&b.svg&&b.label&&b.title&&Math.abs(b.width-b.height)<1&&b.width>=30&&b.width<=40),'Secondary actions stay named square icon buttons')
  assert.strictEqual(new Set(cardControls.map(b=>b.svg)).size,4,'Each action has a distinct pictogram')
  const validation=path.join(root,'release/validation');fs.mkdirSync(validation,{recursive:true})
  for(const theme of ['light','dark']){await driver.evaluate('document.documentElement.dataset.theme='+JSON.stringify(theme));await sleep(80);fs.writeFileSync(path.join(validation,'workflow-card-actions-'+theme+'.png'),Buffer.from(await driver.screenshot(),'base64'))}

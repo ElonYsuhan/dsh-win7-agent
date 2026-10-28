@@ -87,7 +87,16 @@ async function main() {
     await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
     await driver.evaluate('workflowUI.openDraft('+JSON.stringify(longFlow.id)+')',{awaitPromise:true})
     await wait(()=>driver.evaluate('document.getElementById("workflowZoom").textContent==="100%"'),'reopen restores readable default')
-    await driver.click('#workflowArrange');assert.strictEqual((await readingView()).scale,1,'Arranging nodes keeps readable scale')
+    // 「整理布局」是一个下拉：选横向排列时保持 100% 可读，选自适应窗口时整图必须落进画布。
+    await driver.click('#workflowArrange');await wait(()=>driver.evaluate('!!document.querySelector("#workflowLayoutMenu [data-layout=horizontal]")'),'layout menu')
+    await driver.evaluate('document.querySelector("#workflowLayoutMenu [data-layout=horizontal]").click();true')
+    await sleep(120);assert.strictEqual((await readingView()).scale,1,'Arranging nodes keeps readable scale')
+    await driver.click('#workflowArrange');await wait(()=>driver.evaluate('!!document.querySelector("#workflowLayoutMenu [data-layout=fit]")'),'layout menu reopened')
+    await driver.evaluate('document.querySelector("#workflowLayoutMenu [data-layout=fit]").click();true')
+    await sleep(160)
+    const fitted=await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;let l=1e9,t=1e9,r=-1e9,b=-1e9;for(const n of c.graph._nodes){const bb=n.getBounding(),x0=(bb[0]+c.ds.offset[0])*c.ds.scale,y0=(bb[1]+c.ds.offset[1])*c.ds.scale;l=Math.min(l,x0);t=Math.min(t,y0);r=Math.max(r,x0+bb[2]*c.ds.scale);b=Math.max(b,y0+bb[3]*c.ds.scale)}return{left:l,top:t,right:r,bottom:b,width:c.canvas.width,height:c.canvas.height,scale:c.ds.scale}})()`)
+    // 装得下就整图可见；装不下时守住可读缩放，宁可让长流程溢出。
+    assert(fitted.left>=-1&&fitted.top>=-1&&fitted.right<=fitted.width+1&&fitted.bottom<=fitted.height+1||fitted.scale>=.49,'Auto layout either fits the window or keeps text readable')
     await driver.click('#workflowSave');await wait(()=>driver.evaluate('!document.getElementById("workflowCards").classList.contains("hidden")'),'save arranged long flow')
     const flow = await req('POST', base + '/api/workflows/save', graph)
 

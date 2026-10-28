@@ -86,6 +86,10 @@ for (const file of ['src/renderer/style.css', 'shell/style.css']) {
   check(file + ': reserves 132px for right window controls', /padding-right\s*:\s*144px/.test(cssBlock(css, '.window-controls-right .titlebar-drag')))
   check(file + ': self-drawn controls do not drag', /-webkit-app-region\s*:\s*no-drag/.test(cssBlock(css, '.titlebar-drag .window-controls')))
   check(file + ': every native-action button is 44px wide', /(?:width|flex-basis)\s*:\s*44px/.test(cssBlock(css, '.titlebar-drag .window-controls button')))
+  /* 全局 `button:active:not(:disabled){transform:none}` 会连居中位移一起清掉，
+     用 translate 居中的按钮按下那一帧会往下跳半个身高。菜单键必须 margin:auto 居中。 */
+  const menuButton = cssBlock(css, '.titlebar-drag .app-menu-button')
+  check(file + ': app menu button centres with margin, not transform', !!menuButton && /margin\s*:\s*auto/.test(menuButton) && !/transform\s*:\s*translate/.test(menuButton))
 }
 const css = read('src/renderer/style.css')
 check('app occupies the content area below the titlebar', /height\s*:\s*calc\(100vh\s*-\s*48px\)/.test(cssBlock(css, '#app')))
@@ -95,5 +99,24 @@ check('panel toggle uses titlebar flow layout', !/position\s*:\s*absolute/.test(
 check('content no longer has a mac-only top margin', !/\.shell-mac\s+\.content-frame\s*\{[^}]*margin-top/.test(css))
 check('sidebar no longer needs a mac-only spacer', !/\.shell-mac\s+\.sidebar::before/.test(css))
 check('file-only mode no longer pushes file toolbar around traffic lights', !/\.shell-mac\.chat-hidden\s+\.panel-head/.test(css))
+
+/* 应用菜单：原生 menu.popup() 的两列浮层是 Chromium 自己的排版 —— 左列比右面板顶边高 17px、
+   16px 字号、系统配色，CSS 完全够不着。改成渲染层自绘后，这里守住三件事：
+   ①菜单只从渲染层出（主进程不再 popup）；②左列与右列同一个外框、同一套行高；
+   ③命令仍然过主进程白名单，不能出现绕过门控的直连。 */
+const menuMain = read('shell/menu.js')
+const menuRenderer = read('src/renderer/app-menu.js')
+check('shell menu opens the renderer menu instead of a native popup', menuMain.includes("send('app:menu-open')") && !/\.popup\(\{/.test(menuMain))
+check('shell menu validates commands coming back from the renderer', menuMain.includes("'app:menu-invoke'") && menuMain.includes('COMMANDS.includes(id)'))
+check('shell menu keeps the native template for accelerators', menuMain.includes('Menu.setApplicationMenu'))
+check('application menu hides the native menubar without Alt reveal', /setAutoHideMenuBar\(false\)/.test(menuMain) && /setMenuBarVisibility\(false\)/.test(menuMain))
+for (const file of ['shell/preload.js', 'src/main/preload.js']) {
+  check(file + ': forwards the menu button to the renderer', /onMenuOpen/.test(read(file)) && /menuInvoke/.test(read(file)))
+}
+check('renderer loads the application menu module', /<script src="app-menu\.js"><\/script>/.test(html))
+check('application menu is one rounded panel with two columns', /display\s*:\s*flex/.test(cssBlock(css, '.app-menu')) && /border-right\s*:\s*1px/.test(cssBlock(css, '.app-menu-groups')))
+check('application menu rows share one height', /height\s*:\s*28px/.test(cssBlock(css, '.app-menu button')))
+check('application menu groups and items both come from one data list', menuRenderer.includes("id: 'file'") && menuRenderer.includes("id: 'help'") && menuRenderer.includes('app-menu-sep'))
+check('application menu never positions itself with a translate', !/translateY/.test(menuRenderer) && !/transform\s*:\s*translate/.test(cssBlock(css, '.app-menu')))
 
 console.log('shell chrome smoke: ' + passed + '/' + passed + ' checks passed, node ' + process.version)
