@@ -2,6 +2,9 @@
 
 2026-10-17 重写：0.1.x 时代的细节（14 段链、329 条 renderer、单 agent、DSH 命名）已随
 0.1.3–0.3.4 的重构失效，历史叙事留在 `MEMORY-2026-10-07.md.bak` 与 daily logs（2026-09-18/19/20/23）。
+2026-10-28 合并：`git reset --hard origin/main` 后上游版曾冲掉 Windows 本机知识，已合并回来；
+被丢弃的本地提交 03b6c12 备份在 tag `backup/local-03b6c12-20261028` 与
+`E:\Elon\backups\dsh-win7-agent\local-commit-20261028\`（更早的 r30 在 `r30-20261016\`）。
 
 ## 硬约束（别碰）
 - **Win7 SP1 x64 可跑**：Electron 22.3.27 / Node 16.17.1 / Chromium 108。禁原生模块、无生产依赖、
@@ -9,26 +12,51 @@
 - **架构底座是 Cordis**（`src/main/runtime/vendor/cordis`），执行与持久化在插件里。
   改执行/插件/会话/启动前先读 `docs/ARCHITECTURE.md`。
 - **只维护 8080**（用户常驻实例）。打包/测试不要动它，测试一律随机端口 + 临时 AGENT_HOME。
-- **交付规则见 `AGENTS.md`**：改完必须重新打包，至少 Mac 版，默认交 `Agent.app` 绝对路径。
-- 本仓库已有 git（首提交 2026-10-07），main 分支；用 `git worktree add /tmp/dsh-head HEAD`
-  （symlink node_modules）可以在旧版本上跑同一份脚本，分清「这轮引入的」与「本来就红的」。
+- **交付规则见 `AGENTS.md`**：改完必须打包**当前开发平台**（这台是 Windows → `win-x64`），覆盖同名产物、
+  不手动涨版本号；用户说"发版"才升版本并打全平台。未经用户要求不自动启动应用。
+- git：`origin` = github.com/ElonYsuhan/dsh-win7-agent，main。用户说"本地提交不要了" →
+  `git reset --hard origin/main`（**先打备份 tag + `git format-patch`**）。用 `git worktree add <dir> HEAD`
+  （symlink node_modules）可在旧版本上跑同一份脚本，分清「这轮引入的」与「本来就红的」。
 
 ## 怎么跑验收
-- 本机**没有** `/tmp/node-v16.17.1`。用 Electron 内置 Node 16.17.1 跑脚本：
-  `ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/Electron.app/Contents/MacOS/Electron scripts/x.js`
-- 默认链 **38 段**（`npm run check`，完整清单看 package.json）：runtime-architecture / cordis / layered-agent /
-  syntax / win7 / settings-migration / renderer / dialogs / web-bridge / platform / ui-store / self-validate /
-  service-manager / installer / update-takeover / shell-menu / shell-chrome / window-controls / plugin / mcp /
-  knowledge×3 / workflows / document-mcp / agent / llm-stream / concurrency / server-concurrency / release-retention /
-  agent-ux / tasks×2 / extensions / workflow-v2 / workflow-artifacts / workflow-processing / workflow-interaction。
+- 用 Electron 内置 Node 16.17.1 跑脚本（mac：`ELECTRON_RUN_AS_NODE=1 …/Electron.app/Contents/MacOS/Electron scripts/x.js`）。
+  **Windows 本机**：`"/d/Program Files/nvm/v16.20.2/node.exe" scripts/<x>.js`（npm 8.19.4 可用；装依赖要用
+  PATH 上的 npm 10.9.7 / node 22 —— lock 是 v3，npm 8 写不动）。
+- 默认链 **约 50 段**（`npm run check`，**清单以 package.json 的 check 为准，别背数**）：runtime-architecture /
+  cordis / layered-agent / syntax / win7 / settings-migration / renderer / dialogs / web-bridge / platform /
+  ui-store / self-validate / service-manager / installer / update-takeover / startup-build-metadata / shell-menu /
+  shell-chrome / navigation-guard / window-controls / plugin / mcp / knowledge×3 / workflows / document-mcp / agent /
+  llm-stream / concurrency×2 / release-retention / desktop-distribution / source-protection / licensing / agent-ux /
+  tasks×2 / extensions / workflow-*×6。
 - **真机窗口脚本要「用普通 node 跑」**（它们自己 spawn Electron）+ `SMOKE_NO_SANDBOX=1`：
   `check:theme` `check:drag` `check:shellpage` `check:browser` `check:first-chat` `check:ui`。
   直接拿 Electron 当解释器跑 `shell-drag-smoke.js` 会**静默 skip**（exit=0，别被骗）。
-- 打包：`/Users/.../versions/22.22.2-6/bin/node scripts/build-desktop.js mac-arm64`，
-  **必须放开沙箱 + 前台**（后台任务拿不到授权），带 `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=200000`。
+- 打包：Node ≥20（Windows 本机 `/c/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-6/node.exe
+  scripts/build-desktop.js win-x64`），**必须放开沙箱 + 前台**（后台任务拿不到授权），
+  带 `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=200000`；日志须有 `exe branding applied: Agent.exe`。
+  产物 `release/desktop/Agent-<target>-<version>/` + 同名 zip；`node scripts/clean-release.js`（先 --dry-run）
+  做保留策略：每平台只留最新 zip + 活动中的解压目录。**0.4.3 起有源码保护（obfuscate/terser）**，
+  node_modules 需装 `javascript-obfuscator` + `terser`（devDeps，锁里已有）。
 - 打包后必做：包内与 zip 内改动文件哈希对源码逐字节一致（mac 前缀
   `Agent-mac-arm64-<v>/Agent.app/Contents/Resources/app`，win/linux 是 `Agent-<target>/resources/app`；
   少这层前缀 → 取到空串 `e3b0c44298fc1c14`，看着像「包坏了」）。
+
+## Windows 本机环境（这台开发机，2026-10-14/16/28 踩过）
+- **全仓 CRLF**：任何跨行的 `indexOf('…\n')` / `slice` 断言先归一 `\r\n`→`\n`，否则**静默假红**
+  （renderer-smoke / window-controls-smoke 的 functionFrom 都栽过）。renderer-smoke 的 vm 假 DOM 还要补
+  `getComputedStyle` 桩（新对齐逻辑会调它）。
+- **Windows 上必红的既有夹具**（代码没问题，是夹具的锅）：installer-smoke（`/opt/...` 被挂成 `E:\opt\...`、
+  只读父目录在 Windows 上锁不住目录 → 用「活进程把目录当 cwd」做真锁）、shell-menu-smoke（注入宿主 path 后
+  `resolve('/tmp/…')` 变形）。修复补丁在 `E:\Elon\backups\dsh-win7-agent\r30-20261016\` 与
+  `local-commit-20261028\`。
+- **从自动化宿主启动 Agent.exe**：① 宿主带 `ELECTRON_RUN_AS_NODE=1` + NODE_OPTIONS shim，不清 env 会被当
+  纯 Node 跑 → `env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS`；② 父进程在宿主树里（`Start-Process` 也算）→
+  GPU 反复崩 `FATAL: GPU process isn't usable. Goodbye.`，且命令结束被 job 回收；
+  **唯一稳的起法：借 explorer.exe 当父进程** `Start-Process explorer.exe -ArgumentList '"<exe 全路径>"'`
+  → ppid=explorer、无 flag 也稳、跨工具调用存活。别据此给 README 加 `--no-sandbox`。
+- Windows 无 `shasum` → 用 `sha256sum`；**空串比空串会得出全量假绿**，比较前先判非空。
+- Bash 吃反斜杠：`$APPDATA` 在 Bash 里变 `C:Users...`；本机 PowerShell 工具 stdout 不回传 →
+  探查类命令 `Out-File` 到临时文件再读。
 
 ## 已知既有红（2026-10-17 / 10-20 在 HEAD worktree 上复现过，别重复查）
 - `check:drag` 675/677：`面板：渲染出 80 行目录…[目录行=0]`、`终端历史靠 replay[sid:""]`。
@@ -46,12 +74,10 @@
   重放旧 rest/agent/tool 前必须 `resume({confirmExternal:true})`。
 - 事件类型在 `src/main/state/workflow-state.js`；退回策略在 `src/main/flow/workflow-policy.js`
   （`returnTarget` / `interactionView`）；契约在 `src/main/contracts/workflow-interaction.js`。
-- 默认链现在 **38 段**（加了 `workflow-interaction-smoke`）。浏览器版 `check:workflows:interaction:browser`、
-  `check:workflows:v2:browser` 和 `check:workflows:browser`（scripts/workflows-e2e-smoke.js）都在跑；
-  后者靠 `delete n.properties.interaction` 固定测旧表单。
-- 画布多选整体移动是 LiteGraph 原生行为，我们只覆写 `processNodeSelected`（已选中+多选+无修饰键时提前返回）。
-  测它的两个坑：CDP 两次按下间隔 <300ms 会被判双击（塌缩选择并 `bringToFront` 重排 `_nodes`，断言要按 node id）；
-  `last_mouse` 只在 mousemove 里更新，合成拖拽要先发一次 hover move。
+- 浏览器版 `check:workflows:interaction:browser` / `check:workflows:v2:browser` / `check:workflows:browser`
+  都在跑；后者靠 `delete n.properties.interaction` 固定测旧表单。画布多选整体移动是 LiteGraph 原生行为，
+  只覆写 `processNodeSelected`；测它：CDP 两次按下间隔 <300ms 会被判双击（断言按 node id）、
+  合成拖拽要先发一次 hover move（`last_mouse` 只在 mousemove 里更新）。
 - **折叠 details 里的 focus() 静默失效**：子元素 `display:none` 时 focus 无效，activeElement 停在 body。
   重绘后要聚焦必须先展开祖先 details（`renderStructured` 的 `redraw` 已内联）。
 - 改这种压缩风格的单行函数后务必 `node --check` + 括号平衡扫描：少一个 `}` 会让后续函数掉出 IIFE 作用域，
@@ -59,9 +85,7 @@
 
 ## 渲染层架构（改之前先懂这几条）
 - **思考过程 = 步骤时间线**（2026-10-17 P0）：一轮一个 `details.thinking-block.process-timeline`，
-  每步 `div.tl-step.tl-think|tl-tool` + `tl-running|tl-ok|tl-err`；头部
-  `tl-icon`/`tl-title`/`tl-dur`；正文 `.tl-body`（工具输出在 `details.tl-detail`）。
-  标题由 `toolStepTitle()` 翻人话（读取 package.json / 执行 npm run dev），未登记工具如实显示工具名。
+  每步 `div.tl-step.tl-think|tl-tool` + `tl-running|tl-ok|tl-err`；标题由 `toolStepTitle()` 翻人话；
   折叠条 summary = `思考中…（N 步）` → `已执行 N 步 · 3.2s`。
 - **状态存 class 不存 data-\***：过程走 `innerHTML` 存进 `session.processHtml`，class 能原样回来。
 - `session.processTimeline` + `legacyProcessHtml` 是新格式；老会话只有纯文本时摘要保持「思考过程」，
@@ -73,6 +97,13 @@
 - 存储：`AGENT_HOME` 下 settings.json + sessions + ui-store.json；桥两条腿 = preload IPC（开发态）
   与 `web-bridge.js` HTTP（打包壳）。`save()` 返回 ≠ 已落盘，断言磁盘要先 `await store.flush()`。
 
+## 窗口外观（0.4.3 起）
+- 真源 `shell/window-chrome.js`（两个主进程入口 `shell/main.js` 与 `src/main/main.js` 都 require 它，
+  **别各写一套**）：`frame:false` + **自绘窗口按钮**（preload 注入 `.window-controls`），
+  不依赖 titleBarOverlay → **Win7 也能用**。preload 按 chrome 模式打 `shell-window` +
+  `shell-mac`(40px) / `shell-win`(48px)；双击顶栏 win32=maximize。
+  守卫：shell-chrome-smoke + window-controls-smoke（CSS 里所有 `-webkit-app-region` 选择器必须挂平台类）。
+
 ## 主题 / 视觉
 - 两套主题：灰黑（`--bg #212121`）与白（`--bg #ffffff`），去蓝青、去渐变、去普通阴影，
   语义色只留给错误/警告/成功与代码高亮。新增样式一律用现有 CSS 变量。
@@ -81,9 +112,8 @@
   theme-smoke 探它会假红（2026-10-17 已改成 `.panel-tabbar`）。
 
 ## 样式改动的两条纪律（都踩过）
-- **量间距用脚本，别用眼睛**：`/tmp/sb-measure.js` 那套（真窗口读盒模型 + 段间距）能直接指出
-  「哪段是 0px、哪段多到 24px」。2026-10-17 侧边栏就是靠它发现品牌行下留了 24px、
-  分组标题和第一行贴死 0px。
+- **量间距用脚本，别用眼睛**：真窗口读盒模型 + 段间距（`/tmp/sb-measure.js` 那套），
+  2026-10-17 侧边栏靠它发现品牌行下留了 24px、分组标题和第一行贴死 0px。
 - **CSS 同一批选择器被不同人写进不同位置时，最后写入的赢**。别逐处改：在**文件末尾**放一个
   明确归属的收口块（本项目叫「侧边栏纵向节奏」），前面的块只管尺寸/配色，并写注释说明归属。
 

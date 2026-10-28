@@ -81,7 +81,7 @@ check('shell IPC opens local paths and rejects empty or non-string input', () =>
     path
   })
   assert.strictEqual(handler({}, '/tmp/中文 工作区'), '')
-  assert.deepStrictEqual(calls, ['/tmp/中文 工作区'])
+  assert.deepStrictEqual(calls, [require('path').resolve('/tmp/中文 工作区')])
   assert(handler({}, '') !== '')
   assert(handler({}, '  ') !== '')
   assert(handler({}, null) !== '')

@@ -77,4 +77,6 @@ function scheduledTrigger(raw){
  if(!raw||Object.keys(raw).some(k=>!['version','type','taskId','taskRunId','revision'].includes(k))||raw.version!==1||raw.type!=='task'||typeof raw.taskId!=='string'||!/^[A-Za-z0-9_-]{1,80}$/.test(raw.taskId)||typeof raw.taskRunId!=='string'||!/^[A-Za-z0-9_:-]{1,160}$/.test(raw.taskRunId)||!Number.isInteger(raw.revision)||raw.revision<1)throw Error('定时触发来源无效')
  return{version:1,type:'task',taskId:raw.taskId,taskRunId:raw.taskRunId,revision:raw.revision}
 }
-module.exports={scheduledTrigger,TYPES,id,validate,submission,humanModes}
+// New names are short; legacy definitions remain readable and executable.
+function validateName(value){const name=String(value||'').trim();if(!name||Array.from(name).length>15)throw Error('流程名称不能为空且不能超过15个字，详细说明请填写到流程描述');return name}
+module.exports={scheduledTrigger,TYPES,id,validate,validateName,submission,humanModes}

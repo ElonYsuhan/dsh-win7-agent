@@ -3,7 +3,9 @@
 // and fixtures live in a separate temporary harness and never enter the app.
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process'), assert = require('assert')
 const root = path.resolve(__dirname, '..'), bundle = path.resolve(process.argv[2] || 'release/.desktop-build/mac-arm64/delivery/Agent.app')
-const app = path.join(bundle, 'Contents/Resources/app'), executable = path.join(bundle, 'Contents/MacOS/Electron')
+const windows = fs.existsSync(path.join(bundle, 'Agent.exe'))
+const app = path.join(bundle, windows ? 'resources/app' : 'Contents/Resources/app')
+const executable = path.join(bundle, windows ? 'Agent.exe' : 'Contents/MacOS/Electron')
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-protected-runtime-'))
 try {
   const report = require('./desktop/source-protection').verify(app)
@@ -22,5 +24,5 @@ try {
     if (result.error) throw result.error
     assert.strictEqual(result.status, 0, 'Protected runtime: ' + test)
   }
-  console.log('Actual encrypted Mac payload passed Cordis, workflows and node designer regressions under embedded Node16.17.1.')
+  console.log('Actual encrypted '+(windows?'Windows':'Mac')+' payload passed Cordis, workflows and node designer regressions under embedded Node16.17.1.')
 } finally { fs.rmSync(dir, { recursive: true, force: true }) }

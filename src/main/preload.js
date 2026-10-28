@@ -15,6 +15,11 @@ function markShellWindow() {
   }
 }
 
+function titlebarIcon(name) {
+  const paths = {menu:'M4 6h16M4 12h16M4 18h16',minimize:'M5 12h14',maximize:'M5 5h14v14H5z',restore:'M8 8V4h12v12h-4M4 8h12v12H4z',close:'M5 5l14 14M19 5L5 19'}
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+paths[name]+'"/></svg>'
+}
+
 function setupWindowControls() {
   const root = document.documentElement
   const bar = document.getElementById('titlebarDrag')
@@ -41,6 +46,7 @@ function setupWindowControls() {
       const icon = document.createElement('span')
       icon.className = 'window-control-icon window-control-icon-' + control.icon
       icon.setAttribute('aria-hidden', 'true')
+      icon.innerHTML = titlebarIcon(control.icon)
       button.appendChild(icon)
       button.addEventListener('click', () => {
         ipcRenderer.invoke('window:action', control.action).catch(() => {})
@@ -63,6 +69,7 @@ function setupWindowControls() {
       const label = value.maximized ? '还原窗口' : '最大化窗口'
       maximizeButton.title = label
       maximizeButton.setAttribute('aria-label', label)
+      maximizeButton.firstChild.innerHTML = titlebarIcon(value.maximized ? 'restore' : 'maximize')
       maximizeButton.firstChild.className = 'window-control-icon window-control-icon-' + (value.maximized ? 'restore' : 'maximize')
     }
   }
@@ -155,7 +162,7 @@ try {
       if (bar) {
         const button = document.createElement('button')
         button.className = 'app-menu-button'
-        button.textContent = '☰'
+        button.innerHTML = titlebarIcon('menu')
         button.title = '应用菜单'
         button.setAttribute('aria-label', '应用菜单')
         button.setAttribute('aria-haspopup', 'menu')

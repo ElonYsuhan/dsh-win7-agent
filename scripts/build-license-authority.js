@@ -3,6 +3,24 @@
 const fs=require('fs'),path=require('path'),{execFileSync}=require('child_process')
 const root=path.resolve(__dirname,'..'),target='mac-'+process.arch
 async function main(){
+ if(process.platform==='win32'){
+  const runtime=path.join(root,'release/.electron-dist/unpacked/win32-x64'),output=path.join(root,'release/licensing/Agent-license-win-x64'),staging=path.join(root,'release/.desktop-build/license-authority/win-x64')
+  if(!fs.existsSync(path.join(runtime,'electron.exe')))throw Error('缺少 Electron 22.3.27 Windows 离线运行时')
+  fs.rmSync(staging,{recursive:true,force:true});fs.cpSync(runtime,staging,{recursive:true})
+  fs.renameSync(path.join(staging,'electron.exe'),path.join(staging,'Agent 授权签发工具.exe'))
+  fs.rmSync(path.join(staging,'resources/default_app.asar'),{force:true})
+  const payload=path.join(staging,'resources/app');fs.mkdirSync(path.join(payload,'src/renderer'),{recursive:true});fs.mkdirSync(path.join(payload,'service'),{recursive:true});fs.mkdirSync(path.join(payload,'src/main/contracts'),{recursive:true})
+  for(const name of ['main.js','preload.js'])fs.copyFileSync(path.join(__dirname,'license-authority',name),path.join(payload,name))
+  for(const name of ['index.html','style.css','app.js'])fs.copyFileSync(path.join(__dirname,'license-authority',name),path.join(payload,'src/renderer',name))
+  fs.writeFileSync(path.join(payload,'service/index.js'),fs.readFileSync(path.join(__dirname,'license-authority/issuer.js'),'utf8').replace('../../src/main/contracts/licensing','../src/main/contracts/licensing'))
+  fs.copyFileSync(path.join(root,'src/main/contracts/licensing.js'),path.join(payload,'src/main/contracts/licensing.js'))
+  fs.writeFileSync(path.join(payload,'package.json'),JSON.stringify({name:'agent-license-authority',version:require('../package.json').version,main:'main.js'}))
+  await require('./desktop/source-protection').protect(payload);require('./desktop/source-protection').verify(payload)
+  const backup=path.join(root,'release/.desktop-build/license-authority/previous-win-x64');if(fs.existsSync(backup))throw Error('请先处理旧签发工具备份')
+  fs.mkdirSync(path.dirname(output),{recursive:true});if(fs.existsSync(output))fs.renameSync(output,backup)
+  try{fs.renameSync(staging,output)}catch(e){if(fs.existsSync(backup))fs.renameSync(backup,output);throw e}
+  fs.rmSync(backup,{recursive:true,force:true});const inventory=require('./desktop-distribution').inventory(output);fs.writeFileSync(path.join(root,'release/licensing/SHA256SUMS.txt'),inventory.filter(r=>r.sha256).map(r=>r.sha256+'  Agent-license-win-x64/'+r.path).join('\n')+'\n');console.log(path.join(output,'Agent 授权签发工具.exe'));return
+ }
  if(process.platform!=='darwin')throw Error('当前签发工具构建只支持本机 macOS')
  const runtime=path.join(root,'release/.electron-dist/unpacked/darwin-'+process.arch+'/Electron.app')
  const output=path.join(root,'release/licensing/Agent-license-'+target),staging=path.join(root,'release/.desktop-build/license-authority/delivery'),bundle=path.join(staging,'Agent 授权签发工具.app')

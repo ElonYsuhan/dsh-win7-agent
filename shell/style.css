@@ -461,3 +461,13 @@ input[type="radio"]:focus-visible {
 .window-control-icon-close::after {
   transform: rotate(-45deg);
 }
+
+/* Shared titlebar alignment and SVG glyphs. */
+.titlebar-drag { box-sizing:border-box; }
+.titlebar-drag .app-menu-button { top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0; }
+.titlebar-drag .icon-button { flex:0 0 34px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:0; }
+.titlebar-drag .window-controls { top:50%;transform:translateY(-50%);height:34px; }
+.titlebar-drag .window-controls button { height:34px;min-height:34px;box-sizing:border-box; }
+.window-control-icon { display:flex;align-items:center;justify-content:center;width:20px;height:20px; }
+.window-control-icon::before,.window-control-icon::after { content:none; }
+.titlebar-drag .icon svg,.titlebar-drag .app-menu-button svg { width:20px;height:20px;display:block; }

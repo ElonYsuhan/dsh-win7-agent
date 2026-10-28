@@ -12,6 +12,7 @@ const WORK = path.join(ROOT, 'release', '.desktop-build')
 const REPORTS = path.join(ROOT, 'release', 'validation', 'desktop')
 const VERSION = require('../package.json').version
 const APPIMAGE_RUNTIME = require('./desktop/appimage-runtime.json')
+const WINDOWS_7ZIP = require('./desktop/7zip-win-x64.json')
 
 function entryName(target) {
   if (target.startsWith('mac-')) return 'Agent.app'
@@ -58,9 +59,16 @@ function command(file, args, options) {
 function fullSevenZip() {
   // 7za bundled with electron-builder only supports 7z/zip, not SquashFS/NSIS.
   // Build-host tool only; never shipped or installed on the target machine.
-  const executable = process.env.AGENT_FULL_7ZIP || '7z'
+  const executable = process.env.AGENT_FULL_7ZIP || (process.platform === 'win32'
+    ? path.join(ROOT, 'release', '.desktop-tools', '7zip-' + WINDOWS_7ZIP.version + '-win-x64', '7z.exe') : '7z')
+  if (process.platform === 'win32') {
+    for (const [name, digest] of Object.entries(WINDOWS_7ZIP.files)) {
+      if (hashFile(path.join(path.dirname(executable), name)) !== digest) throw new Error('FULL_7ZIP_HASH_MISMATCH: ' + name)
+    }
+  }
   const banner = command(executable, ['i'], { stdio: 'pipe', encoding: 'utf8' })
-  if (!banner.includes('p7zip Version 17.05') || !banner.includes('SquashFS') || !banner.includes('Nsis')) throw new Error('FULL_7ZIP_REQUIRED: p7zip 17.06 (17.05 binary banner)')
+  const expected = process.platform === 'win32' ? '7-Zip ' + WINDOWS_7ZIP.version + ' (x64)' : 'p7zip Version 17.05'
+  if (!banner.includes(expected) || !banner.includes('SquashFS') || !banner.includes('Nsis')) throw new Error('FULL_7ZIP_REQUIRED: ' + expected)
   return executable
 }
 
@@ -159,7 +167,7 @@ async function prepare(target) {
   const delivery = inventory(staged)
   const report = { formatVersion: 1, target, version: VERSION, sourceCommit, buildMetadata, licensing, sourceProtection: { policy: protection.policy, tools: protection.tools, encrypted: protection.records.filter(r => r.mode === 'aes-256-gcm').length, obfuscated: protection.records.filter(r => r.mode === 'obfuscated').length },
     runtime: { electron: '22.3.27', node: '16.17.1', chromium: '108' },
-    tools: { electronBuilder: '24.13.3', appBuilder: '4.0.0', nsis: '3.0.4.1', appimage: '12.0.1', appimageRuntime: APPIMAGE_RUNTIME.version, full7zip: 'p7zip 17.06 (17.05 banner)' },
+    tools: { electronBuilder: '24.13.3', appBuilder: '4.0.0', nsis: '3.0.4.1', appimage: '12.0.1', appimageRuntime: APPIMAGE_RUNTIME.version, full7zip: process.platform === 'win32' ? { name: '7-Zip', ...WINDOWS_7ZIP } : 'p7zip 17.06 (17.05 banner)' },
     payload, delivery, verification: 'payload byte comparison and platform headers passed',
     targetMachineTest: target === 'mac-' + process.arch && process.platform === 'darwin' ? 'embedded runtime checked separately' : 'not performed' }
   fs.mkdirSync(REPORTS, { recursive: true })

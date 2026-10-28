@@ -52,7 +52,7 @@ async function main() {
   /* ---- 路径推导 ---- */
   check(
     'packageDirOf: macOS 上溯到 .app',
-    installer.packageDirOf('/opt/Agent.app/Contents/MacOS/Agent', 'darwin') === '/opt/Agent.app',
+    installer.packageDirOf('/opt/Agent.app/Contents/MacOS/Agent', 'darwin') === path.resolve('/opt/Agent.app'),
     installer.packageDirOf('/opt/Agent.app/Contents/MacOS/Agent', 'darwin')
   )
   check(
@@ -93,7 +93,7 @@ async function main() {
   )
   check(
     'mainBinaryOf: linux 不带后缀',
-    installer.mainBinaryOf('/opt/dsh', 'linux') === '/opt/dsh/Agent'
+    installer.mainBinaryOf('/opt/dsh', 'linux') === path.join('/opt/dsh','Agent')
   )
 
   /* ---- 同一目录判定 ---- */
@@ -196,7 +196,8 @@ async function main() {
   const lockedDst = path.join(lockedParent, 'Agent')
   fakePackage(lockedDst, '0.1.0')
   let attempts = 0
-  fs.chmodSync(lockedParent, 0o555)
+  const originalRename = fs.renameSync
+  fs.renameSync = function(src, dst) { if (path.resolve(src) === path.resolve(lockedDst)) { const error = new Error('Simulated locked installation'); error.code = 'EPERM'; throw error } return originalRename.apply(this, arguments) }
   let lockedResult
   try {
     lockedResult = await installer.replacePackage({
@@ -208,7 +209,7 @@ async function main() {
       onLockedAttempt: () => { attempts++ }
     })
   } finally {
-    fs.chmodSync(lockedParent, 0o755)
+    fs.renameSync = originalRename
   }
   check('replacePackage: 改名失败时报 DIR_LOCKED', lockedResult.ok === false && lockedResult.error === 'DIR_LOCKED', lockedResult.error)
   check('replacePackage: 重试回调被触发', attempts >= 2, attempts)

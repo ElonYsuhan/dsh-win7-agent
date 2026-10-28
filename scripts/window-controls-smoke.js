@@ -39,7 +39,7 @@ for (const [left, right, expected] of [['MSX', '', 'left'], ['', 'MSX', 'right']
       execFileSync: () => { throw new Error('must not query GNOME after a valid KDE preference') }
     })
     assert.strictEqual(side, expected)
-    assert.deepStrictEqual(files, ['/__fixture__/kwinrc'])
+    assert.deepStrictEqual(files, [require('path').join('/__fixture__','kwinrc')])
   })
 }
 check('Linux missing/failed preference tools safely defaults to right', () => {
@@ -118,6 +118,7 @@ for (const platform of ['darwin', 'win32', 'linux']) {
 }
 
 function functionFrom(source, name, env) {
+  source = source.replace(/\r\n/g, '\n')
   const start = source.indexOf('function ' + name)
   const end = source.indexOf('\n}\n', start) + 2
   return vm.runInNewContext('(' + source.slice(start, end) + ')', env)

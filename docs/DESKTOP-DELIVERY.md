@@ -63,8 +63,12 @@ SHA256 锁在 `scripts/desktop/appimage-runtime.json`。启动头静态链接 zl
 不改变内嵌 Electron、业务运行时或 Windows 兼容边界。构建时校验摘要后，与原 SquashFS
 拼接，不改第三方机器码；许可与源码定位随镜像内置。正常路径仍以 FUSE 挂载，需系统
 允许 `/dev/fuse`；受限容器的解包验证不能代替真实 Linux 桌面启动测试。
-完整解包验证额外使用构建机 p7zip 17.06（程序 banner 为17.05），通过 `7z` 或
-`AGENT_FULL_7ZIP` 指定，不随程序分发；不增加 npm 生产依赖或目标机下载。
+完整解包验证在 Unix 构建机使用 p7zip 17.06（程序 banner 为17.05），Windows 构建机
+使用官方 7-Zip 23.01 x64；均检查 NSIS/SquashFS 解包能力，不随程序分发。
+Windows 工具固定来源与 SHA256 见 `scripts/desktop/7zip-win-x64.json`，默认缓存于
+`release/.desktop-tools/7zip-23.01-win-x64/`，执行前校验 7z.exe 与 7z.dll 摘要。
+可通过 `AGENT_FULL_7ZIP` 指定路径，仍须满足固定版本、摘要与能力检查。
+此为构建平台适配，不增加 npm 生产依赖或目标机下载；未来可独立替换，不影响业务契约。
 首次构建所需工具可由 electron-builder 下载到构建缓存，离线构建需要事先准备缓存。
 静态启动头的固定文件缓存在 `release/.desktop-tools/appimage-20251108/`，仅构建机
 在缓存缺失时下载，目标机没有下载流程。系统组件 LGPL 等许可仍按上游要求保留。

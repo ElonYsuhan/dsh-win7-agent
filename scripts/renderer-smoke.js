@@ -21,7 +21,10 @@ const ROOT = path.resolve(__dirname, '..')
 const RENDERER_DIR = path.join(ROOT, 'src', 'renderer')
 
 function readRenderer(file) {
-  return fs.readFileSync(path.join(RENDERER_DIR, file), 'utf8')
+  // 本仓库是 CRLF（Windows checkout），而用例里的 needle 大量带字面 '\n'（如
+  // 'autoResizeComposer()\n'、'\n.titlebar-drag .page-actions {\n  display:'）。
+  // 不归一的话这些断言永远匹配不到 → 静默假红。读取时统一成 LF，用例只面对一种行尾。
+  return fs.readFileSync(path.join(RENDERER_DIR, file), 'utf8').replace(/\r\n/g, '\n')
 }
 
 /* ---------- 极简 DOM shim ---------- */
