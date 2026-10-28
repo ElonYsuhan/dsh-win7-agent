@@ -1,0 +1,14 @@
+{
+  "formatVersion": 1,
+  "target": "win-x64",
+  "version": "0.4.4",
+  "sourceCommit": "f81308ff1fef7d2345efce3c3aefe2953058eebe",
+  "packageBuildId": "e296feccfb910a94fecd7ea48474253fc667df2e14acfd387c2e945053de876f",
+  "uiBuild": "3e4b13e5ce6742af77c0749c50f03e040d23c56c4e625376c19df43d49338af6",
+  "electron": "22.3.27",
+  "node": "16.17.1",
+  "chromium": "108",
+  "file": "Agent-win-x64/Agent.exe",
+  "size": 68390980,
+  "sha256": "58db151c1c306776ecc1825c13ff699707c3da6ed06fa5376109897817da7dec"
+}

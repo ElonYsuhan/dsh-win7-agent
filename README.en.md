@@ -91,3 +91,7 @@ Skills provide instructions, MCP defines a tool protocol, and plugins implement 
 - [Plugin development](docs/PLUGINS.md)
 - [Software licensing](docs/SOFTWARE-LICENSING.md)
 - [Standalone service deployment](server/README.md)
+
+## Install from the repository
+
+The latest Windows x64 offline installer is committed with the source at [installers/Agent-win-x64/Agent.exe](installers/Agent-win-x64/Agent.exe). Clone or pull the repository to obtain it without a separate attachment upload. See the [installer guide](installers/README.md) for checksum verification and build metadata. Only the latest installer per platform is kept in this directory; Git history retains previous binaries.

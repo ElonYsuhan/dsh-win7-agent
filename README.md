@@ -91,3 +91,7 @@ Skill 是操作指引，MCP 是工具协议，插件提供运行时能力，三�
 - [插件开发](docs/PLUGINS.md)
 - [软件授权](docs/SOFTWARE-LICENSING.md)
 - [独立服务部署](server/README.md)
+
+## 从仓库获取安装程序
+
+最新版 Windows x64 离线安装程序随代码提交，位置为 [installers/Agent-win-x64/Agent.exe](installers/Agent-win-x64/Agent.exe)。通过 Git 拉取仓库后即可安装，无需单独上传安装附件。校验方法与构建记录见 [安装程序说明](installers/README.md)。该目录按平台只保留最新版；历史二进制仍保留在 Git 历史中。
