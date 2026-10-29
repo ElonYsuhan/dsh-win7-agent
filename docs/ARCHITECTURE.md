@@ -515,3 +515,21 @@ flag disables enforcement. The platform adapter uses Node16 built-ins and Win7 s
 actual Windows hardware testing is distinct from embedded Node and static compatibility checks.
 Future online leases or identity adapters replace the service implementation without changing
 Agent state semantics. See SOFTWARE-LICENSING.md for offline limits and validation evidence.
+
+## 三层桌面安全适配（2026-10-28）
+
+界面隔离与共享 IPC 来源检查属于 Electron 适配层；服务端跨站校验属于传输层。独立发布签名密钥在构建机签署代码清单，加载器验证签名并按模块加载检查摘要，页面资源在交付前检查。加载器不拥有 Agent 业务状态，不绕过 Cordis，不改变契约/纯策略/reducer。无生产依赖及运行时下载，继续固定 Node16/Chromium108；未来平台适配可替换。签名范围、授权短标识、性能及正式系统证书限制见 [桌面安全说明](DESKTOP-SECURITY.md)。
+
+独立的管理员签发工具另提供内网HTTP适配器，复用原issuer与私钥目录；登录会话仅属于该管理工具，既不进入客户Agent状态，也不新建Agent执行链。桌面窗口复用同一登录页面和接口，关闭窗口等待服务资源清理。内置单管理员、无注册、签发电脑绑定、会话及验证边界见SOFTWARE-LICENSING.md。
+
+### 整流程设计规范 Skill（2026-10-28）
+
+既有 core/workflow-tools 声明 inject skillLibrary，从统一服务按需读取内置 workflow-process-designer，经 workflow_catalog 的 designGuide 返回模型；普通聊天只带索引，正文和场景引用不全局常驻。能力中心停用后目录不再返回正文。整流程设计入口提示按该指南分析审批/退回与能力缺口；实际创建/修改仍走同一 workflows 服务和校验，既不新增执行器也不将 Skill 当权限。上游Camunda固定提交、Apache-2.0及本地JSON适配/离线包/真实驳回回归说明见 WORKFLOW-DESIGN-SKILL.md。继续固定Node16/Chromium108，无新增生产依赖或目标机联网下载。
+
+### 条件分支与排他汇合（2026-10-29）
+
+为替代固定顺序审批，contracts/workflow-branch 定义有界规则及选路事实，flow 负责纯匹配和激活判断，reducer 校验选路、跳过与重试迁移；现有 Cordis workflows 插件执行并持久化，不增加容器或执行器。未选路径跳过，merge 只接受一条有效路径；驳回清除当前选路并保留尝试历史，外部副作用仍需确认。使用 Node16 内置能力，无新增依赖或平台判断；未来替换运行时不改变规则与事件契约。验证入口为 workflow-branch-smoke、workflow-canvas-e2e-smoke 及真实保护包回归；Win7 真机验证单独进行。
+
+### 驳回路径可视化（2026-10-29）
+
+为区分正向条件分支与业务退回，显示层从已有interaction.returnTo派生带目标标注的反向虚线，条件出口增加名称和方向箭头。渲染辅助只处理纯图与几何，既不写入workflow.edges，也不改变DAG执行、状态事件及外部重放策略。编辑预览按显式目标优先及上游办理节点默认策略对齐运行时。继续使用Chromium108 Canvas/SVG，无新增依赖；可替换渲染器不改变业务契约。路由及真实编辑/执行图回归覆盖目标、方向和无持久化环路。

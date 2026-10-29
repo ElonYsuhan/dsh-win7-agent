@@ -8,6 +8,10 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
  const notify=()=>{try{emit({type:'workflows:changed'})}catch(_){}}
  function ready(){if(closed)throw Error('WORKFLOW_CLOSED');if(!repo){const settings=ctx.agentConfig.settings;if(!settings||!settings.file)throw Error('WORKFLOW_HOME_UNAVAILABLE');const candidate=new Repository(path.dirname(settings.file));candidate.open();repo=candidate}return repo}
  function record(id,event){const result=ready().append(id,event);notify();return result}
+ function settleUnselected(id){
+  const snapshot=ready().getRun(id)
+  for(const key of snapshot.plan){const current=ready().getRun(id),step=current.steps.find(s=>s.id===key);if(step.status!=='pending')continue;const node=current.workflow.nodes.find(n=>n.id===key);if(P.activation(current.workflow,current.steps,node).state==='skipped')record(id,{type:'node-skipped',nodeId:key})}
+ }
  function capacity(){if(closing)throw Error('WORKFLOW_CLOSED');if(active.size>=2)throw Error('工作流最多同时执行2个实例')}
  function resumeExternal(run,raw){
   if(raw.confirmExternal!==true)throw Error('退回后需要重新执行外部操作，请先核查上一次调用与中间结果，再确认继续')
@@ -19,6 +23,7 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
   const timer=setTimeout(()=>{expired=true;controller.abort()},10*60*1000)
   try{
    if(run.status==='pending')run=record(run.id,{type:'started'})
+   settleUnselected(run.id)
    const values=new Map(run.steps.filter(s=>s.status==='succeeded').map(s=>[s.id,s.output||'']))
    totalBytes=[...values.values()].reduce((sum,text)=>sum+Buffer.byteLength(text),0)
    for(const key of run.plan){
@@ -27,8 +32,13 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
     const current=ready().getRun(run.id)
     if(!ctx.licensing.status().allowed){record(run.id,{type:'paused'});return}
     if(current.pauseRequested){record(run.id,{type:'paused'});return}
+    const node=run.workflow.nodes.find(n=>n.id===key),currentStep=current.steps.find(s=>s.id===key)
+    if(currentStep.status==='skipped')continue
+    const activation=P.activation(run.workflow,current.steps,node)
+    if(activation.state==='waiting')throw Error('上游路径尚未就绪：'+node.title)
+    if(activation.state==='skipped'){record(run.id,{type:'node-skipped',nodeId:key});continue}
     if(current.externalConfirm&&current.externalConfirm.includes(key)){record(run.id,{type:'external-checkpoint',nodeId:key});return}
-    const node=run.workflow.nodes.find(n=>n.id===key),incoming=run.workflow.edges.filter(e=>e.to===key).slice().sort((a,b)=>(a.slot||0)-(b.slot||0)),inputs=Array.from({length:node.inputs?node.inputs.length:2},(_,slot)=>{const edge=incoming.find(e=>(e.slot||0)===slot);return edge?(values.get(edge.from)||''):''}),mapped=P.mapped(node,current.steps)
+    const incoming=activation.incoming.slice().sort((a,b)=>(a.slot||0)-(b.slot||0)),inputs=Array.from({length:node.inputs?node.inputs.length:2},(_,slot)=>{const edge=incoming.find(e=>(e.slot||0)===slot);return edge?(values.get(edge.from)||''):''}),mapped=P.mapped(node,current.steps)
     let input=incoming.map(e=>values.get(e.from)||'').join('\n')
     if(Object.keys(node.bindings||{}).length){if(node.inputSchema&&node.type!=='human')Schema.validate(mapped,node.inputSchema,'节点输入');input=JSON.stringify(mapped)}
     else if(node.inputSchema&&node.type!=='human')Schema.validate(mapped,node.inputSchema,'节点输入')
@@ -37,10 +47,11 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
     const expected=run.workflow.nodes.flatMap(n=>(n.deliverable&&n.deliverable.files||[]).filter(f=>f.nodeId===key).map(f=>f.path));if(expected.length&&['agent','ai'].includes(node.type))input+='\n\n本步骤必须实际生成以下交付文件（相对于当前工作目录）：'+expected.join('、')+'。不得只描述文件已创建；若没有写文件能力，明确报告无法完成。';
     const started=record(run.id,{type:'node-started',nodeId:key,input,data:mapped}),step=started.steps.find(s=>s.id===key)
     if(node.type==='human'){record(run.id,{type:'node-waiting',nodeId:key,taskId:randomId()});return}
-    let text='',artifact='',artifacts=[],resultData,sessionId='',progressCount=0
+    let text='',artifact='',artifacts=[],resultData,route,sessionId='',progressCount=0
     try{
      record(run.id,{type:'node-progress',nodeId:key,message:node.type==='agent'?'开始受限 Headless Agent 执行':['ai','evaluate'].includes(node.type)?'已请求当前配置的模型，等待处理结果':['output','end'].includes(node.type)?'正在保存本次实例的结果文件':node.type==='rest'?'正在调用 '+node.rest.method+' 接口（不自动重试）':node.type==='template'?'正在按模板整理上游内容':'正在读取节点输入'})
      if(['ai','evaluate','agent'].includes(node.type)&&++modelCalls>20)throw Error('单次流程最多执行20个模型/Agent节点尝试')
+     if(node.type==='condition')route=P.choose(node,mapped)
      const resources=run.resources||{skills:{},tools:{}}
      if(resources.nodeVersions&&resources.nodeVersions[node.type]!==String((ctx.workflowNodes.definitions.find(d=>d.type===node.type)||{}).version||'1'))throw Error('节点扩展版本已变更，请创建新实例')
      let workspaceRoot;const files=P.inputFiles(run.workflow,started.steps,key,run.materials||[])
@@ -53,12 +64,16 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
      totalBytes+=Buffer.byteLength(text);if(totalBytes>1024*1024)throw Error('单次流程累计输出超过1MB')
      if(raw&&raw.needsHuman){record(run.id,{type:'node-waiting',nodeId:key,taskId:randomId(),kind:'agent',reason:String(raw.reason),output:text,sessionId});return}
      resultData=Schema.parse(text,node.outputSchema)
+     if(node.type==='condition')resultData=mapped
+     if(node.type==='merge'){const source=started.steps.find(s=>s.id===incoming[0].from);resultData=source.data===undefined?{text}:source.data}
+     if(['condition','merge'].includes(node.type)&&node.outputSchema)Schema.validate(resultData,node.outputSchema,'节点输出')
      if(node.type==='evaluate'&&resultData&&['revise','fail'].includes(resultData.verdict)){record(run.id,{type:'node-waiting',nodeId:key,taskId:randomId(),kind:'evaluation',reason:'评估未通过，请人工审阅问题，修改上游或明确给出处理结论',output:text,data:resultData});return}
      if(['output','end'].includes(node.type)){artifacts=ready().deliveries(ready().getRun(run.id),node,text,step.attempt);artifact=artifacts[0].file}
-     values.set(key,text);record(run.id,{type:'node-finished',nodeId:key,status:'succeeded',output:text,...(resultData!==null?{data:resultData}:{}),artifact,artifacts,sessionId})
+     values.set(key,text);record(run.id,{type:'node-finished',nodeId:key,status:'succeeded',output:text,...(resultData!==null?{data:resultData}:{}),...(route?{route}:{}),artifact,artifacts,sessionId});if(route)settleUnselected(run.id)
     }catch(error){record(run.id,{type:'node-finished',nodeId:key,status:controller.signal.aborted?'cancelled':'failed',output:String(error.partial||text).slice(0,64000),sessionId:error.sessionId||sessionId,error:error.message});throw error}
    }
    if(ready().getRun(run.id).pauseRequested){record(run.id,{type:'paused'});return}
+   if(!ready().getRun(run.id).steps.some(s=>['end','output'].includes(run.workflow.nodes.find(n=>n.id===s.id).type)&&s.status==='succeeded'))throw Error('所选分支未到达结束节点，请检查分支汇合连线')
    record(run.id,{type:'finished',status:'succeeded'})
   }catch(error){record(run.id,{type:'finished',status:controller.signal.aborted&&!expired?'cancelled':'failed',error:expired?'自动执行超过10分钟时限':error.message})}
   finally{clearTimeout(timer);active.delete(run.id)}
@@ -82,7 +97,7 @@ module.exports={name:'core/workflows',inject:['agentConfig','workflowNodes','wor
   simulate:raw=>ctx.workflowDesigner.simulate(raw),
   cancelDesign:raw=>ctx.workflowDesigner.cancelDesign(raw),
   attach(fn){emit=typeof fn==='function'?fn:()=>{}},
-  list(){const r=ready();return{workflows:r.definitions,runs:Array.from(r.runs.values()).sort((a,b)=>b.createdAt-a.createdAt).map(({steps,workflow,resources,plan,plannedArtifacts,...run})=>({...run,deliveryCount:run.deliveryCount===undefined?(plannedArtifacts||[]).length:run.deliveryCount,artifactCount:run.artifactCount===undefined?steps.reduce((n,s)=>n+(s.artifacts?s.artifacts.length:s.artifact?1:0),0):run.artifactCount,stepCount:steps.length,completed:steps.filter(s=>s.status==='succeeded').length,currentStep:(steps.find(s=>['running','waiting'].includes(s.status))||{}).title||''})),nodes:ctx.workflowNodes.definitions,templates:Templates.catalog,capabilities:ctx.workflowAgent.catalog()}},
+  list(){const r=ready();return{workflows:r.definitions,runs:Array.from(r.runs.values()).sort((a,b)=>b.createdAt-a.createdAt).map(({steps,workflow,resources,plan,plannedArtifacts,...run})=>({...run,deliveryCount:run.deliveryCount===undefined?Artifacts.deliverables({plannedArtifacts,steps}).filter(a=>a.status!=='skipped').length:run.deliveryCount,artifactCount:run.artifactCount===undefined?steps.reduce((n,s)=>n+(s.artifacts?s.artifacts.length:s.artifact?1:0),0):run.artifactCount,stepCount:steps.length,completed:steps.filter(s=>s.status==='succeeded').length,currentStep:(steps.find(s=>['running','waiting'].includes(s.status))||{}).title||''})),nodes:ctx.workflowNodes.definitions,templates:Templates.catalog,capabilities:ctx.workflowAgent.catalog()}},
   canStart(){return!closing&&!closed&&active.size<2},
   hasActive(raw){const id=C.id(raw.id);return[...ready().runs.values()].some(run=>run.workflowId===id&&['pending','running','waiting','paused'].includes(run.status))},
   template(raw){return C.validate(Templates.create(raw.id),ctx.workflowNodes.definitions)},

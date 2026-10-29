@@ -1,3 +1,3 @@
 'use strict'
-const {contextBridge,ipcRenderer}=require('electron')
-contextBridge.exposeInMainWorld('authority',{status:()=>ipcRenderer.invoke('authority:status'),init:()=>ipcRenderer.invoke('authority:init'),issue:data=>ipcRenderer.invoke('authority:issue',data)})
+// Signing is available exclusively through the authenticated owner-side HTTP API.
+// No privileged signing IPC bridge is exposed to a renderer.

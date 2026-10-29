@@ -2,6 +2,7 @@
 const assert=require('assert'),fs=require('fs'),os=require('os'),path=require('path'),crypto=require('crypto')
 const issuer=require('./license-authority/issuer'),{Licensing}=require('../src/main/licensing/service'),{stamp}=require('./desktop/license-policy'),{PluginHost}=require('../src/main/plugins/plugin-host')
 async function main(){
+ assert.strictEqual(issuer.fileStem('abcdef123'+'0'.repeat(55)), 'Agent-ABC-DEF-123')
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'agent-license-')),directory=path.join(root,'owner'),authority=issuer.init(directory),policy={version:1,enforced:true,publicKeys:authority.publicKeys},device={version:1,platform:'darwin',arch:'arm64',name:'test',deviceDigest:'a'.repeat(64)}
  let now=Date.now(),tick=0
  const make=(name,other={})=>new Licensing({home:path.join(root,name),policy,device,clock:()=>now,monotonic:()=>tick,...other})

@@ -231,6 +231,7 @@ function safeStaticPath(pathname) {
   return target
 }
 
+const codeIntegrity = fs.existsSync(path.join(__dirname, '..', 'source-loader.js')) ? require('../source-loader') : null
 function serveStatic(request, response, pathname) {
   const target = safeStaticPath(pathname === '/' ? '/index.html' : pathname)
   if (not(target)) {
@@ -242,6 +243,7 @@ function serveStatic(request, response, pathname) {
       json(response, 404, { error: 'NOT_FOUND' })
       return
     }
+    try { if (codeIntegrity && /\.(?:js|html|css)$/.test(target)) codeIntegrity.verifyFile(target, buffer) } catch (_) { json(response, 503, { error: '程序文件校验失败，请重新安装可信程序包' }); return }
     const type = MIME[path.extname(target).toLowerCase()] || 'application/octet-stream'
     response.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' })
     response.end(buffer)
@@ -527,6 +529,18 @@ let listenAttempts = 0
 function createServer() {
   return http.createServer(async (request, response) => {
     try {
+      // A browser on another site must not use this local native-capability API.
+      if (isLoopbackAddress(HOST) || HOST === 'localhost') {
+        let host
+        try { host = new URL('http://' + request.headers.host).hostname.replace(/^\[|\]$/g, '') } catch (_) {}
+        if (host !== 'localhost' && !isLoopbackAddress(host || '')) { json(response, 403, { error: 'FORBIDDEN_HOST' }); return }
+      }
+      const origin = request.headers.origin
+      if (request.headers['sec-fetch-site'] === 'cross-site' || origin && origin !== 'http://' + request.headers.host && origin !== 'https://' + request.headers.host) { json(response, 403, { error: 'FORBIDDEN_ORIGIN' }); return }
+      response.setHeader('X-Content-Type-Options', 'nosniff')
+      response.setHeader('X-Frame-Options', 'DENY')
+      response.setHeader('Referrer-Policy', 'no-referrer')
+      response.setHeader('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
       const url = new URL(request.url, 'http://localhost')
       if (await handleApi(request, response, url)) return
       if (url.pathname.startsWith('/api/')) {

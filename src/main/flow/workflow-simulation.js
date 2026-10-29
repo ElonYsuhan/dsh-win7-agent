@@ -51,9 +51,10 @@ function simulate(raw,types){
  for(const [name,map]of Object.entries({samples,outputs,files}))if(!map||typeof map!=='object'||Array.isArray(map)||Object.keys(map).some(id=>!workflow.nodes.some(n=>n.id===id))){issue(null,'error',name+' 必须按本流程节点 ID 提供样例');return report}
  const states=[];let textBudget=1000000
  for(const id of plan){
-  const node=workflow.nodes.find(n=>n.id===id),incoming=workflow.edges.filter(e=>e.to===id).sort((a,b)=>(a.slot||0)-(b.slot||0)),sources=incoming.map(edge=>states.find(s=>s.id===edge.from)),row={nodeId:id,title:node.title,type:node.type,status:'simulated',input:null,output:null}
+  const node=workflow.nodes.find(n=>n.id===id),activation=P.activation(workflow,states,node),incoming=activation.incoming||[],sources=incoming.map(edge=>states.find(s=>s.id===edge.from)),row={nodeId:id,title:node.title,type:node.type,status:'simulated',input:null,output:null}
   const state={id,title:node.title,attempt:1,status:'succeeded',input:'',output:'',files:[]}
-  if(sources.some(s=>!s||s.status!=='succeeded')){row.status='blocked';state.status='pending';issue(id,'warning','上游样例未通过，暂不验证此节点');row.envelope=Design.envelope(node,state);report.steps.push(row);states.push(state);continue}
+  if(activation.state==='skipped'){row.status=state.status='skipped';row.output={text:'',data:null,files:[]};report.steps.push(row);states.push(state);continue}
+  if(activation.state==='waiting'||sources.some(s=>!s||s.status!=='succeeded')){row.status='blocked';state.status='pending';issue(id,'warning','上游样例未通过，暂不验证此节点');row.envelope=Design.envelope(node,state);report.steps.push(row);states.push(state);continue}
   try{
    const inputs=incoming.map(edge=>(states.find(s=>s.id===edge.from)||{}).output||'')
    const combined=joinBounded(inputs),mapped=P.mapped(node,states);if(JSON.stringify(mapped).length>64000)throw Error('模拟输入数据超过64000字符预算');state.input=incoming.length?combined:'';state.inputData=mapped
@@ -74,7 +75,9 @@ function simulate(raw,types){
       if(state.files.length)issue(id,'warning','附件仅使用模拟元数据，未读取或上传真实文件')
      }
     }
-   }else if(['start','input'].includes(node.type)){state.output=node.text;row.status='passed'}
+   }else if(node.type==='condition'){state.route=P.choose(node,mapped);state.data=mapped;state.output=JSON.stringify(mapped);row.route=state.route;row.status='passed'}
+   else if(node.type==='merge'){state.data=sources[0].data;state.output=sources[0].output;row.status='passed'}
+   else if(['start','input'].includes(node.type)){state.output=node.text;row.status='passed'}
    else if(['template','end','output'].includes(node.type)){
     if(node.inputSchema)Schema.validate(mapped,node.inputSchema,'节点输入样例')
     state.output=node.type==='template'&&node.text?templateBounded(node.text,inputs,state.input):state.input

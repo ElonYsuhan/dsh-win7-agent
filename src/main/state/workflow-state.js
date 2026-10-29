@@ -1,6 +1,6 @@
 'use strict'
 const {id,scheduledTrigger}=require('../contracts/workflows'),Artifacts=require('../contracts/workflow-artifacts'),Interaction=require('../contracts/workflow-interaction')
-const Materials=require('../contracts/workflow-materials')
+const Materials=require('../contracts/workflow-materials'),Branch=require('../contracts/workflow-branch')
 const terminal=['succeeded','failed','cancelled','interrupted']
 function reduce(previous,event){
  if(event.version!==1||!Number.isFinite(event.at)||event.sequence!==(previous?previous.sequence+1:1))throw Error('WORKFLOW_EVENT_INVALID')
@@ -24,7 +24,7 @@ function reduce(previous,event){
   delete next.replayGuard;delete next.error
  }else if(event.type==='retry-requested'){
   if(!['failed','interrupted','paused','waiting'].includes(previous.status)||!step||!Array.isArray(event.affected)||!event.affected.includes(step.id))throw Error('WORKFLOW_TRANSITION')
-  for(const key of event.affected){const item=next.steps.find(s=>s.id===key);if(!item)throw Error('WORKFLOW_NODE_TRANSITION');item.status='pending';delete item.output;delete item.data;delete item.error;delete item.taskId;delete item.waitReason;delete item.artifact;delete item.artifacts;delete item.endedAt;delete item.assistance;item.timeline.push({at:event.at,phase:'run',message:'用户确认重新执行，此步及下游旧结果失效'})}
+  for(const key of event.affected){const item=next.steps.find(s=>s.id===key);if(!item)throw Error('WORKFLOW_NODE_TRANSITION');item.status='pending';delete item.output;delete item.data;delete item.error;delete item.taskId;delete item.waitReason;delete item.artifact;delete item.artifacts;delete item.endedAt;delete item.assistance;delete item.route;delete item.skipReason;item.timeline.push({at:event.at,phase:'run',message:'用户确认重新执行，此步及下游旧结果失效'})}
   // New retries explicitly declare every previously executed external step that
   // must be checked again. Older facts without this field retain replay compatibility.
   if(event.external!==undefined){
@@ -34,8 +34,20 @@ function reduce(previous,event){
   }
   delete next.replayGuard
   next.status='running';next.pauseRequested=false;delete next.endedAt;delete next.error
+ }else if(event.type==='node-skipped'){
+  if(!step||previous.status!=='running'||step.status!=='pending')throw Error('WORKFLOW_NODE_TRANSITION')
+  const node=previous.workflow.nodes.find(n=>n.id===step.id),incoming=previous.workflow.edges.filter(e=>e.to===step.id),parents=incoming.map(e=>previous.steps.find(s=>s.id===e.from)),selected=incoming.filter((e,i)=>Branch.edgeActive(parents[i],e))
+  if(!incoming.length||parents.some(s=>!s||!['succeeded','skipped'].includes(s.status))||(node.type==='merge'?selected.length>0:selected.length===incoming.length))throw Error('不能跳过有效执行路径')
+  step.status='skipped';step.skipReason='未选择此分支';step.endedAt=event.at
+  for(const key of ['output','data','route','files','taskId','artifact','artifacts'])delete step[key]
+  if(next.externalConfirm)next.externalConfirm=next.externalConfirm.filter(key=>key!==step.id)
+  log('end','未选择此分支，未执行此节点')
  }else if(event.type==='node-started'){
   if(!step||previous.status!=='running'||step.status!=='pending')throw Error('WORKFLOW_NODE_TRANSITION')
+  if(previous.workflow.nodes.some(n=>n.type==='condition')){
+   const node=previous.workflow.nodes.find(n=>n.id===step.id),incoming=previous.workflow.edges.filter(e=>e.to===step.id),parents=incoming.map(e=>previous.steps.find(s=>s.id===e.from)),selected=incoming.filter((e,i)=>Branch.edgeActive(parents[i],e))
+   if(parents.some(s=>!s||!['succeeded','skipped'].includes(s.status))||(node.type==='merge'?selected.length!==1:selected.length!==incoming.length))throw Error('不能执行未选择或尚未就绪的路径')
+  }
   if(step.attempts.length>=10)throw Error('节点最多允许10次执行尝试')
   step.status='running';delete step.partial;delete step.partialData;if(step.returnValues!==undefined)step.partialData=step.returnValues;step.startedAt=event.at;step.input=event.input||'';step.inputData=event.data;step.attempt=(step.attempt||0)+1
   step.attempts.push({number:step.attempt,status:'running',startedAt:event.at,input:step.input})
@@ -82,7 +94,7 @@ function reduce(previous,event){
    if(item.data!==undefined)item.returnValues=item.data
    if(item.files&&item.files.length)item.returnFiles=item.files
    delete item.files
-   for(const field of ['output','data','error','taskId','waitReason','waitKind','artifact','artifacts','endedAt','assistance','decision','reviewed','conclusion','partial','partialData','agentSessionId','returnedTo','returnReason'])delete item[field]
+   for(const field of ['output','data','error','taskId','waitReason','waitKind','artifact','artifacts','endedAt','assistance','decision','reviewed','conclusion','partial','partialData','agentSessionId','route','skipReason','returnedTo','returnReason'])delete item[field]
    item.timeline.push({at:event.at,phase:'run',message:key===step.id?'审批驳回，退回“'+targetTitle+'”修改：'+reason:'上游退回，需要重新处理',conclusion:reason})
   }
   step.returnedTo=target.id;step.returnReason=reason
@@ -97,8 +109,12 @@ function reduce(previous,event){
   step.timeline.push({at:event.at,phase:'run',message:'等待确认是否重新执行外部操作'})
 }else if(event.type==='node-finished'){
   if(!step||previous.status!=='running'||step.status!=='running'||!['succeeded','failed','cancelled'].includes(event.status))throw Error('WORKFLOW_NODE_TRANSITION')
+  const definition=previous.workflow.nodes.find(n=>n.id===step.id)
+  if(event.status==='succeeded'&&definition.type==='condition')step.route=Branch.selection(definition,event.route)
+  else if(event.route!==undefined)throw Error('分支选择只能由条件节点成功事件记录')
   Object.assign(step,{status:event.status,output:event.output||'',error:event.error||'',artifact:event.artifact||'',artifacts:Artifacts.records(event.artifacts||[]),endedAt:event.at});if(event.data!==undefined)step.data=event.data;if(event.sessionId)step.agentSessionId=event.sessionId
-  if(attempt())Object.assign(attempt(),{status:event.status,output:event.output||'',data:event.data,error:event.error||'',artifact:event.artifact||'',artifacts:Artifacts.records(event.artifacts||[]),endedAt:event.at,sessionId:event.sessionId||''})
+  if(attempt())Object.assign(attempt(),{...(step.route?{route:step.route}:{}),status:event.status,output:event.output||'',data:event.data,error:event.error||'',artifact:event.artifact||'',artifacts:Artifacts.records(event.artifacts||[]),endedAt:event.at,sessionId:event.sessionId||''})
+  if(step.route)log('run','选择分支：'+step.route.name+(step.route.default?'（默认）':''),{route:step.route})
   log('end',event.status==='succeeded'?'节点完成':event.status==='cancelled'?'节点已停止':'节点执行失败',{output:step.output,error:step.error,artifact:step.artifact})
  }else if(event.type==='finished'){
   if(!terminal.includes(event.status))throw Error('WORKFLOW_TERMINAL_INVALID')

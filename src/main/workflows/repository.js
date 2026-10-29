@@ -10,7 +10,7 @@ class Repository{
  index(state){
   if(['pending','running'].includes(state.status))return state
   const {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,trigger}=state
-  return {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,...(trigger?{trigger}:{}),deliveryCount:(state.plannedArtifacts||[]).length,artifactCount:Artifacts.current(state).length||state.steps.filter(s=>s.artifact).length,steps:state.steps.map(({id,title,status,startedAt,endedAt})=>({id,title,status,startedAt,endedAt}))}
+  return {id,workflowId,name,revision,status,sequence,createdAt,startedAt,endedAt,error,...(trigger?{trigger}:{}),deliveryCount:Artifacts.deliverables(state).filter(a=>a.status!=='skipped').length,artifactCount:Artifacts.current(state).length||state.steps.filter(s=>s.artifact).length,steps:state.steps.map(({id,title,status,startedAt,endedAt})=>({id,title,status,startedAt,endedAt}))}
  }
  readRun(id,repair){
   const file=path.join(this.dir,'runs',C.id(id)+'.jsonl')

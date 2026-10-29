@@ -14,7 +14,7 @@ try {
   fs.symlinkSync(path.join(app, 'src'), path.join(dir, 'src'), 'junction')
   fs.symlinkSync(path.join(root, 'examples'), path.join(dir, 'examples'), 'junction')
   fs.copyFileSync(path.join(app, 'package.json'), path.join(dir, 'package.json'))
-  for (const test of ['cordis-runtime-smoke.js', 'workflow-v2-smoke.js', 'workflow-node-design-smoke.js']) {
+  for (const test of ['cordis-runtime-smoke.js', 'workflow-v2-smoke.js', 'workflow-node-design-smoke.js', 'workflow-process-skill-smoke.js','workflow-branch-smoke.js']) {
     // Explicit in-process test fixture; shipped client has no environment/UI bypass.
     const fixture = '{ licensing: { policy: { version: 1, enforced: false, publicKeys: {} } }, '
     const source = fs.readFileSync(path.join(root, 'scripts', test), 'utf8').replace(/new PluginHost\(\{/g, 'new PluginHost('+fixture).replace(/new PluginHost\(\)/g, 'new PluginHost('+fixture+'})')
@@ -24,5 +24,5 @@ try {
     if (result.error) throw result.error
     assert.strictEqual(result.status, 0, 'Protected runtime: ' + test)
   }
-  console.log('Actual encrypted '+(windows?'Windows':'Mac')+' payload passed Cordis, workflows and node designer regressions under embedded Node16.17.1.')
+  console.log('Actual encrypted '+(windows?'Windows':'Mac')+' payload passed Cordis, workflows, node designer and process-design Skill regressions under embedded Node16.17.1.')
 } finally { fs.rmSync(dir, { recursive: true, force: true }) }

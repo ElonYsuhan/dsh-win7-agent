@@ -16,7 +16,7 @@ const SKIP_DIRS = ['node_modules', '.git', 'release', 'dist', 'assets', 'session
 const EXEMPT = 'win7-exempt'
 
 const NODE_DIRS = ['src/main', 'server', 'scripts', 'plugins']
-const NODE_FILES = ['shell/main.js', 'shell/preload.js', 'shell/service-manager.js', 'shell/installer.js', 'shell/menu.js', 'shell/window-chrome.js', 'shell/navigation-guard.js']
+const NODE_FILES = ['shell/main.js', 'shell/preload.js', 'shell/service-manager.js', 'shell/installer.js', 'shell/menu.js', 'shell/window-chrome.js', 'shell/navigation-guard.js', 'shell/ipc-security.js']
 const RENDERER_DIRS = ['src/renderer']
 const RENDERER_FILES = ['shell/settings.js', 'shell/offline.js', 'shell/loading.js', 'shell/update.js']
 const CSS_DIRS = ['src/renderer', 'shell', 'server']

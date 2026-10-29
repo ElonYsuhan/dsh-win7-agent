@@ -95,3 +95,23 @@ Skills provide instructions, MCP defines a tool protocol, and plugins implement 
 ## Install from the repository
 
 The latest Windows x64 offline installer is committed with the source at [installers/Agent-win-x64/Agent.exe](installers/Agent-win-x64/Agent.exe). Clone or pull the repository to obtain it without a separate attachment upload. See the [installer guide](installers/README.md) for checksum verification and build metadata. Only the latest installer per platform is kept in this directory; Git history retains previous binaries.
+
+See [desktop security](docs/DESKTOP-SECURITY.md) for renderer isolation, IPC validation, signed code manifests, and short license request labels. Initialize the separate build signing identity with `node scripts/desktop/release-signing.js init`; its private key stays on the build host and is never shipped. Official platform certificates and trusted online updates still require separate setup and acceptance.
+
+The license issuer supports desktop and intranet browser access with the fixed `admin` / `admin123` account and no registration. Signing and private keys stay on the owner computer; the signed-in page shows LAN addresses. Closing the issuer stops its service. See [licensing](docs/SOFTWARE-LICENSING.md).
+
+Workflow canvases redraw when sidebar or properties-panel dimensions change while preserving node positions and viewport. Workflow pages hide the chat/project caption and restore it when returning to chat. Layout arrangement has no success banner; workflow context and composer surfaces use subtle theme-aware fills without borders.
+
+The bundled `workflow-process-designer` Skill adapts a pinned official Camunda BPMN Skill and OMG BPMN 2.0.2 modeling principles to local approvals, rejection/correction, and resubmission. The workflow catalog provides the enabled guide on demand; it can be disabled in the capability center. A standard offline `.skill.pgk` is available. See [design Skill provenance and limits](docs/WORKFLOW-DESIGN-SKILL.md).
+
+Conditional nodes select the first matching rule or the default exit; merge nodes accept the active path. Resubmission reevaluates routing while preserving history. Unselected paths do not execute. Parallel approvals and role-based approval permissions remain unsupported.
+
+The license authority displays clickable LAN URLs with individual copy buttons for sharing with intranet administrators.
+
+Saved AI workflow drafts expose Edit and Start actions. Starting opens a real workflow instance and its human task; approvals remain manual.
+
+Shared borders and separators use subtler neutral colors in both light and dark themes.
+
+Workflow links transition from blue outputs to green inputs, with ports aligned to card edges and consistent direction colors in editor and execution graphs.
+
+Workflow graphs distinguish forward branches using solid arrows and named exits, and actual rejection paths using dashed arrows labeled with their return targets. Rejection overlays do not add cycles to executable graphs.

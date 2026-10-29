@@ -1,0 +1,8 @@
+Agent business workflow design adaptation
+
+Adapted in part from Camunda Skills / skills/camunda-bpmn/SKILL.md
+Copyright Camunda and contributors. Licensed under the Apache License, Version 2.0.
+Source: https://github.com/camunda/skills
+Pinned revision: 65634f22ed80e06c4053fa06fe79a0401010ea03
+
+Modified for this Agent: Chinese guidance, existing JSON contracts, human rejection/replay, offline references and local review examples. Camunda/Zeebe XML, CLI installation, deployment and external execution instructions are not part of this adaptation. No endorsement or full BPMN conformance is claimed.

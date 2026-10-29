@@ -1,0 +1,101 @@
+{
+  "version": 2,
+  "name": "申请补正与审批",
+  "description": "申请人填报；材料不全或审批不通过时退回application补正。重提后重新检查材料及审批；保留历史。角色仅作业务说明，不表示系统账号权限分配。",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "title": "开始申请",
+      "text": "收集申请并完成材料检查与人工审批。"
+    },
+    {
+      "id": "application",
+      "type": "human",
+      "title": "填写补正申请",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "title": "申请内容",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "request"
+        ]
+      },
+      "interaction": {
+        "version": 1,
+        "type": "handle"
+      },
+      "processing": {
+        "version": 1,
+        "blocks": [
+          {
+            "type": "instructions",
+            "text": "填写申请；收到退回时根据原因修改后重新提交。"
+          },
+          {
+            "type": "form"
+          },
+          {
+            "type": "conclusion",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "material_check",
+      "type": "human",
+      "title": "检查申请材料",
+      "text": "检查材料完整性；需补正时说明原因并退回申请人。",
+      "interaction": {
+        "version": 1,
+        "type": "review",
+        "returnTo": "application"
+      }
+    },
+    {
+      "id": "approval",
+      "type": "human",
+      "title": "审批申请",
+      "text": "依据业务规则人工批准；不通过时说明原因并退回申请人。",
+      "interaction": {
+        "version": 1,
+        "type": "approve",
+        "returnTo": "application"
+      }
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "title": "交付审批结论",
+      "deliverable": {
+        "format": "text",
+        "name": "审批结论.txt"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "application"
+    },
+    {
+      "from": "application",
+      "to": "material_check"
+    },
+    {
+      "from": "material_check",
+      "to": "approval"
+    },
+    {
+      "from": "approval",
+      "to": "end"
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "version": 2,
+  "name": "报销分级审批",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start"
+    },
+    {
+      "id": "apply",
+      "type": "human",
+      "interaction": {
+        "version": 1,
+        "type": "handle"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "choose",
+      "type": "condition",
+      "bindings": {
+        "amount": {
+          "nodeId": "apply",
+          "path": "amount"
+        }
+      },
+      "branch": {
+        "version": 1,
+        "cases": [
+          {
+            "id": "large",
+            "name": "大额审批",
+            "field": "amount",
+            "operator": "gte",
+            "value": 5000
+          }
+        ],
+        "default": {
+          "id": "small",
+          "name": "小额直接通过"
+        }
+      }
+    },
+    {
+      "id": "director",
+      "type": "human",
+      "interaction": {
+        "version": 1,
+        "type": "approve",
+        "returnTo": "apply"
+      }
+    },
+    {
+      "id": "small",
+      "type": "template",
+      "text": "小额通过"
+    },
+    {
+      "id": "merge",
+      "type": "merge"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "apply"
+    },
+    {
+      "from": "apply",
+      "to": "choose"
+    },
+    {
+      "from": "choose",
+      "to": "director",
+      "outputSlot": 0
+    },
+    {
+      "from": "choose",
+      "to": "small",
+      "outputSlot": 1
+    },
+    {
+      "from": "director",
+      "to": "merge",
+      "slot": 0
+    },
+    {
+      "from": "small",
+      "to": "merge",
+      "slot": 1
+    },
+    {
+      "from": "merge",
+      "to": "end"
+    }
+  ]
+}

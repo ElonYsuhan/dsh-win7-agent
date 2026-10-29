@@ -64,7 +64,9 @@ function encrypt(code, key, relative) {
   const data = Buffer.concat([cipher.update(code, 'utf8'), cipher.final()])
   return Buffer.concat([Buffer.from('AGENTP1\0'), iv, cipher.getAuthTag(), data])
 }
-async function protect(appDir) {
+async function protect(appDir, options = {}) {
+  const signingKey = options.signingKey || require('./release-signing').read()
+  const publicKey = crypto.createPublicKey(signingKey).export({ type: 'spki', format: 'pem' })
   for (const [tool, version] of Object.entries(TOOLS)) if (require(tool + '/package.json').version !== version) throw Error('SOURCE_TOOL_VERSION: ' + tool)
   if (fs.existsSync(path.join(appDir, 'source-protection.json'))) throw Error('SOURCE_ALREADY_PROTECTED')
   const notices = path.join(appDir, 'source-protection-licenses'); fs.mkdirSync(notices, { recursive: true })
@@ -87,13 +89,27 @@ async function protect(appDir) {
   }
   if (!records.some(record => record.path === 'main.js' && record.mode === 'aes-256-gcm') || !records.some(record => record.path === 'service/index.js') || !records.some(record => record.path === 'src/renderer/app.js')) throw Error('SOURCE_PROTECTION_COVERAGE')
   const template = fs.readFileSync(path.join(__dirname, 'source-loader.js'), 'utf8')
-  fs.writeFileSync(path.join(appDir, 'source-loader.js'), await transform(template.replace('__AGENT_SOURCE_KEY__', key.toString('base64')), 'node', false)); key.fill(0)
-  const report = { formatVersion: 1, policy: POLICY, tools: TOOLS, runtime: { electron: '22.3.27', node: '16.17.1', chromium: '108' }, loaderSha256: hash(fs.readFileSync(path.join(appDir, 'source-loader.js'))), limitations: 'Offline loader carries extractable key; browser/preload obfuscation is not encryption; no bytecode protection or publisher authentication.', records }
+  fs.writeFileSync(path.join(appDir, 'source-loader.js'), await transform(template.replace('__AGENT_SOURCE_KEY__', key.toString('base64')).replace('__AGENT_RELEASE_PUBLIC_KEY__', Buffer.from(publicKey).toString('base64')), 'node', false)); key.fill(0)
+  const report = { formatVersion: 1, policy: POLICY, tools: TOOLS, runtime: { electron: '22.3.27', node: '16.17.1', chromium: '108' }, loaderSha256: hash(fs.readFileSync(path.join(appDir, 'source-loader.js'))), limitations: 'Offline loader carries extractable key; browser/preload obfuscation is not encryption; no bytecode protection; embedded trust root still requires OS code signing against local patching.', records }
   fs.writeFileSync(path.join(appDir, 'source-protection.json'), JSON.stringify(report, null, 2) + '\n')
-  verify(appDir)
+  const entries = {}
+  function inventory(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name), relative = path.relative(appDir, file).split(path.sep).join('/')
+      if (entry.isSymbolicLink()) throw Error('SIGNED_UNEXPECTED_LINK')
+      if (entry.isDirectory()) inventory(file)
+      else if (/\.(?:js|agc|html|css)$/.test(relative) || relative === 'package.json' || relative === 'source-protection.json') {
+        const data = fs.readFileSync(file); entries[relative] = { size: data.length, sha256: hash(data) }
+      }
+    }
+  }
+  inventory(appDir)
+  const payload = Buffer.from(JSON.stringify({ version: 1, product: 'dsh-agent-code', entries }))
+  fs.writeFileSync(path.join(appDir, 'code-integrity.json'), JSON.stringify({ version: 1, publicKey, payload: payload.toString('base64'), signature: crypto.sign(null, payload, signingKey).toString('base64') }) + '\n')
+  verify(appDir, publicKey)
   return report
 }
-function verify(appDir) {
+function verify(appDir, publicKey = require('./release-signing').readPublic()) {
   const report = JSON.parse(fs.readFileSync(path.join(appDir, 'source-protection.json'), 'utf8'))
   if (report.policy !== POLICY || report.formatVersion !== 1 || !report.records.length) throw Error('SOURCE_PROTECTION_MANIFEST')
   if (report.loaderSha256 !== hash(fs.readFileSync(path.join(appDir, 'source-loader.js')))) throw Error('SOURCE_LOADER_INTEGRITY')
@@ -106,6 +122,15 @@ function verify(appDir) {
     const file = path.join(appDir, record.path), entry = fs.readFileSync(file)
     if (hash(entry) !== record.entrySha256 || hash(entry) === record.sourceSha256) throw Error('SOURCE_ENTRY_INTEGRITY: ' + record.path)
     if (record.mode === 'aes-256-gcm' && (hash(fs.readFileSync(file + '.agc')) !== record.payloadSha256 || !entry.toString().includes('.load(module,__filename)'))) throw Error('SOURCE_CIPHER_INTEGRITY: ' + record.path)
+  }
+  const envelope = JSON.parse(fs.readFileSync(path.join(appDir, 'code-integrity.json'), 'utf8'))
+  const signed = Buffer.from(envelope.payload, 'base64')
+  if (envelope.publicKey !== publicKey || !crypto.verify(null, signed, publicKey, Buffer.from(envelope.signature, 'base64'))) throw Error('CODE_MANIFEST_SIGNATURE')
+  const manifest = JSON.parse(signed.toString('utf8'))
+  for (const [relative, expected] of Object.entries(manifest.entries)) {
+    if (path.isAbsolute(relative) || relative.split('/').includes('..')) throw Error('CODE_MANIFEST_PATH')
+    const bytes = fs.readFileSync(path.join(appDir, relative))
+    if (bytes.length !== expected.size || hash(bytes) !== expected.sha256) throw Error('CODE_FILE_INTEGRITY: ' + relative)
   }
   return report
 }

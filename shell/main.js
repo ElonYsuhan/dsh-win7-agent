@@ -3,6 +3,8 @@
 const path = require('path')
 const fs = require('fs')
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences, nativeTheme, Tray, nativeImage } = require('electron')
+const { assertSender, trustedSender, attachWebSecurity } = require('./ipc-security')
+const integrity = fs.existsSync(path.join(__dirname, 'source-loader.js')) ? require('./source-loader') : null
 const serviceManager = require('./service-manager')
 const installer = require('./installer')
 const { hideApplicationMenu, configureWindowMenu } = require('./menu')
@@ -512,6 +514,7 @@ function windowIconPath() {
 
 function attachSecurity(window) {
   attachNavigationGuard(window)
+  attachWebSecurity(window, { verifyFile: integrity && integrity.verifyFile })
   window.webContents.setWindowOpenHandler(({ url: target }) => {
     if (target.startsWith('http://') || target.startsWith('https://')) { // win7-exempt (protocol check only, loads nothing)
       shell.openExternal(target)
@@ -519,7 +522,7 @@ function attachSecurity(window) {
     return { action: 'deny' }
   })
   window.webContents.on('will-navigate', (event, target) => {
-    if (target.startsWith('file://')) return
+    if (['loading.html','settings.html','offline.html','update.html'].some(file => { try { const value = new URL(target); return value.protocol === 'file:' && require('url').fileURLToPath(value) === path.join(__dirname, file) } catch (_) { return false } })) return
     if (isSameOrigin(target)) return
     event.preventDefault()
     if (target.startsWith('http://') || target.startsWith('https://')) { // win7-exempt (protocol check only, loads nothing)
@@ -732,24 +735,34 @@ app.whenReady().then(async () => {
 })
 
 /* ------------------------------------------------------------------ ipc */
+const ipcFiles = ['loading.html', 'settings.html', 'offline.html', 'update.html'].map(file => path.join(__dirname, file))
+function secureHandle(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    assertSender(event, [mainWindow, settingsWindow], ipcFiles, resolvedServiceUrl)
+    if (channel === 'shell:save-config') assertSender(event, [mainWindow, settingsWindow], [path.join(__dirname, 'settings.html')])
+    return handler(event, ...args)
+  })
+}
 
 /* 双击顶栏 —— 原生标题栏没了，这个手势得自己接（见 titlebarDoubleClickAction） */
 ipcMain.on('shell:titlebar-dblclick', (event) => {
+  if (!trustedSender(event, [mainWindow, settingsWindow], ipcFiles, resolvedServiceUrl)) return
   applyTitlebarDoubleClick(BrowserWindow.fromWebContents(event.sender), titlebarDoubleClickAction())
 })
 
-ipcMain.handle('window:theme', () => config.theme)
+secureHandle('window:theme', () => config.theme)
 ipcMain.on('window:theme', (event, value) => {
+  if (!trustedSender(event, [mainWindow, settingsWindow], ipcFiles, resolvedServiceUrl)) return
   if (!mainWindow || mainWindow.isDestroyed() || BrowserWindow.fromWebContents(event.sender) !== mainWindow) return
   if (value !== 'light' && value !== 'dark') return
   if (config.theme !== value) writeConfig({ theme: value })
   applyWindowTheme([mainWindow, settingsWindow], value, nativeTheme)
 })
 
-ipcMain.handle('window:state', (event) => windowState(BrowserWindow.fromWebContents(event.sender)))
-ipcMain.handle('window:action', (event, action) => applyWindowAction(BrowserWindow.fromWebContents(event.sender), action))
+secureHandle('window:state', (event) => windowState(BrowserWindow.fromWebContents(event.sender)))
+secureHandle('window:action', (event, action) => applyWindowAction(BrowserWindow.fromWebContents(event.sender), action))
 
-ipcMain.handle('shell:get-config', () => ({
+secureHandle('shell:get-config', () => ({
   mode: config.mode,
   serviceUrl: config.serviceUrl,
   lastPort: config.lastPort,
@@ -760,7 +773,7 @@ ipcMain.handle('shell:get-config', () => ({
   startupState
 }))
 
-ipcMain.handle('shell:save-config', async (_event, value) => {
+secureHandle('shell:save-config', async (_event, value) => {
   const payload = value && typeof value === 'object' ? value : { serviceUrl: value }
   const mode = payload.mode === 'remote' ? 'remote' : 'local'
   const nextUrl = normalizeServiceUrl(payload.serviceUrl)
@@ -776,27 +789,27 @@ ipcMain.handle('shell:save-config', async (_event, value) => {
   return { mode, serviceUrl: nextUrl }
 })
 
-ipcMain.handle('shell:retry', async () => {
+secureHandle('shell:retry', async () => {
   await restart()
   return { ok: true, startupState }
 })
 
-ipcMain.handle('shell:startup-state', () => startupState)
+secureHandle('shell:startup-state', () => startupState)
 
-ipcMain.handle('shell:get-update-info', () => updateDecision)
+secureHandle('shell:get-update-info', () => updateDecision)
 
-ipcMain.handle('shell:update-state', () => updateState)
+secureHandle('shell:update-state', () => updateState)
 
-ipcMain.handle('shell:run-update', () => runUpdate())
+secureHandle('shell:run-update', () => runUpdate())
 
-ipcMain.handle('shell:use-current', () => useCurrent())
+secureHandle('shell:use-current', () => useCurrent())
 
-ipcMain.handle('shell:cancel-update', () => {
+secureHandle('shell:cancel-update', () => {
   app.exit(0)
   return { ok: true }
 })
 
-ipcMain.handle('shell:pick-folder', async () => {
+secureHandle('shell:pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '\u9009\u62e9\u6587\u4ef6\u5939',
     properties: ['openDirectory', 'createDirectory']
@@ -805,21 +818,21 @@ ipcMain.handle('shell:pick-folder', async () => {
   return result.filePaths[0]
 })
 
-ipcMain.handle('shell:open-settings', () => {
+secureHandle('shell:open-settings', () => {
   createSettingsWindow()
   return { ok: true }
 })
-ipcMain.handle('shell:open-path', (_event, target) => {
+secureHandle('shell:open-path', (_event, target) => {
   if (typeof target !== 'string' || !target.trim()) return 'A local path is required'
   return shell.openPath(path.resolve(target))
 })
-ipcMain.handle('shell:open-external', (_event, target) => {
+secureHandle('shell:open-external', (_event, target) => {
   if (typeof target === 'string' && (target.startsWith('http://') || target.startsWith('https://'))) { // win7-exempt (protocol check only, loads nothing)
     return shell.openExternal(target)
   }
   return null
 })
-ipcMain.handle('shell:close', (event) => {
+secureHandle('shell:close', (event) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   if (window) window.close()
   return { ok: true }
@@ -834,7 +847,7 @@ function configureTaskTray() {
   const show=()=>{if(mainWindow&&!mainWindow.isDestroyed()){mainWindow.show();mainWindow.focus()}}
   taskTray.setContextMenu(Menu.buildFromTemplate([{label:'打开 Agent',click:show},{type:'separator'},{label:'退出 Agent（停止定时任务）',click:()=>app.quit()}]));taskTray.on('double-click',show);taskTray.on('balloon-click',show)
 }
-ipcMain.handle('shell:task-preferences', (_event, value) => {
+secureHandle('shell:task-preferences', (_event, value) => {
   if(value){
     const previous={keepRunning:config.keepRunning,launchAtLogin:config.launchAtLogin}
     config.keepRunning=value.keepRunning===true

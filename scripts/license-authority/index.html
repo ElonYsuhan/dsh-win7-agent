@@ -1,7 +1,12 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'none'"><title>Agent 授权签发工具</title><link rel="stylesheet" href="style.css"></head><body>
-<header><h1>授权签发</h1><p>导入客户设备申请，生成该设备专用的授权文件。</p></header>
-<section><div class="row"><strong>签发身份</strong><button id="init" type="button">初始化签发密钥</button></div><p id="identity" role="status">正在读取…</p><p id="directory"></p><p class="hint">私钥只保存在签发电脑。请离线备份整个密钥目录；丢失后无法为现有客户端签发授权。不要把私钥交给客户。</p></section>
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self'; form-action 'none'"><title>Agent 授权签发工具</title><link rel="stylesheet" href="style.css"></head><body>
+<header><img class="authority-logo" src="logo.png" alt=""><h1>授权签发</h1><p>由签发电脑处理申请，为指定设备生成授权文件。</p></header>
+<main>
+<section id="loginPanel" aria-labelledby="loginHeading"><h2 id="loginHeading">管理员登录</h2><p class="hint">仅管理员可签发授权，不提供用户注册。</p><form id="loginForm"><label for="username">账号</label><input id="username" name="username" autocomplete="username" value="admin" maxlength="32" required><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required><p id="loginMessage" role="alert"></p><footer><button id="login" type="submit">登录</button></footer></form></section>
+<div id="issuerPanel" hidden>
+<div class="row account"><span>管理员 <strong>admin</strong><span class="hint"> · 10 分钟无操作后锁定</span></span><button id="logout" type="button">退出登录</button></div>
+<section aria-label="签发服务"><div class="row"><strong>签发身份</strong><button id="init" type="button">初始化签发密钥</button></div><p id="identity" role="status">正在读取…</p><p id="directory"></p><div id="network" class="hint" aria-label="内网访问地址"></div><p class="hint">浏览器只提交申请、下载授权，私钥始终保存在签发电脑。签发电脑上的工具关闭后，网页服务也会停止。</p></section>
 <form id="form"><label class="drop" id="drop" tabindex="0" role="button" aria-label="导入设备申请文件"><strong>拖拽设备申请文件，或点击选择</strong><span>在客户端“软件授权 → 本机设备与授权申请”导出 .agentreq</span><input id="file" type="file" accept=".agentreq,application/json" hidden></label>
 <label for="request">设备申请内容</label><textarea id="request" rows="4" required spellcheck="false" placeholder="导入申请文件，或粘贴完整申请内容"></textarea><p id="device" class="hint"></p>
 <div class="fields"><div><label for="customer">客户名称</label><input id="customer" required maxlength="200" autocomplete="off"></div><div><label for="days">有效天数</label><input id="days" type="number" value="365" min="1" max="36500" required></div></div>
-<p class="hint">授权绑定设备码，适用于该客户端全部功能。迁移时需从新设备导出申请重新签发；离线旧设备无法远程撤销。</p><p id="message" role="status" aria-live="polite"></p><footer><button type="submit" id="issue" disabled>生成并保存授权文件</button></footer></form><script src="app.js"></script></body></html>
+<p class="hint">授权绑定完整设备码。迁移时需从新设备导出申请；离线旧设备无法远程撤销。</p><p id="message" role="status" aria-live="polite"></p><footer><button type="submit" id="issue" disabled>生成并下载授权文件</button></footer></form>
+</div></main><script src="app.js"></script></body></html>

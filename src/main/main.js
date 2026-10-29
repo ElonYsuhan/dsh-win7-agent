@@ -13,6 +13,8 @@ const { AssetStore } = require('./agent/asset-store')
 const { PluginHost } = require('./plugins/plugin-host')
 const { UiStore } = require('../../server/ui-store')
 
+const { assertSender, trustedSender, attachWebSecurity } = require('../../shell/ipc-security')
+const ipcFiles = [path.join(__dirname, '..', 'renderer', 'index.html')]
 const { attachNavigationGuard } = require('../../shell/navigation-guard')
 
 const not = (value) => value ? false : true
@@ -78,6 +80,7 @@ function createWindow() {
 
   configureWindowMenu(mainWindow, { onQuit: () => app.quit(), onHide: () => app.hide() })
   attachNavigationGuard(mainWindow)
+  attachWebSecurity(mainWindow)
   attachWindowChrome(mainWindow)
   mainWindow.loadURL(url.pathToFileURL(path.join(__dirname, '..', 'renderer', 'index.html')).toString())
 
@@ -187,6 +190,7 @@ let runtimeShutdown = null
 
 /* 双击顶栏 —— 原生标题栏没了，这个手势得自己接（见 titlebarDoubleClickAction） */
 ipcMain.on('shell:titlebar-dblclick', (event) => {
+  if (!trustedSender(event, [mainWindow], ipcFiles)) return
   applyTitlebarDoubleClick(BrowserWindow.fromWebContents(event.sender), titlebarDoubleClickAction())
 })
 
@@ -194,10 +198,11 @@ ipcMain.on('shell:titlebar-dblclick', (event) => {
 // remain available; no UI-controlled switch can disable packaged enforcement.
 function licensedHandle(channel,handler){
   const publicChannels=['window:theme','window:state','window:action','app:get-state','licensing:request','chat:stop','chat:reset','ui-store:get','ui-store:put','shell:open-path','shell:open-external']
-  ipcMain.handle(channel,(event,...args)=>{const cancellation=channel==='workflows:request'&&['stop','pause','cancelDesign'].includes(args[0])||channel==='tasks:request'&&args[0]==='stop'||channel==='term:kill';if(!publicChannels.includes(channel)&&!cancellation)pluginHost.requireService('licensing').assert('all');return handler(event,...args)})
+  ipcMain.handle(channel,(event,...args)=>{assertSender(event,[mainWindow],ipcFiles);const cancellation=channel==='workflows:request'&&['stop','pause','cancelDesign'].includes(args[0])||channel==='tasks:request'&&args[0]==='stop'||channel==='term:kill';if(!publicChannels.includes(channel)&&!cancellation)pluginHost.requireService('licensing').assert('all');return handler(event,...args)})
 }
 licensedHandle('window:theme', () => normalizeTheme(settings && settings.data.theme))
 ipcMain.on('window:theme', (event, value) => {
+  if (!trustedSender(event, [mainWindow], ipcFiles)) return
   if (!mainWindow || mainWindow.isDestroyed() || BrowserWindow.fromWebContents(event.sender) !== mainWindow) return
   if (value !== 'light' && value !== 'dark') return
   applyWindowTheme([mainWindow], value, nativeTheme)
@@ -436,6 +441,7 @@ licensedHandle('term:write', (_event, payload) => {
 licensedHandle('term:kill', (_event, sid) => terminalApi().kill(sid))
 
 ipcMain.on('term:subscribe', (event, sid) => {
+  if (!trustedSender(event, [mainWindow], ipcFiles)) return
   const key = event.sender.id
   let subs = terminalSubscriptions.get(key)
   if (not(subs)) {
@@ -459,6 +465,7 @@ ipcMain.on('term:subscribe', (event, sid) => {
 })
 
 ipcMain.on('term:unsubscribe', (event, sid) => {
+  if (!trustedSender(event, [mainWindow], ipcFiles)) return
   const key = event.sender.id
   const subs = terminalSubscriptions.get(key)
   if (not(subs)) return

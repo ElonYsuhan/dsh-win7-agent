@@ -3,6 +3,8 @@
 ;(function () {
   const base = 'xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"'
   const icons = {
+    'wf-condition': '<svg ' + base + '><path d="m12 2 10 10-10 10L2 12zM8 8l8 8m0-8-8 8"/></svg>',
+    'wf-merge': '<svg ' + base + '><path d="m12 2 10 10-10 10L2 12zM6 12h12m-4-4 4 4-4 4"/></svg>',
     'wf-start': '<svg ' + base + '><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/></svg>',
     'wf-human': '<svg ' + base + '><circle cx="12" cy="7" r="3"/><path d="M5 21v-3a7 7 0 0 1 14 0v3"/></svg>',
     'wf-rest': '<svg ' + base + '><path d="m8 5-6 7 6 7M16 5l6 7-6 7M14 3l-4 18"/></svg>',

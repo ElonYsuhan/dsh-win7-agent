@@ -49,7 +49,7 @@ function configureWindowMenu(win) {
     }
   }
   const ready = (event) => {
-    if (event.sender !== win.webContents) return
+    if (event.senderFrame !== win.webContents.mainFrame || event.sender !== win.webContents) return
     win.__menuReady = true
     if (win.isFocused()) update()
   }
@@ -58,7 +58,7 @@ function configureWindowMenu(win) {
      字号 16px、配色也不跟主题走，CSS 完全够不着 —— 所以只留「开菜单」这一个通知，
      命令再从 app:menu-invoke 回来，白名单与状态门控和原生菜单完全一致。 */
   const popup = (event) => {
-    if (event.sender !== win.webContents) return
+    if (event.senderFrame !== win.webContents.mainFrame || event.sender !== win.webContents) return
     update()
     win.webContents.send('app:menu-open')
   }
@@ -67,7 +67,7 @@ function configureWindowMenu(win) {
   /* 文案与 hideApplicationMenu 里的 help() 保持一致：原生菜单栏（Alt）仍会用到那一份。 */
   const usage = (shortcuts) => dialog.showMessageBox({ type: 'info', title: shortcuts ? '快捷键' : '使用说明', message: shortcuts ? '常用快捷键' : 'Agent 使用说明', detail: shortcuts ? 'Cmd/Ctrl+N：新建会话\nCmd/Ctrl+,：设置\nCmd/Ctrl+B：显示/隐藏侧栏\nCmd/Ctrl+C / V：复制 / 粘贴\nEnter：发送消息\nShift+Enter：换行' : '添加项目文件夹后，在项目中创建会话即可处理工作区文件。普通会话可直接聊天。\n文件编辑自动保存；关闭前请留意保存状态。\n设置中可配置模型、权限、主题和品牌显示。' })
   const invoke = (event, id) => {
-    if (event.sender !== win.webContents || typeof id !== 'string') return
+    if (event.senderFrame !== win.webContents.mainFrame || event.sender !== win.webContents || typeof id !== 'string') return
     const wc = win.webContents
     if (COMMANDS.includes(id)) {
       if (!win.__menuReady) return
@@ -92,7 +92,7 @@ function configureWindowMenu(win) {
     if (id === 'copy-diagnostics') return clipboard.writeText(JSON.stringify({ version: app.getVersion(), platform: process.platform, arch: process.arch, runtime: process.versions }, null, 2))
   }
   const stateChanged = (event, value) => {
-    if (event.sender !== win.webContents || !value || typeof value !== 'object') return
+    if (event.senderFrame !== win.webContents.mainFrame || event.sender !== win.webContents || !value || typeof value !== 'object') return
     win.__menuState = { file: value.file === true, markdown: value.markdown === true, sidebar: value.sidebar === true, panel: value.panel === true, preview: value.preview === true }
     if (win.isFocused()) update()
   }

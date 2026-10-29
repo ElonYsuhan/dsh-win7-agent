@@ -1,0 +1,20 @@
+{
+  "formatVersion": 1,
+  "adaptationVersion": "1.0.0",
+  "reviewedAt": "2026-10-28",
+  "upstream": {
+    "repository": "https://github.com/camunda/skills",
+    "commit": "65634f22ed80e06c4053fa06fe79a0401010ea03",
+    "path": "skills/camunda-bpmn/SKILL.md",
+    "sha256": "8fa87a4259cd3e7616d274e57708e6bd6696cd64e95f08c820b18d4b4d6733cb",
+    "license": "Apache-2.0",
+    "licenseSha256": "86aec7f216d39a4629a66077d2f3acabface55e5be655da6045cccc201f3c140"
+  },
+  "standard": {
+    "name": "OMG BPMN",
+    "version": "2.0.2",
+    "url": "https://www.omg.org/spec/BPMN/2.0.2/"
+  },
+  "modified": true,
+  "runtimeDependencies": []
+}

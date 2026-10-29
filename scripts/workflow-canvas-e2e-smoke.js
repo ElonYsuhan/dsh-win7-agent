@@ -82,6 +82,23 @@ async function main() {
     const readingView=()=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(n=>n.properties.workflowId==='long_0'),b=n.getBounding();return{scale:c.ds.scale,canvasWidth:c.canvas.width,canvasHeight:c.canvas.height,card:{left:(b[0]+c.ds.offset[0])*c.ds.scale,top:(b[1]+c.ds.offset[1])*c.ds.scale,width:b[2]*c.ds.scale,height:b[3]*c.ds.scale},positions:c.graph._nodes.map(n=>Array.from(n.pos))}})()`)
     const readable=await readingView();assert.strictEqual(readable.scale,1);assert(readable.card.width>=200,'Default card remains readable at actual size');assert(readable.card.left>=70&&readable.card.top>=30&&readable.card.left+readable.card.width<readable.canvasWidth&&readable.card.top+readable.card.height<readable.canvasHeight,'First card stays visible and clear of the floating tools');assert.deepStrictEqual(readable.positions,longNodes.map(n=>n.pos),'Initial framing never rewrites saved node positions')
     for(const theme of ['light','dark']){await driver.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)};document.getElementById('workflowCanvas').data.setDirty(true,true)`);await sleep(100);shot('workflow-readable-default-'+theme+'.png',Buffer.from(await driver.screenshot(),'base64'))}
+    assert(await driver.evaluate("getComputedStyle(document.getElementById('windowTitle')).display==='none'"),'Workflow hides the chat/project caption')
+    const initialCamera=await driver.evaluate("(()=>{const c=document.getElementById('workflowCanvas').data;return {scale:c.ds.scale,offset:Array.from(c.ds.offset),positions:c.graph._nodes.map(n=>Array.from(n.pos))}})()")
+    for(const theme of ['light','dark']){
+      await driver.evaluate('document.documentElement.dataset.theme='+JSON.stringify(theme))
+      for(let toggle=0;toggle<4;toggle++){
+        await driver.click('#sidebarToggle')
+        await wait(()=>driver.evaluate("(()=>{const h=document.getElementById('workflowCanvasHost'),c=document.getElementById('workflowCanvas').data;return c.canvas.width===h.clientWidth&&c.canvas.height===h.clientHeight&&c.bgcanvas.width===h.clientWidth&&c.bgcanvas.height===h.clientHeight})()"),'canvas follows sidebar '+theme+' '+toggle)
+        await sleep(220)
+        assert(await driver.evaluate("(()=>{const h=document.getElementById('workflowCanvasHost'),c=document.getElementById('workflowCanvas').data,p=c.ctx.getImageData(c.canvas.width-18,c.canvas.height-48,1,1).data;return c.canvas.width===h.clientWidth&&c.canvas.height===h.clientHeight&&c.bgcanvas.width===h.clientWidth&&p[3]===255})()"),'Both bitmap buffers fill the settled host, including the newly exposed right edge')
+        assert.deepStrictEqual(await driver.evaluate("(()=>{const c=document.getElementById('workflowCanvas').data;return {scale:c.ds.scale,offset:Array.from(c.ds.offset),positions:c.graph._nodes.map(n=>Array.from(n.pos))}})()"),initialCamera,'Sidebar resize keeps zoom, pan and saved node positions')
+      }
+      shot('workflow-sidebar-redraw-'+theme+'.png',Buffer.from(await driver.screenshot(),'base64'))
+    }
+    await driver.evaluate('workflowUI.hide();true')
+    assert(await driver.evaluate("getComputedStyle(document.getElementById('windowTitle')).display!=='none'"),'Leaving workflows restores the chat caption')
+    await driver.evaluate('workflowUI.openDraft('+JSON.stringify(longFlow.id)+')',{awaitPromise:true})
+
     await driver.click('[data-canvas-action=zoom]');await driver.evaluate(`Array.from(document.querySelectorAll('#workflowZoomMenu button')).find(b=>b.textContent==='适应全部').click();true`)
     assert((await readingView()).scale<.3,'Overview remains an explicit user action')
     await driver.cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
@@ -91,6 +108,7 @@ async function main() {
     await driver.click('#workflowArrange');await wait(()=>driver.evaluate('!!document.querySelector("#workflowLayoutMenu [data-layout=horizontal]")'),'layout menu')
     await driver.evaluate('document.querySelector("#workflowLayoutMenu [data-layout=horizontal]").click();true')
     await sleep(120);assert.strictEqual((await readingView()).scale,1,'Arranging nodes keeps readable scale')
+    assert(await driver.evaluate("document.getElementById('workflowNotice').textContent===''&&getComputedStyle(document.getElementById('workflowNotice')).display==='none'"),'Layout succeeds without a notification banner or reserved space')
     await driver.click('#workflowArrange');await wait(()=>driver.evaluate('!!document.querySelector("#workflowLayoutMenu [data-layout=fit]")'),'layout menu reopened')
     await driver.evaluate('document.querySelector("#workflowLayoutMenu [data-layout=fit]").click();true')
     await sleep(160)
@@ -262,6 +280,8 @@ async function main() {
     await wait(async()=>(await req('POST',base+'/api/workflows/detail',{id:run.id})).status==='waiting','execution waiting')
     await driver.evaluate('workflowUI.openReference('+JSON.stringify({runId:run.id,workflowId:flow.id,nodeId:'h'})+')',{awaitPromise:true})
     await wait(()=>driver.evaluate(`!!document.querySelector('.workflow-map-scroll')`),'execution diagram')
+    assert(await driver.evaluate(`!!document.querySelector('path[data-rejection-from="a"][data-rejection-to="h"]')&&Array.from(document.querySelectorAll('.workflow-map-stage svg text')).some(n=>n.textContent.includes('驳回'))`),'Execution diagram shows real rejection target as a labeled reverse overlay')
+
     await sleep(100)
     const mapPoint=async onNode=>driver.evaluate(`(()=>{const viewport=document.querySelector('.workflow-map-scroll'),bounds=viewport.getBoundingClientRect();if(${onNode}){const visible=Array.from(viewport.querySelectorAll('.workflow-map-node')).map(card=>card.getBoundingClientRect()).find(r=>r.top>=bounds.top+4&&r.bottom<=bounds.bottom-4&&r.left>=bounds.left+4&&r.right<=bounds.right-4);if(visible)return{x:visible.left+visible.width/2,y:visible.top+visible.height/2}}for(const dx of [12,28,bounds.width-12])for(const dy of [18,bounds.height/2,bounds.height-18]){const x=bounds.left+dx,y=bounds.top+dy,hit=document.elementFromPoint(x,y);if(hit&&hit.closest('.workflow-map-scroll')===viewport&&!hit.closest('.workflow-map-node'))return{x,y}}throw Error('No execution map target')})()`)
     const executionView=async p=>driver.evaluate(`(()=>{const stage=document.querySelector('.workflow-map-stage'),r=stage.getBoundingClientRect(),scale=new DOMMatrix(getComputedStyle(stage).transform).a;return{scale,x:(${p.x}-r.left)/scale,y:(${p.y}-r.top)/scale,width:document.querySelector('.workflow-map-node').getBoundingClientRect().width}})()`)
@@ -358,6 +378,27 @@ async function main() {
     const adaptive=await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,points=[[0,0],[300,0],[600,0],[600,180],[300,180],[0,180],[0,360],[300,360],[600,360]];c.graph._nodes.forEach((n,i)=>{n.pos=[points[i][0]+50,points[i][1]+60]});c.setDirty(true,true);const wanted=[LiteGraph.RIGHT,LiteGraph.RIGHT,LiteGraph.DOWN,LiteGraph.LEFT,LiteGraph.LEFT,LiteGraph.DOWN,LiteGraph.RIGHT,LiteGraph.RIGHT];return c.graph._nodes.slice(0,-1).every((n,i)=>{n.getConnectionPos(false,0);return n.outputs[0].dir===wanted[i]&&n.outputs[0].color_on==='#3b82f6'})&&c.graph._nodes.slice(1).every(n=>{n.getConnectionPos(true,0);return n.inputs[0].color_on==='#16a36b'})})()`);assert(adaptive,'Serpentine canvas uses facing edges with blue outputs and green inputs')
     for(const theme of ['light','dark']){await driver.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)};document.getElementById('workflowCanvas').data.setDirty(true,true)`);await sleep(100);shot('workflow-adaptive-ports-'+theme+'.png',Buffer.from(await driver.screenshot(),'base64'))}
     assert(await driver.evaluate(`(()=>{createSession('','紧凑会话一','recent');createSession('','紧凑会话二','recent');renderWorkspaceList();const rows=Array.from(document.querySelectorAll('#chatList .chat-item'));return rows.length>=2&&rows.every(n=>n.getBoundingClientRect().height<=34)&&getComputedStyle(document.getElementById('chatList')).gap==='2px'})()`),'Conversation rows are compact with a 2px gap')
+    // Conditional routing must retain ordered named exits and validation across save/reopen.
+    const branchFlow=await req('POST',base+'/api/workflows/save',require('./workflow-branch-smoke').example)
+    await driver.evaluate('workflowUI.openDraft('+JSON.stringify(branchFlow.id)+')',{awaitPromise:true})
+    await wait(()=>driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.length===7`),'branch canvas')
+    await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;c.selectNode(c.graph._nodes.find(n=>n.properties.workflowId==='choose'));return true})()`)
+    await wait(()=>driver.evaluate(`!!document.querySelector('#workflowBranchOptions fieldset input')`),'branch configuration')
+    assert(await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,n=c.graph._nodes.find(n=>n.properties.workflowId==='choose');c.draw(true,true);return n.outputs.every((port,index)=>port.color_on===workflowLinkRouting.PORT_COLORS.output&&Math.abs(n.getConnectionPos(false,index)[1]-n.pos[1]-n.size[1])<.1)&&Object.values(c.graph.links).filter(l=>l.origin_id===n.id).every(l=>l._workflowRoute.every(p=>p[1]>=n.pos[1]+n.size[1]-1))})()`),'Vertical condition branches exit downward in blue without looping over upstream cards')
+
+    assert(await driver.evaluate(`Array.from(document.querySelectorAll('#workflowBranchOptions input,#workflowBranchOptions select')).every(el=>el.closest('label'))`),'Branch controls have accessible names')
+    assert(await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;c.draw(true,true);return c._workflowReturnEdges.some(e=>e.id==='return:director'&&c.graph.getNodeById(e.target).properties.workflowId==='apply'&&e.start[1]>e.end[1])&&Object.keys(c.graph.links).length===7})()`),'Actual rejection is drawn from downstream back to applicant without adding cyclic executable links')
+
+    await driver.evaluate(`(()=>{const inputs=document.querySelectorAll('#workflowBranchOptions fieldset input'),value=inputs[2];value.value='invalid';value.dispatchEvent(new Event('input',{bubbles:true}));inputs[0].value='大额复核';inputs[0].dispatchEvent(new Event('input',{bubbles:true}));return true})()`)
+    assert(await driver.evaluate(`(()=>{const n=document.getElementById('workflowCanvas').data.graph._nodes.find(n=>n.properties.workflowId==='choose');return n.properties.schemaErrors.branch&&document.querySelector('#workflowBranchOptions [aria-invalid=true]')&& !document.getElementById('workflowBranchError_0').hidden})()`),'Editing another field must not clear an invalid comparison')
+    await driver.evaluate(`(()=>{const value=document.querySelectorAll('#workflowBranchOptions fieldset input')[2];value.focus();value.value='5000';value.dispatchEvent(new Event('input',{bubbles:true}));return true})()`)
+    assert(await driver.evaluate(`!document.querySelector('#workflowBranchOptions [aria-invalid=true]')`))
+    for(const theme of ['light','dark']){await driver.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)};document.getElementById('workflowCanvas').data.setDirty(true,true)`);await sleep(80);shot('workflow-branch-'+theme+'.png',Buffer.from(await driver.screenshot(),'base64'))}
+    await driver.click('#workflowSave');await wait(()=>driver.evaluate(`!document.getElementById('workflowCards').classList.contains('hidden')`),'branch save')
+    const branchSaved=(await req('GET',base+'/api/workflows')).workflows.find(f=>f.id===branchFlow.id)
+    assert.strictEqual(branchSaved.nodes.find(n=>n.id==='choose').branch.cases[0].name,'大额复核');assert.strictEqual(branchSaved.edges.find(e=>e.from==='choose'&&e.to==='small').outputSlot,1)
+    await driver.evaluate('workflowUI.openDraft('+JSON.stringify(branchFlow.id)+')',{awaitPromise:true})
+    assert.deepStrictEqual(await driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.find(n=>n.properties.workflowId==='choose').outputs.map(p=>p.name)`),['大额复核','小额直接通过'])
     console.log('Workflow canvas: Ribbon icon-over-text groups, HTML5 drag/drop coordinates, live marquee blue preview, select/move, Shift multiselect, marquee group drag, vertical/horizontal split both sides, Esc rollback, wheel anchor, keyboard menu, real port connection/save/reopen, wheel zoom in both diagrams before focus and after redraw, anchored scaling, isolated form scrolling and sidebar reopen without new facts passed')
   } catch (error) {
     try{console.error('Port diagnostics',JSON.stringify(await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;return{connecting:c.connecting_node&&c.connecting_node.properties.workflowId,nodes:c.graph._nodes.map(n=>({id:n.properties.workflowId,inputs:(n.inputs||[]).map(p=>({name:p.name,link:p.link,temp:p._workflowTemporary})),outputs:(n.outputs||[]).map(p=>({name:p.name,links:p.links,temp:p._workflowTemporary}))})),edges:Object.values(c.graph.links).map(l=>({from:l.origin_id,to:l.target_id,in:l.target_slot,out:l.origin_slot}))}})()`)))}catch(_){}

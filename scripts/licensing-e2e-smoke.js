@@ -14,7 +14,16 @@ async function main(){
  }
  async function stop(){if(ws&&ws.socket)ws.socket.destroy();if(child){const exited=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');await Promise.race([exited,delay(3000)]);child=null}await delay(500)}
  try{
-  await start();assert(await evaluate('window.licensingUI.isLocked()'));assert.strictEqual(await evaluate("window.fetch('/api/chat/send',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(r=>r.status)"),403)
+  await start();assert(await evaluate('window.licensingUI.isLocked()'));
+  const requestInfo=await evaluate("window.dsh.licenseRequest('request')"),short=requestInfo.deviceDigest.slice(0,9).toUpperCase().replace(/(.{3})(.{3})(.{3})/,'$1-$2-$3')
+  assert(await evaluate("document.getElementById('licenseGate').textContent.includes("+JSON.stringify(short)+")"))
+  assert(!(await evaluate("document.getElementById('licenseGate').textContent.includes("+JSON.stringify(requestInfo.deviceDigest)+")")))
+  assert(!(await evaluate("document.getElementById('licenseGate').textContent.includes('复制设备码')")))
+  await evaluate(`(()=>{const original=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){window.__requestDownload=this.download};Array.from(document.querySelectorAll('#licenseGate button')).find(b=>b.textContent==='导出申请文件').click();setTimeout(()=>HTMLAnchorElement.prototype.click=original,500);return true})()`)
+  await until('!!window.__requestDownload');assert.strictEqual(await evaluate('window.__requestDownload'),'Agent-'+short+'.agentreq')
+  assert.strictEqual(issuer.fileStem(requestInfo.deviceDigest)+'.agentreq',await evaluate('window.__requestDownload'))
+  await new Promise((resolve,reject)=>{const req=require('http').get(new URL('/api/state',url),{headers:{Origin:'https://untrusted.example'}},res=>{try{assert.strictEqual(res.statusCode,403);res.resume();resolve()}catch(e){reject(e)}});req.on('error',reject)})
+assert.strictEqual(await evaluate("window.fetch('/api/chat/send',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(r=>r.status)"),403)
   await evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));document.getElementById('licenseGate').click();document.getElementById('newSession').focus()")
   await until('document.getElementById("licenseGate").contains(document.activeElement)');const focus=await evaluate(`({locked:window.licensingUI.isLocked(),focus:document.activeElement.outerHTML.slice(0,200),gate:document.getElementById('licenseGate').outerHTML.slice(0,300),display:getComputedStyle(document.getElementById('licenseGate')).display,buttons:Array.from(document.querySelectorAll('#licenseGate button')).map(b=>({text:b.textContent,disabled:b.disabled,rects:b.getClientRects().length})),inside:document.getElementById("licenseGate").contains(document.activeElement),inert:!!document.getElementById("newSession").closest("[inert]")})`);assert(focus.locked&&focus.inside&&focus.inert,JSON.stringify(focus))
   await evaluate(`(()=>{const d=new DataTransfer();d.items.add(new File(['invalid'],'bad.agentlic'));document.querySelector('#licenseGate .license-drop').dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:d}))})()`)

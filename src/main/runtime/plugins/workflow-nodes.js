@@ -10,6 +10,8 @@ module.exports={name:'core/workflow-nodes',inject:['llm','workflowAgent'],apply(
  const handlers={
   start:async({node,input})=>[node.text,input].filter(Boolean).join('\n\n'),
   end:async({input})=>input,
+  condition:async({input})=>input,
+  merge:async({input})=>input,
   rest:async({node,input,inputs,signal})=>{const method=node.rest.method;let body='';if(!['GET','DELETE'].includes(method)){body=node.text?replaceSlots(node.text,input,inputs):JSON.stringify({input});try{JSON.parse(body)}catch(_){throw Error('REST 请求体需要有效的 JSON')}}return requestText({url:node.rest.url,method,body,signal})},
   tool:request=>{const convert=value=>typeof value==='string'?replaceSlots(value,request.input,request.inputs):Array.isArray(value)?value.map(convert):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([k,v])=>[k,convert(v)])):value;return ctx.workflowAgent.invoke({...request,args:convert(request.node.tool.arguments)})},
   agent:request=>ctx.workflowAgent.execute(request),

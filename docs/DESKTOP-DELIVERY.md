@@ -155,7 +155,7 @@ ASAR、压缩、关闭开发者工具、内置 AES 密钥均不能单独作为�
 原路径 `.js` 只留下调用共享加载器的薄入口。每个构建生成随机256位密钥，每模块独立
 随机96位nonce，模块相对路径作为AAD。完整认证成功后才调用原模块 `_compile`，保留
 原始filename、dirname、相对require、exports、循环依赖和CommonJS缓存。模块首次使用
-时才解密，不全量预读，不把解密源码写到临时磁盘，不注册全局require/fs钩子。加载器
+时才解密，不全量预读，不把解密源码写到临时磁盘，不注册全局fs钩子；2026-10-28起通过限定应用目录的CommonJS加载校验验证签名摘要，不扫描用户工作区。加载器
 是本仓库自研平台适配，不承载Agent业务执行；Cordis装配与四层契约保持不变。
 
 页面脚本和沙箱preload仅压缩/混淆。沙箱preload不能require自定义Node加载器，不降低
@@ -224,3 +224,7 @@ CDP页面出现而非合成器首帧；测试为空数据Mac开发机，不冒�
 [Electron 更新器平台边界](https://www.electronjs.org/docs/latest/api/auto-updater)、
 [Electron 性能指南](https://www.electronjs.org/docs/latest/tutorial/performance)。
 这些为设计参考；实际 API 和工具必须回查锁定的 Electron22，不能直接使用最新版能力。
+
+### 2026-10-28：独立发布代码签名
+
+默认保护流水线新增由构建机外部独立 Ed25519 私钥签署的代码清单。主进程按模块加载验证，页面资源交付前验证，错误签名/公钥/文件修改均拒绝加载；不进行启动全盘哈希。此清单不是在线更新协议，Mac仍为ad-hoc系统签名，Windows未配置正式发布者证书。密钥初始化、范围、离线限制与回归入口见 [桌面三层防护说明](DESKTOP-SECURITY.md)。

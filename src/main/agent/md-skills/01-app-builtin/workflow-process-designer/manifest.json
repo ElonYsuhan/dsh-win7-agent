@@ -1,0 +1,20 @@
+{
+  "formatVersion": 1,
+  "publisher": "agent",
+  "name": "workflow-process-designer",
+  "displayName": "业务流程设计规范",
+  "description": "BPMN规范离线适配：审批、驳回补正、确定性条件分支、排他汇合与业务走查。",
+  "version": "1.1.0",
+  "type": "skill",
+  "engines": {
+    "extensionApi": 1,
+    "node": "16",
+    "electron": "22",
+    "chromium": "108"
+  },
+  "targets": [
+    "any"
+  ],
+  "entry": "SKILL.md",
+  "files": {}
+}

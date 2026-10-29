@@ -81,6 +81,8 @@ function nodeSummary(n){
  const props=n.properties||{},body=String(props.text||props.description||'').replace(/\s+/g,' ').trim()
  if(body)return body
  const type=String(n.type||'').split('/').pop()
+ if(type==='condition')return'按顺序命中一条，否则走默认分支'
+ if(type==='merge')return'汇合当前选中的一条分支'
  if(type==='human'){const step=interactionName(props.interaction);return step?'人工'+step:'人工办理节点'}
  if(type==='rest'&&props.rest&&props.rest.url)return String(props.rest.method||'GET')+' '+props.rest.url
  return NODE_SUMMARY[type]||''
@@ -96,6 +98,7 @@ function drawNodeCard(n,ctx,size,selected,hovered){
  ctx.font='650 14px '+theme.font;ctx.fillStyle=theme.text;ctx.strokeStyle=theme.text;window.workflowNodeIcons.draw(ctx,n.type,18,top+14,17);window.workflowEditorSurface.text(ctx,n,'title',fitNodeText(ctx,n.title,width-60),42,top+29)
  ctx.beginPath();ctx.moveTo(16,top+40);ctx.lineTo(width-16,top+40);ctx.globalAlpha=.55;ctx.strokeStyle=theme.border;ctx.lineWidth=1;ctx.stroke();ctx.globalAlpha=1
  // 文字在下：贴在卡片底部一行，按卡片宽度省略。没填说明就用类型兜底文案，卡片不留空。
+ if(n.type==='workflow/condition'){ctx.font='11px '+theme.font;ctx.fillStyle=theme.text;for(const [index,port]of(n.outputs||[]).entries())window.workflowEditorSurface.text(ctx,n,'route'+index,fitNodeText(ctx,port.name,width-44),18,28+index*24)}
  const body=nodeSummary(n)
  if(body){ctx.font='11px '+theme.font;ctx.fillStyle=theme.muted;window.workflowEditorSurface.text(ctx,n,'body',fitNodeText(ctx,body,width-36),18,size[1]-9)}
  ctx.restore()
@@ -285,7 +288,7 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   if(!shown)list.append(node('p','暂无匹配的执行实例，可清除筛选查看全部。','muted'))
  }
  function renderArtifacts(result,host){
-  const artifacts=result.deliverables||result.artifacts||[],section=node('section',undefined,'workflow-artifacts'+(!artifacts.length?' is-empty':''));section.id='workflowArtifacts';section.tabIndex=-1;section.setAttribute('aria-label','工作流产物')
+  const artifacts=(result.deliverables||result.artifacts||[]).filter(item=>item.status!=='skipped'),section=node('section',undefined,'workflow-artifacts'+(!artifacts.length?' is-empty':''));section.id='workflowArtifacts';section.tabIndex=-1;section.setAttribute('aria-label','工作流产物')
   const head=node('div',undefined,'workflow-section-heading');head.append(node('h3','工作流产物'),node('span',String(artifacts.length),'workflow-section-count'));section.append(head)
   if(!artifacts.length){const empty=node('div',undefined,'workflow-artifacts-empty'),copy=node('div');copy.append(node('strong','产物将在这里交付'),node('p',['failed','cancelled','interrupted'].includes(result.status)?'此次执行未完成，可展开节点记录查看中间结果。':'完成流程后，可在这里查看和下载报告、模型或场景文件。'));empty.append(glyph('file'),copy);section.append(empty)}
   if(artifacts.some(item=>!item.status||item.status==='delivered')&&result.status!=='succeeded')section.append(node('p','流程尚未完成，以下为已生成的部分产物。','muted'))
@@ -318,7 +321,7 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   }catch(e){if(!controller.signal.aborted)body.textContent=e.message}
  }
  function executionState(step){return step&&step.status==='succeeded'?'done':step&&['running','waiting'].includes(step.status)?'active':step&&['failed','interrupted','cancelled'].includes(step.status)?'error':'pending'}
- function executionLabel(step){return step&&step.status==='waiting'?'执行中 · 待人工处理':step&&step.status==='succeeded'?'已结束':step&&['interrupted','cancelled'].includes(step.status)?labels[step.status]:step&&step.status==='skipped'?'待执行 · 已跳过':step&&step.status==='pending'?'待执行':labels[step&&step.status]||'待执行'}
+ function executionLabel(step){return step&&step.status==='waiting'?'执行中 · 待人工处理':step&&step.status==='succeeded'?'已结束':step&&['interrupted','cancelled'].includes(step.status)?labels[step.status]:step&&step.status==='skipped'?'未选择 · 已跳过':step&&step.status==='pending'?'待执行':labels[step&&step.status]||'待执行'}
  // Execution cards are DOM elements, so they need their own viewport rather
  // than the editor's LiteGraph wheel handler. Keep only the current run's view.
  function attachExecutionViewport(scroll,stage,width,height,result,positions,nodeWidth){
@@ -377,9 +380,15 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   const executionRectangles=[...positions].map(([id,p])=>({id,left:p.x,top:p.y,right:p.x+NODE_W,bottom:p.y+NODE_H})),executionEdges=[]
   result.workflow.edges.forEach((edge,id)=>{const from=positions.get(edge.from),to=positions.get(edge.to);if(from&&to)executionEdges.push({id,start:[from.x+NODE_W/2,from.y+NODE_H],end:[to.x+NODE_W/2,to.y],source:edge.from,target:edge.to,startDirection:'down',endDirection:'up'})})
   const executionRoutes=window.workflowLinkRouting.create(executionRectangles).routeAll(executionEdges)
-  for(const edge of executionEdges){const points=executionRoutes.get(edge.id);if(!points)continue;const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',window.workflowLinkRouting.svgPath(window.workflowLinkRouting.commands(points,executionRectangles)));svg.append(path)}
+  const defs=document.createElementNS(svg.namespaceURI,'defs');svg.append(defs)
+  for(const edge of executionEdges){const points=executionRoutes.get(edge.id);if(!points)continue;const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',window.workflowLinkRouting.svgPath(window.workflowLinkRouting.commands(points,executionRectangles)));const gradient=document.createElementNS(svg.namespaceURI,'linearGradient'),gradientId='workflow-route-'+edge.id;gradient.id=gradientId;gradient.setAttribute('gradientUnits','userSpaceOnUse');for(const [key,value]of Object.entries({x1:points[0][0],y1:points[0][1],x2:points[points.length-1][0],y2:points[points.length-1][1]}))gradient.setAttribute(key,value);for(const [offset,color]of [['0%',window.workflowLinkRouting.PORT_COLORS.output],['22%',window.workflowLinkRouting.PORT_COLORS.output],['78%',window.workflowLinkRouting.PORT_COLORS.input],['100%',window.workflowLinkRouting.PORT_COLORS.input]]){const stop=document.createElementNS(svg.namespaceURI,'stop');stop.setAttribute('offset',offset);stop.setAttribute('stop-color',color);gradient.append(stop)}defs.append(gradient);path.style.stroke='url(#'+gradientId+')';const original=result.workflow.edges[edge.id],source=result.steps.find(s=>s.id===original.from),target=result.steps.find(s=>s.id===original.to),unused=source&&source.route&&source.route.outputSlot!==(original.outputSlot||0)||source&&source.status==='skipped'||target&&target.status==='skipped';if(unused){path.style.opacity='.25';path.setAttribute('stroke-dasharray','4 5')}else if(source&&source.route){path.style.strokeDasharray='none'}svg.append(path)}
+  const returnEdges=window.workflowLinkRouting.rejectionEdges(result.workflow).map((edge,index)=>{const from=positions.get(edge.from),to=positions.get(edge.to);return{id:'return:'+index,source:edge.from,target:edge.to,start:[from.x,from.y+NODE_H*.35],end:[to.x,to.y+NODE_H*.7],startDirection:'left',endDirection:'left',label:edge.label}}),returnRoutes=window.workflowLinkRouting.create(executionRectangles).routeAll(returnEdges)
+  const svgLabel=(points,text)=>{if(!text)return;const p=window.workflowLinkRouting.pointAt(points,.5),label=document.createElementNS(svg.namespaceURI,'text');label.setAttribute('x',p[0]);label.setAttribute('y',p[1]-7);label.setAttribute('text-anchor','middle');label.style.fill='var(--text)';label.style.fontSize='11px';label.style.paintOrder='stroke';label.style.stroke='var(--panel)';label.style.strokeWidth='4px';label.textContent=text;svg.append(label)}
+  const svgDirection=points=>{const end=points[points.length-1],before=points[points.length-2];if(!before)return;const arrow=document.createElementNS(svg.namespaceURI,'path'),angle=Math.atan2(end[1]-before[1],end[0]-before[0])*180/Math.PI;arrow.setAttribute('d','M 0 0 L -8 -4 L -8 4 Z');arrow.setAttribute('transform','translate('+end.join(' ')+') rotate('+angle+')');arrow.style.fill=window.workflowLinkRouting.PORT_COLORS.input;arrow.style.stroke='none';svg.append(arrow)}
+  for(const edge of returnEdges){const points=returnRoutes.get(edge.id);if(!points)continue;const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',window.workflowLinkRouting.svgPath(window.workflowLinkRouting.commands(points,executionRectangles)));path.dataset.rejectionFrom=edge.source;path.dataset.rejectionTo=edge.target;const gradient=document.createElementNS(svg.namespaceURI,'linearGradient'),id='workflow-return-gradient-'+edge.id;gradient.id=id;gradient.setAttribute('gradientUnits','userSpaceOnUse');for(const [key,value]of Object.entries({x1:edge.start[0],y1:edge.start[1],x2:edge.end[0],y2:edge.end[1]}))gradient.setAttribute(key,value);for(const [offset,color]of [['0%',window.workflowLinkRouting.PORT_COLORS.output],['100%',window.workflowLinkRouting.PORT_COLORS.input]]){const stop=document.createElementNS(svg.namespaceURI,'stop');stop.setAttribute('offset',offset);stop.setAttribute('stop-color',color);gradient.append(stop)}defs.append(gradient);path.style.stroke='url(#'+id+')';path.setAttribute('stroke-dasharray','6 4');const title=document.createElementNS(svg.namespaceURI,'title');title.textContent=edge.label;path.append(title);svg.append(path);svgDirection(points);svgLabel(points,edge.label)}
+  for(const edge of executionEdges){const original=result.workflow.edges[edge.id],source=result.workflow.nodes.find(n=>n.id===original.from),points=executionRoutes.get(edge.id);if(points)svgDirection(points);if(points&&source&&source.type==='condition'){const config=source.branch,route=[...config.cases,config.default][original.outputSlot||0];svgLabel(points,route&&route.name)}}
   stage.append(svg)
-  for(const entry of result.workflow.nodes){const step=result.steps.find(s=>s.id===entry.id),pos=positions.get(entry.id),state=executionState(step),isWaiting=step&&step.status==='waiting';const card=button('',()=>{runSelection=entry.id;pinnedSelection=true;detailSignature='';renderDetail()},entry.title+' · '+executionLabel(step));card.className='workflow-map-node workflow-state-'+state+(isWaiting?' is-waiting':'')+(runSelection===entry.id?' selected':'');card.setAttribute('aria-pressed',String(runSelection===entry.id));card.style.left=pos.x+'px';card.style.top=pos.y+'px';card.style.width=NODE_W+'px';card.style.height=NODE_H+'px';card.append(node('span',result.plan.includes(entry.id)?String(result.plan.indexOf(entry.id)+1).padStart(2,'0'):'—','workflow-map-index'),nodeTitle(entry),node('span',executionLabel(step),'workflow-map-state'),node('small',((data.nodes.find(n=>n.type===entry.type)||{}).name||entry.type)+(interactionName(entry.interaction)?' · '+interactionName(entry.interaction):''),'workflow-map-type'));stage.append(card)}
+  for(const entry of result.workflow.nodes){const step=result.steps.find(s=>s.id===entry.id),pos=positions.get(entry.id),state=executionState(step),isWaiting=step&&step.status==='waiting';const card=button('',()=>{runSelection=entry.id;pinnedSelection=true;detailSignature='';renderDetail()},entry.title+' · '+executionLabel(step));card.className='workflow-map-node workflow-state-'+state+(isWaiting?' is-waiting':'')+(runSelection===entry.id?' selected':'');card.setAttribute('aria-pressed',String(runSelection===entry.id));card.style.left=pos.x+'px';card.style.top=pos.y+'px';card.style.width=NODE_W+'px';card.style.height=NODE_H+'px';card.append(node('span',result.plan.includes(entry.id)?String(result.plan.indexOf(entry.id)+1).padStart(2,'0'):'—','workflow-map-index'),nodeTitle(entry),node('span',executionLabel(step),'workflow-map-state'),node('small',(step&&step.route?'已选：'+step.route.name:((data.nodes.find(n=>n.type===entry.type)||{}).name||entry.type))+(interactionName(entry.interaction)?' · '+interactionName(entry.interaction):''),'workflow-map-type'));stage.append(card)}
   left.append(scroll);layout.append(left,right);host.append(layout)
   attachExecutionViewport(scroll,stage,width,height,result,positions,NODE_W)
   const entry=result.workflow.nodes.find(n=>n.id===runSelection),step=result.steps.find(s=>s.id===runSelection)
@@ -533,7 +542,7 @@ function renderHumanForm(result,entry,step,task){
   drawExecution(result,host)
  }
  function renderExecutionSummary(n){
-  const host=$('workflowExecutionSummary'),preview=$('workflowExecutionMiniPreview'),supported=!!n&&!['start','end','input','output'].includes(n.type.split('/')[1])
+  const host=$('workflowExecutionSummary'),preview=$('workflowExecutionMiniPreview'),supported=!!n&&!['start','end','input','output','condition','merge'].includes(n.type.split('/')[1])
   host.classList.toggle('hidden',!supported);$('workflowExecutionDesign').disabled=!supported;preview.textContent=''
   if(!supported)return
   const props=n.properties,human=n.type==='workflow/human',schema=props.inputSchema,blocks=(props.processing&&props.processing.blocks)||[],names=[]
@@ -571,6 +580,8 @@ function renderHumanForm(result,entry,step,task){
   for(const input of [true,false])for(const [index,port]of(n[input?'inputs':'outputs']||[]).entries()){const placed=layout.get((input?'i':'o')+index);if(placed)port.dir=dirs[placed.direction];port.color_on=port.color_off=window.workflowLinkRouting.PORT_COLORS[input?'input':'output']}
   return layout
  }
+ function pathArrow(ctx,points,color){if(points.length<2)return;const end=points[points.length-1],before=points[points.length-2],angle=Math.atan2(end[1]-before[1],end[0]-before[0]);ctx.save();ctx.translate(end[0],end[1]);ctx.rotate(angle);ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-8,-4);ctx.lineTo(-8,4);ctx.closePath();ctx.fill();ctx.restore()}
+ function pathBadge(ctx,points,text){if(!text||!points.length)return;const p=window.workflowLinkRouting.pointAt(points,.5);ctx.save();ctx.font='11px '+cardTheme.font;const width=ctx.measureText(text).width+12;ctx.fillStyle=cardTheme.background;ctx.fillRect(p[0]-width/2,p[1]-10,width,18);ctx.fillStyle=cardTheme.text;ctx.textAlign='center';ctx.fillText(text,p[0],p[1]+3);ctx.restore()}
  function register(){
   if(typeof LiteGraph==='undefined')return
   cardTheme=readCardTheme()
@@ -579,14 +590,16 @@ function renderHumanForm(result,entry,step,task){
   for(const def of defs){
    function N(){
     this.addProperty('text','')
+    if(def.type==='condition')this.properties.branch={version:1,cases:[{id:'case_1',name:'条件成立',field:'value',operator:'eq',value:true}],default:{id:'otherwise',name:'其他情况'}}
     if(!['input','start'].includes(def.type))this.addInput('输入1','text')
     if(!['output','end'].includes(def.type))this.addOutput('文本','text')
+    if(def.type==='condition'){this.outputs=[];for(const entry of [...this.properties.branch.cases,this.properties.branch.default])this.addOutput(entry.name,'text')}
     this.size=this.computeSize();this.resizable=false
     applyNodeTheme(this)
    }
    N.title=def.name
    N.collapsable=false
-   N.prototype.computeSize=function(out){const size=out||[0,0],custom=this.properties&&this.properties.cardSize;size[0]=custom?custom[0]:cardTheme.width;size[1]=Math.max(custom?custom[1]:cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,Math.max(connectedPorts(this,true),connectedPorts(this,false))*LiteGraph.NODE_SLOT_HEIGHT+22);return size}
+   N.prototype.computeSize=function(out){const size=out||[0,0],custom=this.properties&&this.properties.cardSize;size[0]=custom?custom[0]:cardTheme.width;size[1]=Math.max(custom?custom[1]:cardTheme.height-LiteGraph.NODE_TITLE_HEIGHT,Math.max(connectedPorts(this,true),connectedPorts(this,false))*LiteGraph.NODE_SLOT_HEIGHT+22,this.type==='workflow/condition'?(this.outputs||[]).length*24+40:0);return size}
    N.prototype.getConnectionPos=function(input,index,out){out=out||new Float32Array(2);const list=this[input?'inputs':'outputs']||[],port=list[index];if(!port||!portVisible(this,input,index)){out[0]=out[1]=-1e6;return out}const placed=adaptivePorts(this).get((input?'i':'o')+index);if(placed){out[0]=placed.point[0];out[1]=placed.point[1]}else{port.dir=input?LiteGraph.LEFT:LiteGraph.RIGHT;out[0]=this.pos[0]+(input?10:this.size[0]-9);out[1]=this.pos[1]+(port.pos?port.pos[1]:14)}return out}
 
    // LiteGraph's generic type fallback checks `links` even for inputs (`link`).
@@ -618,7 +631,7 @@ function upstreamHumans(workflow,nodeId){
   return found.sort((a,b)=>a.distance-b.distance)
 }
 // 驳回退回目标按连线识别：默认取最近的上游人工节点，也可在设计里显式指定。
-function detectRejectTarget(workflow,nodeId){const candidates=upstreamHumans(workflow,nodeId);return {candidates,detected:candidates[0]||null}}
+function detectRejectTarget(workflow,nodeId){const candidates=upstreamHumans(workflow,nodeId),edge=window.workflowLinkRouting.rejectionEdges(workflow).find(e=>e.from===nodeId);return {candidates,detected:edge?candidates.find(n=>n.id===edge.to)||null:null}}
 function nextNodeId(type){
   const prefix=String(type||'node').replace(/[^a-zA-Z0-9_-]/g,'_')
   const used=new Set((graph&&Array.isArray(graph._nodes)?graph._nodes:[]).map(n=>(n.properties&&n.properties.workflowId)||('node_'+n.id)))
@@ -626,12 +639,37 @@ function nextNodeId(type){
   while(used.has(prefix+'_'+index))index++
   return prefix+'_'+index
  }
+ function renderBranchOptions(n){
+  let host=$('workflowBranchOptions');if(!host){host=node('section');host.id='workflowBranchOptions';$('workflowRestOptions').after(host)}host.textContent='';host.hidden=!n||!['workflow/condition','workflow/merge'].includes(n.type);if(host.hidden)return
+  if(n.type==='workflow/merge'){host.append(node('p','排他汇合：等待分支选路完成，只接收其中一条有效路径。请将各分支连接到不同输入端口；不用于并行会签。','muted'));return}
+  const props=n.properties,config=props.branch,upstream=ancestorsOf(n);props.bindings=props.bindings||{}
+  host.append(node('h3','条件分支'),node('p','从上往下匹配，首条成立即选中；否则走默认分支。字段缺失或类型不符会停止，不会自动猜测。','muted'))
+  function changed(){dirty=true;props.schemaErrors=props.schemaErrors||{};if(host.querySelector('[aria-invalid="true"]'))props.schemaErrors.branch=true;else delete props.schemaErrors.branch;for(const [index,entry]of [...config.cases,config.default].entries())if(n.outputs[index])n.outputs[index].name=entry.name;n.size=n.computeSize();graph.setDirtyCanvas(true,true)}
+  function rebuild(){for(let index=(n.outputs||[]).length-1;index>=0;index--)n.removeOutput(index);for(const entry of [...config.cases,config.default])n.addOutput(entry.name,'text');changed();renderBranchOptions(n);const focus=host.querySelector('input');if(focus)focus.focus();notice('分支数量已改变，请重新连接各分支出口。')}
+  function field(parent,title,control){const label=node('label',title);label.append(control);parent.append(label);return control}
+  for(const [index,rule]of config.cases.entries()){
+   const box=node('fieldset');box.append(node('legend','分支 '+(index+1)));host.append(box)
+   const name=field(box,'分支名称',node('input'));name.maxLength=40;name.value=rule.name;name.oninput=()=>{rule.name=name.value;changed()}
+   const source=field(box,'取值节点',node('select')),empty=node('option','请选择上游节点');empty.value='';source.append(empty);for(const item of upstream){const option=node('option',item.title);option.value=item.properties.workflowId;source.append(option)}source.value=(props.bindings[rule.field]||{}).nodeId||''
+   const path=field(box,'结果字段（如 amount）',node('input'));path.value=(props.bindings[rule.field]||{}).path||'';path.placeholder='amount'
+   const binding=()=>{if(source.value)props.bindings[rule.field]={nodeId:source.value,path:path.value.trim()};else delete props.bindings[rule.field];changed()};source.onchange=binding;path.oninput=binding
+   const op=field(box,'比较方式',node('select'));for(const [value,title]of [['eq','等于'],['ne','不等于'],['gt','大于'],['gte','大于等于'],['lt','小于'],['lte','小于等于'],['in','属于集合'],['not_in','不属于集合'],['contains','包含'],['empty','为空'],['not_empty','不为空']]){const option=node('option',title);option.value=value;op.append(option)}op.value=rule.operator
+   const kind=field(box,'比较值类型',node('select'));for(const [value,title]of [['string','文本'],['number','数字'],['boolean','布尔'],['json','集合 / null']]){const option=node('option',title);option.value=value;kind.append(option)}kind.value=Array.isArray(rule.value)||rule.value===null?'json':typeof rule.value
+   const value=field(box,'比较值',node('input'));value.value=typeof rule.value==='string'?rule.value:JSON.stringify(rule.value)
+   const error=node('p','比较值格式无效，请按所选类型填写。','workflow-error');error.id='workflowBranchError_'+index;error.hidden=true;error.setAttribute('role','status');box.append(error);value.setAttribute('aria-describedby',error.id)
+   const update=()=>{rule.operator=op.value;const unary=['empty','not_empty'].includes(op.value);value.disabled=kind.disabled=unary;try{if(unary)delete rule.value;else if(kind.value==='string')rule.value=value.value;else if(kind.value==='number'){if(!value.value.trim()||!Number.isFinite(Number(value.value)))throw Error();rule.value=Number(value.value)}else{rule.value=JSON.parse(value.value);if(kind.value==='boolean'&&typeof rule.value!=='boolean')throw Error()}value.removeAttribute('aria-invalid');error.hidden=true;changed()}catch(_){value.setAttribute('aria-invalid','true');error.hidden=false;props.schemaErrors=props.schemaErrors||{};props.schemaErrors.branch=true;dirty=true}};op.onchange=update;kind.onchange=update;value.oninput=update;value.disabled=kind.disabled=['empty','not_empty'].includes(op.value)
+   if(config.cases.length>1){const remove=node('button','删除此分支');remove.type='button';remove.onclick=()=>{config.cases.splice(index,1);if(!config.cases.some(item=>item.field===rule.field))delete props.bindings[rule.field];rebuild()};box.append(remove)}
+  }
+  const fallback=field(host,'默认分支名称',node('input'));fallback.maxLength=40;fallback.value=config.default.name;fallback.oninput=()=>{config.default.name=fallback.value;changed()}
+  if(config.cases.length<8){const add=node('button','＋ 添加条件');add.type='button';add.onclick=()=>{let index=1;while(config.cases.some(item=>item.id==='case_'+index))index++;config.cases.push({id:'case_'+index,name:'条件 '+index,field:'value_'+index,operator:'eq',value:true});rebuild()};host.append(add)}
+ }
  function parameter(n){
   selectedNode=n
   const panel=page.querySelector('.workflow-parameters');if(panel){panel.classList.toggle('is-empty',!n);panel.classList.toggle('is-flow',!n)}$('workflowFlowProperties').hidden=!!n
   const human=!!n&&n.type==='workflow/human'
   $('workflowNodeTitle').value=n?n.title:''
   $('workflowNodeText').value=n?(n.properties.text||(human?n.properties.description:'')||''):''
+  $('workflowNodeTextField').hidden=!!n&&['workflow/condition','workflow/merge'].includes(n.type)
   $('workflowNodeText').rows=human?4:12
   $('workflowNodeTextField').classList.toggle('is-human',human)
   $('workflowNodeTextLabel').textContent=human?'处理描述':'执行指令'
@@ -639,6 +677,7 @@ function nextNodeId(type){
   $('workflowNodeText').disabled=!n
   $('workflowRemoveNode').disabled=!n
   renderExecutionSummary(n)
+  renderBranchOptions(n)
   $('workflowNodeDescription').value=n?(n.properties.description||''):''
   $('workflowNodeDescription').disabled=!n
   // 人工操作通过设计会话配置，不再生成不可见的手工配置表单。
@@ -704,7 +743,7 @@ function nextNodeId(type){
   for(const n of graph._nodes){const point=result.positions.get(n.id);if(point)n.pos=[point[0]+PAD,point[1]+offsetY]}
   dirty=true;graph.setDirtyCanvas(true,true)
   if(chosen==='fit')fitGraph(READABLE_MIN_SCALE);else readableGraph()
-  if(!silent)notice('已按「'+window.workflowAutoLayout.LABELS[result.direction]+'」重排 '+graph._nodes.length+' 个节点')
+  if(!silent)notice('')
  }
  function renderStructured(n){
   const host=$('workflowStructuredOptions');host.textContent='';if(!n)return
@@ -762,7 +801,7 @@ function nextNodeId(type){
 function portConnected(port,input){return input?port.link!==null&&port.link!==undefined:!!(port.links&&port.links.length)}
 function connectedPorts(n,input){return(n[input?'inputs':'outputs']||[]).filter(port=>portConnected(port,input)).length}
 function activePort(n,input,index){return!!canvas&&canvas.connecting_node===n&&canvas.connecting_slot===index&&!!(input?canvas.connecting_input:canvas.connecting_output)}
-function portVisible(n,input,index){const port=(n[input?'inputs':'outputs']||[])[index];return!!port&&(portConnected(port,input)||port._workflowTemporary||activePort(n,input,index))}
+function portVisible(n,input,index){const port=(n[input?'inputs':'outputs']||[])[index];return!!port&&((!input&&n.type==='workflow/condition')||portConnected(port,input)||port._workflowTemporary||activePort(n,input,index))}
 let portSyncPending=false
 function queuePortSync(){if(portSyncPending||!graph)return;portSyncPending=true;requestAnimationFrame(()=>{portSyncPending=false;if(!graph)return;for(const item of graph._nodes){for(const input of [true,false])for(const port of item[input?'inputs':'outputs']||[])if(port._workflowTemporary&&portConnected(port,input)){delete port._workflowTemporary;delete port.pos}syncNodePorts(item)}graph.setDirtyCanvas(true,true)})}
 function syncNodePorts(n){
@@ -782,7 +821,7 @@ function clearPortHints(cancel=false){
  if(changed){syncAllPorts();if(canvas)canvas.setDirty(true,true)}
 }
 function freePort(n,input){
- const list=n[input?'inputs':'outputs']||(n[input?'inputs':'outputs']=[]),index=list.findIndex((port,i)=>!portConnected(port,input)&&!activePort(n,input,i));if(index>=0)return index;if(list.length>=8)return-1
+ const list=n[input?'inputs':'outputs']||(n[input?'inputs':'outputs']=[]),index=list.findIndex((port,i)=>!portConnected(port,input)&&!activePort(n,input,i));if(index>=0)return index;if(!input&&n.type==='workflow/condition'||list.length>=8)return-1
  const name=input?'输入'+(list.length+1):list.length?'输出'+(list.length+1):'文本';if(input)n.addInput(name,'text');else n.addOutput(name,'text');return list.length-1
 }
 function updatePortHints(event){
@@ -793,6 +832,7 @@ function updatePortHints(event){
  const input=connecting?!!canvas.connecting_output:point[0]<n.pos[0]+n.size[0]/2,type=n.type.split('/')[1],edge=input?n.pos[0]+10:n.pos[0]+n.size[0]-9
  if(input&&['start','input'].includes(type)||!input&&['end','output'].includes(type)||!connecting&&(Math.abs(point[0]-edge)>20/canvas.ds.scale||point[1]<n.pos[1]+6)){clearPortHints();return}
  const list=n[input?'inputs':'outputs']||[]
+ if(!input&&type==='condition'){clearPortHints();return}
  if(list.some((port,index)=>portConnected(port,input)&&Math.hypot(...Array.from(n.getConnectionPos(input,index)).map((v,i)=>v-point[i]))<12/canvas.ds.scale)){clearPortHints();return}
  // Reuse the same hint while moving along an edge, without adding/removing slots per pixel.
  for(const other of graph._nodes)for(const side of [true,false])for(const [index,port]of(other[side?'inputs':'outputs']||[]).entries())if(port._workflowTemporary&&!activePort(other,side,index)&&(other!==n||side!==input)){delete port._workflowTemporary;delete port.pos}
@@ -843,14 +883,20 @@ function edit(flow){
     if(!cached.points){blocked++;if(link._pos){link._pos[0]=-1e9;link._pos[1]=-1e9}continue}
     this.renderLink(ctx,a,b,link,false,0,null,startDir,endDir)
    }
+   const nodeIds=new Map(graph._nodes.map(n=>[n.id,n.properties.workflowId||String(n.id)])),definition={nodes:graph._nodes.map(n=>({id:nodeIds.get(n.id),type:n.type.split('/')[1],title:n.title,interaction:n.properties.interaction,humanModes:n.properties.humanModes,humanKind:n.properties.humanKind})),edges:Object.values(graph.links).filter(Boolean).map(l=>({from:nodeIds.get(l.origin_id),to:nodeIds.get(l.target_id)}))},returns=window.workflowLinkRouting.rejectionEdges(definition),returnEdges=[]
+   for(const [index,edge]of returns.entries()){const from=graph._nodes.find(n=>n.properties.workflowId===edge.from),to=graph._nodes.find(n=>n.properties.workflowId===edge.to);if(!from||!to)continue;const source=rectangles.find(r=>r.id===from.id),target=rectangles.find(r=>r.id===to.id);returnEdges.push({id:'return:'+edge.from,source:from.id,target:to.id,start:[source.left,source.top+(source.bottom-source.top)*.35],end:[target.left,target.top+(target.bottom-target.top)*.7],startDirection:'left',endDirection:'left',label:edge.label})}
+   const returnSignature=geometry+'|'+JSON.stringify(returnEdges)
+   if(this._workflowReturnSignature!==returnSignature){this._workflowReturnSignature=returnSignature;this._workflowReturnRoutes=router.routeAll(returnEdges)}
+   this._workflowReturnEdges=returnEdges
+   for(const edge of returnEdges){const points=this._workflowReturnRoutes.get(edge.id);if(!points)continue;ctx.save();const gradient=ctx.createLinearGradient(...edge.start,...edge.end);gradient.addColorStop(0,window.workflowLinkRouting.PORT_COLORS.output);gradient.addColorStop(1,window.workflowLinkRouting.PORT_COLORS.input);ctx.strokeStyle=gradient;ctx.lineWidth=1.6;ctx.setLineDash([6,4]);ctx.beginPath();window.workflowLinkRouting.trace(ctx,window.workflowLinkRouting.commands(points,rectangles));ctx.stroke();ctx.setLineDash([]);pathArrow(ctx,points,window.workflowLinkRouting.PORT_COLORS.input);pathBadge(ctx,points,edge.label);for(const [p,color]of [[edge.start,window.workflowLinkRouting.PORT_COLORS.output],[edge.end,window.workflowLinkRouting.PORT_COLORS.input]]){ctx.fillStyle=color;ctx.beginPath();ctx.arc(...p,3.5,0,Math.PI*2);ctx.fill()}ctx.restore()}
    const host=$('workflowCanvasHost');if(host.dataset.blockedLinks!==String(blocked))host.dataset.blockedLinks=String(blocked)
    const warning=$('workflowRoutingWarning');if(warning){warning.hidden=!blocked;const text=blocked?'有 '+blocked+' 条连线的端口被卡片挡住，请移开重叠卡片。':'';if(warning.textContent!==text)warning.textContent=text}
   }
   canvas.renderLink=function(ctx,a,b,link,skip,flow,color,startDir,endDir,count){
-   if(!link)return renderLink.call(this,ctx,a,b,link,true,flow,color,startDir,endDir,count)
+   if(!link)return renderLink.call(this,ctx,a,b,link,true,flow,window.workflowLinkRouting.PORT_COLORS.output,startDir,endDir,count)
    const points=link._workflowRoute;if(!points||!points.length)return
    this.visible_links.push(link);const middle=window.workflowLinkRouting.pointAt(points,.5);if(link._pos){link._pos[0]=middle[0];link._pos[1]=middle[1]}
-   ctx.save();ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.lineCap='round';ctx.globalAlpha=this.editor_alpha;ctx.strokeStyle=this.highlighted_links[link.id]||marqueeHasLink(a,b,startDir,endDir,points)?cardTheme.selected:color||link.color||this.default_link_color;ctx.beginPath();window.workflowLinkRouting.trace(ctx,link._workflowRouteCommands);ctx.stroke();ctx.restore()
+   ctx.save();ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.lineCap='round';ctx.globalAlpha=this.editor_alpha;const selected=this.highlighted_links[link.id]||marqueeHasLink(a,b,startDir,endDir,points),gradient=ctx.createLinearGradient(a[0],a[1],b[0],b[1]);gradient.addColorStop(0,window.workflowLinkRouting.PORT_COLORS.output);gradient.addColorStop(.22,window.workflowLinkRouting.PORT_COLORS.output);gradient.addColorStop(.78,window.workflowLinkRouting.PORT_COLORS.input);gradient.addColorStop(1,window.workflowLinkRouting.PORT_COLORS.input);ctx.strokeStyle=gradient;ctx.lineWidth=selected?2.5:1.6;ctx.beginPath();window.workflowLinkRouting.trace(ctx,link._workflowRouteCommands);ctx.stroke();pathArrow(ctx,points,window.workflowLinkRouting.PORT_COLORS.input);const source=graph.getNodeById(link.origin_id);if(source&&source.type==='workflow/condition'){const route=source.outputs[link.origin_slot];pathBadge(ctx,points,route&&route.name)}ctx.restore()
   }
   canvas.drawNodeShape=function(n,ctx,size,color,background,selected,hovered){drawNodeCard(n,ctx,size,selected,hovered)}
   canvas.drawNode=function(n,ctx){adaptivePorts(n);ctx.save();ctx.beginPath();ctx.rect(-8,-LiteGraph.NODE_TITLE_HEIGHT-8,n.size[0]+16,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+16);ctx.clip();ctx.font=this.inner_text_font;const names=[];for(const ports of [n.inputs||[],n.outputs||[]])for(const port of ports){if(port._workflowTemporary){names.push([port,port.name]);port.name=''}port.label=''}try{const result=drawNode.call(this,n,ctx);for(const input of [true,false])for(const [index,port]of(n[input?'inputs':'outputs']||[]).entries())if(port._workflowTemporary){const p=n.getConnectionPos(input,index),x=p[0]-n.pos[0],y=p[1]-n.pos[1];ctx.fillStyle=window.workflowLinkRouting.PORT_COLORS[input?'input':'output'];ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();ctx.strokeStyle=cardTheme.background;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x-3,y);ctx.lineTo(x+3,y);ctx.moveTo(x,y-3);ctx.lineTo(x,y+3);ctx.stroke()}return result}finally{for(const[port,name]of names)port.name=name;ctx.restore()}}
@@ -876,7 +922,7 @@ function edit(flow){
    n.properties.humanKind=entry.humanKind||'review'
    n.properties.humanModes=humanModes(entry).slice()
    n.properties.rest=entry.rest||{url:'',method:'GET'}
-   for(const key of ['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing'])if(entry[key]!==undefined)n.properties[key]=JSON.parse(JSON.stringify(entry[key]))
+   for(const key of ['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing','branch'])if(entry[key]!==undefined)n.properties[key]=JSON.parse(JSON.stringify(entry[key]))
    if(Array.isArray(entry.inputs)){n.inputs=[];for(const port of entry.inputs)n.addInput(port.name,'text')}
    if(Array.isArray(entry.outputs)){n.outputs=[];for(const port of entry.outputs)n.addOutput(port.name,'text')}
    if(Array.isArray(entry.size))n.properties.cardSize=entry.size.slice(0,2).map(v=>Number(v)||0).map((v,i)=>Math.max(i?LiteGraph.NODE_TITLE_HEIGHT+36:200,Math.min(i?360:520,v||(i?66:280))))
@@ -897,7 +943,7 @@ function edit(flow){
   dirty=false
   const toolbar=$('workflowNodeTypes');toolbar.textContent=''
   const defs=(data.nodes&&data.nodes.length)?data.nodes:FALLBACK_NODES
-  const iconNames={start:'wf-start',human:'wf-human',ai:'model',agent:'workflow',tool:'plugin',rest:'wf-rest',evaluate:'wf-evaluate',end:'stop'}
+  const iconNames={start:'wf-start',human:'wf-human',ai:'model',agent:'workflow',tool:'plugin',rest:'wf-rest',evaluate:'wf-evaluate',condition:'wf-condition',merge:'wf-merge',end:'stop'}
   const groups=[['边界节点',defs.filter(d=>!d.legacy&&d.type==='start')],['处理节点',defs.filter(d=>!d.legacy&&!['start','end'].includes(d.type))],['结束节点',defs.filter(d=>!d.legacy&&d.type==='end')]]
   for(const [title,items] of groups){
    if(!items.length)continue
@@ -1132,9 +1178,13 @@ function edit(flow){
  window.addEventListener('blur',()=>{clearPortHints(true);finishSplit(true);finishCardResize(true);closeCanvasMenu(false)})
  function resize(){
   if(canvas&&mode==='editor'&&!page.classList.contains('hidden')){
-   const rect=$('workflowCanvasHost').getBoundingClientRect()
-   canvas.resize(Math.max(320,rect.width),Math.max(240,rect.height))
+   const host=$('workflowCanvasHost'),width=host.clientWidth,height=host.clientHeight
+   if(!width||!height||canvas.canvas.width===width&&canvas.canvas.height===height)return
+   // Resize both LiteGraph buffers to the actual content box, including the
+   // first sidebar transition. Keep graph coordinates and the camera intact.
+   canvas.resize(width,height)
    syncCanvasTheme()
+   canvas.draw(true,true)
   }
  }
  async function create(){
@@ -1216,7 +1266,7 @@ function edit(flow){
  $('workflowName').addEventListener('input',()=>{dirty=true})
  function editorDefinition(){
    const ports=(n,input)=>{const list=n[input?'inputs':'outputs']||[];let count=0;for(let i=0;i<list.length;i++)if(portConnected(list[i],input))count=i+1;return list.slice(0,count).map(p=>({name:p.name,type:'text'}))}
-   const nodes=graph._nodes.map(n=>({...Object.fromEntries(['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing'].filter(k=>n.properties[k]!==undefined&&!(k==='interaction'&&n.type!=='workflow/human')).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:ports(n,true),outputs:ports(n,false),size:Array.from(n.size||[]),pos:Array.from(n.pos)}))
+   const nodes=graph._nodes.map(n=>({...Object.fromEntries(['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing','branch'].filter(k=>n.properties[k]!==undefined&&!(k==='interaction'&&n.type!=='workflow/human')).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:ports(n,true),outputs:ports(n,false),size:Array.from(n.size||[]),pos:Array.from(n.pos)}))
    const byGraph=new Map(graph._nodes.map((n,i)=>[n.id,nodes[i].id]))
    const edges=Object.values(graph.links).filter(Boolean).map(l=>({from:byGraph.get(l.origin_id),to:byGraph.get(l.target_id),slot:l.target_slot||0,outputSlot:l.origin_slot||0}))
    return {...editing,editor:'canvas',name:$('workflowName').value,description:$('workflowDescription').value,materials:materialEditor.get(),nodes,edges}
@@ -1260,6 +1310,12 @@ function edit(flow){
  }).catch(()=>{})
  const timer=setInterval(()=>{if(!document.hidden&&mode!=='editor')refresh()},1500)
  window.addEventListener('resize',resize)
+ let canvasResizeFrame=0
+ const canvasSizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(()=>{
+  if(disposed||canvasResizeFrame)return
+  canvasResizeFrame=requestAnimationFrame(()=>{canvasResizeFrame=0;if(!disposed)resize()})
+ }):null
+ if(canvasSizeObserver)canvasSizeObserver.observe($('workflowCanvasHost'))
  // 卡片变宽变窄时重新分配“显示几步”，否则收起来的步骤回不来。
  // 观察外层滚动容器而不是卡片本身：重绘只改高度，不会反过来触发自己。
  if(typeof ResizeObserver==='function'){
@@ -1268,10 +1324,16 @@ function edit(flow){
   const observer=new ResizeObserver(()=>{const width=scroll?scroll.clientWidth:0;if(!width||Math.abs(width-cardWidth)<8)return;cardWidth=width;if(mode==='flows'&&!disposed)requestAnimationFrame(()=>{if(mode==='flows'&&!disposed)renderFlows()})})
   if(scroll)observer.observe(scroll)
  }
- window.addEventListener('beforeunload',()=>{executionMapCleanup();disposed=true;clearInterval(timer);if(canvas)canvas.dispose()})
+ window.addEventListener('beforeunload',()=>{executionMapCleanup();disposed=true;clearInterval(timer);if(canvasSizeObserver)canvasSizeObserver.disconnect();if(canvasResizeFrame)cancelAnimationFrame(canvasResizeFrame);if(canvas)canvas.dispose()})
  async function openDraft(id){
   if(!await confirmLeaveEditor())return
   open();const latest=await api('list');data=latest;const flow=latest.workflows.find(w=>w.id===id);if(!flow)throw Error('流程不存在');edit(flow)
+ }
+ async function startDraft(id){
+  if(!await confirmLeaveEditor())return
+  const latest=await api('list'),flow=latest.workflows.find(w=>w.id===id);if(!flow)throw Error('流程不存在，请重新设计或选择已有流程')
+  const run=await startRun(flow);if(!run)return
+  open();data=latest;filter=id;activeRun=run.id;runSelection='';pinnedSelection=false;detailSignature='';view('detail');await refresh()
  }
  async function openReference(ref){
   open()
@@ -1279,5 +1341,5 @@ function edit(flow){
   else if(ref.workflowId)await openDraft(ref.workflowId)
   else{view('flows');await refresh()}
  }
- window.workflowUI={open,hide,refresh,openDraft,openReference,buildHumanTask,humanTaskView,detectRejectTarget}
+ window.workflowUI={open,hide,refresh,openDraft,startDraft,openReference,buildHumanTask,humanTaskView,detectRejectTarget}
 })()

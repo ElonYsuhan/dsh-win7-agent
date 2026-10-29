@@ -20,4 +20,5 @@ function issue({directory=defaultDirectory(),requestText,customer,days,licenseId
  return{claims,text:JSON.stringify({version:1,keyId:authority.keyId,payload:payload.toString('base64'),signature:signature.toString('base64')})+'\n'}
 }
 function record(directory,claims,output){fs.appendFileSync(path.join(directory,'issuance.jsonl'),JSON.stringify({at:Date.now(),licenseId:claims.licenseId,customer:claims.customer,deviceDigest:claims.deviceDigest,expiresAt:claims.expiresAt,sequence:claims.sequence,output})+'\n',{mode:0o600})}
-module.exports={defaultDirectory,status,init,request,issue,record}
+function fileStem(deviceDigest){return 'Agent-'+C.digest(deviceDigest).slice(0,9).toUpperCase().replace(/(.{3})(.{3})(.{3})/,'$1-$2-$3')}
+module.exports={fileStem,defaultDirectory,status,init,request,issue,record}

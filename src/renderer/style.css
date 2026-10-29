@@ -6,7 +6,8 @@
   --panel: #2b2b2b;
   --panel-2: #303030;
   --composer-bg: #2b2b2b;
-  --border: #3b3b3b;
+  --workflow-context-bg: #25282d;
+  --border: #303030;
   --text: #eeeeee;
   --muted: #aaaaaa;
   --accent: #dddddd;
@@ -950,7 +951,8 @@ button.danger:hover:not(:disabled) {
   --panel: #ffffff;
   --panel-2: #f5f5f5;
   --composer-bg: #f5f5f5;
-  --border: #e3e3e3;
+  --workflow-context-bg: #f8f9fb;
+  --border: #eeeeee;
   --text: #252525;
   --muted: #666666;
   --accent: #333333;
@@ -1350,17 +1352,17 @@ button.danger:hover:not(:disabled) {
   padding: 10px 18px 18px;
 }
 
-/* The composer is a flat surface; focus is indicated by its border. */
+/* Soft fill separates the input area without a border or shadow. */
 .composer-card {
   background: var(--composer-bg);
-  border: 1px solid var(--border);
-  border-radius: 18px;
+  border: 0;
+  border-radius: 14px;
   padding: 10px 12px 8px;
   box-shadow: none;
 }
 
 .composer-card:focus-within {
-  border-color: var(--focus);
+  box-shadow: none;
 }
 
 .composer-card textarea {
@@ -6435,7 +6437,7 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-detail-heading{gap:10px;}.workflow-detail-heading h1{margin:0;}.workflow-detail-heading>button:last-child{margin-left:auto;}
 .workflow-map-node{background:var(--panel);border-radius:6px;}
 .workflow-map-node strong{border-bottom:1px solid var(--border);width:100%;padding-bottom:5px;}
-.workflow-chat-context{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);font-size:12px;}
+.workflow-chat-context{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;margin-bottom:8px;border:0;border-radius:10px;background:var(--workflow-context-bg);font-size:12px;}
 .workflow-chat-context.hidden{display:none;}.workflow-chat-context>span{flex:1;}.workflow-chat-context button,.workflow-open-draft{font-size:12px;padding:6px 10px;}
 .workflow-open-draft{margin-top:8px;}
 #workflowChatContext .workflow-open-draft{margin-top:0;background:#2563eb;border-color:#2563eb;color:#fff;}
@@ -7189,3 +7191,14 @@ html.dialog-dragging,html.dialog-dragging *{cursor:grabbing!important;user-selec
 .window-control-icon { display:flex;align-items:center;justify-content:center;width:20px;height:20px; }
 .window-control-icon::before,.window-control-icon::after { content:none; }
 .titlebar-drag .icon svg,.titlebar-drag .app-menu-button svg { width:20px;height:20px;display:block; }
+
+/* Workflow pages own their headings; do not carry the current chat/project caption. */
+body:has(#app.workflows-open) #windowTitle { display:none; }
+
+#workflowBranchOptions fieldset{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:10px;min-width:0;}
+#workflowBranchOptions label{display:block;margin:10px 0;font-size:12px;}
+#workflowBranchOptions input,#workflowBranchOptions select{display:block;width:100%;margin-top:6px;}
+#workflowBranchOptions p{font-size:12px;line-height:1.6;}
+#workflowBranchOptions input[aria-invalid=true]{border-color:var(--danger);}
+
+#workflowChatContext .workflow-start-draft{margin-top:0;background:var(--text);color:var(--bg);font-weight:600}

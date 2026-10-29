@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "keyId": "ed25519-e20a8dbf24633e8d",
+  "publicKeys": {
+    "ed25519-e20a8dbf24633e8d": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAOAY/B4BE+JASYLA56BezYR10n4tA2v2mqz27EbQJrDY=\n-----END PUBLIC KEY-----\n"
+  }
+}

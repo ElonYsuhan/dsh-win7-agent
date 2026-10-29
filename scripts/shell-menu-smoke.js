@@ -71,12 +71,12 @@ check('shell preload forwards openPath and openExternal to native IPC', () => {
 
 check('shell IPC opens local paths and rejects empty or non-string input', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'shell/main.js'), 'utf8')
-  const start = source.indexOf("ipcMain.handle('shell:open-path'")
-  const end = source.indexOf("ipcMain.handle('shell:open-external'", start)
+  const start = source.indexOf("secureHandle('shell:open-path'")
+  const end = source.indexOf("secureHandle('shell:open-external'", start)
   let handler
   const calls = []
   vm.runInNewContext(source.slice(start, end), {
-    ipcMain: { handle: (_name, fn) => { handler = fn } },
+    secureHandle: (_name, fn) => { handler = fn },
     shell: { openPath: (target) => { calls.push(target); return '' } },
     path
   })

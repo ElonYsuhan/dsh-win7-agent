@@ -1,0 +1,10 @@
+from PIL import Image, ImageDraw
+im=Image.open('assets/icons/icon.png').convert('RGBA').resize((1024,1024),Image.Resampling.LANCZOS)
+d=ImageDraw.Draw(im)
+d.ellipse((660,660,980,980),fill='#2358c8',outline='white',width=16)
+d.line((755,875,863,767),fill='white',width=36)
+d.ellipse((723,844,779,900),outline='white',width=16)
+d.arc((823,719,906,802),20,300,fill='white',width=22)
+im.save('assets/icons/authority.png')
+im.save('assets/icons/authority.icns',format='ICNS')
+im.save('assets/icons/authority.ico',format='ICO',sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])

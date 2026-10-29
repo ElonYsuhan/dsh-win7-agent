@@ -1,6 +1,6 @@
 'use strict'
 ;(function(){
- const names={start:'wf-start',input:'wf-start',human:'wf-human',ai:'model',agent:'workflow',tool:'plugin',rest:'wf-rest',evaluate:'wf-evaluate',end:'stop',output:'stop',template:'file'}
+ const names={start:'wf-start',input:'wf-start',human:'wf-human',ai:'model',agent:'workflow',tool:'plugin',rest:'wf-rest',evaluate:'wf-evaluate',condition:'wf-condition',merge:'wf-merge',end:'stop',output:'stop',template:'file'}
  const cache=new Map()
  function name(type){return names[String(type||'').replace(/^workflow\//,'')]||'workflow'}
  function draw(ctx,type,x,y,size){

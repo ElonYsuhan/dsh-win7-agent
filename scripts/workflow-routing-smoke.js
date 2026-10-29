@@ -64,7 +64,7 @@ console.log('Workflow routing: obstacle avoidance, negotiated separate lanes, no
 // Adaptive anchors face their peers instead of forcing every cable through L/R.
 const card=rect('a',200,200,220,100)
 for(const [peer,direction]of [[rect('b',600,200),'right'],[rect('b',-100,200),'left'],[rect('b',200,500),'down'],[rect('b',200,-100),'up']]){
- const port=Routing.portLayout(card,[{key:'o',input:false,peers:[peer]}]).get('o');assert.strictEqual(port.direction,direction);assert.strictEqual(port.color,Routing.PORT_COLORS.output)
+ const port=Routing.portLayout(card,[{key:'o',input:false,peers:[peer]}]).get('o');assert.strictEqual(port.direction,direction);assert.strictEqual(port.color,Routing.PORT_COLORS.output);assert(port.point[0]===card.left||port.point[0]===card.right||port.point[1]===card.top||port.point[1]===card.bottom,'Ports sit exactly on the card edge')
  const target=Routing.portLayout(peer,[{key:'i',input:true,peers:[card]}]).get('i');assert.strictEqual(target.color,Routing.PORT_COLORS.input)
  const points=Routing.create([card,peer]).route({start:port.point,end:target.point,source:'a',target:'b',startDirection:port.direction,endDirection:target.direction});assert(points);assert(points.length<=4,'Facing nodes do not take an exterior lap')
 }
@@ -81,3 +81,9 @@ assert.strictEqual(new Set(middles).size,3,'Fan-out cables take distinct lanes o
 for(const points of hubRoutes.values())for(let i=1;i<points.length;i++)assert(points[i-1][0]===points[i][0]||points[i-1][1]===points[i][1],'Lane offsets keep every segment orthogonal')
 const straight=Routing.create([hub,rect('f',760,200)]).route({start:[520,240],end:[750,240],source:'hub',target:'f',startDirection:'right',endDirection:'left'})
 assert.deepStrictEqual(straight,[[520,240],[750,240]],'A single cable stays a straight line without lane offsets')
+
+const returns={nodes:[{id:'apply',type:'human',title:'申请人',interaction:{version:1,type:'handle'}},{id:'manager',type:'human',interaction:{version:1,type:'approve',returnTo:'apply'}},{id:'finance',type:'human',interaction:{version:1,type:'approve',returnTo:'apply'}}],edges:[{from:'apply',to:'manager'},{from:'manager',to:'finance'}]}
+assert.deepStrictEqual(Routing.rejectionEdges(returns).map(e=>[e.from,e.to]),[['manager','apply'],['finance','apply']],'Every rejection returns to the configured applicant, never merely the previous approver')
+returns.nodes[2].interaction.returnTo='previous-human';assert.strictEqual(Routing.rejectionEdges(returns)[1].to,'apply','Default target prefers the upstream handling node just like the runtime')
+returns.nodes[2].interaction.returnTo='manager';assert.strictEqual(Routing.rejectionEdges(returns)[1].to,'manager','An explicit upstream approver is honored')
+assert.strictEqual(returns.edges.length,2,'Display returns do not mutate executable DAG edges')
