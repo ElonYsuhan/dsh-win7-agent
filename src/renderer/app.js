@@ -4567,7 +4567,19 @@ async function init() {
     if (not(openExternalLink(href))) return
     event.preventDefault()
   })
-  const newSessionAction = () => { const session=createSession('','新会话','recent');selectSession(session.id);setStatus('新会话') }
+  /* 当前已经在一条没有任何聊天记录的空会话里（且没有运行中/排队消息）时，
+     再点「新建会话」不另建新会话 —— 反复点击不再堆积一排「新会话」。 */
+  const newSessionAction = () => {
+    const current = currentSession()
+    if (current && Array.isArray(current.messages) && current.messages.length === 0 && !currentRunning() && !state.liveRun && (state.pendingMessages || []).length === 0) {
+      selectSession(current.id)
+      setStatus('已是空会话，未新建')
+      return
+    }
+    const session = createSession('', '新会话', 'recent')
+    selectSession(session.id)
+    setStatus('新会话')
+  }
   byId('newSession').addEventListener('click', newSessionAction)
   if(byId('newSessionAssociation'))byId('newSessionAssociation').addEventListener('click',()=>openSessionAssociation())
   if (window.desktopWindow && window.desktopWindow.onCommand) {

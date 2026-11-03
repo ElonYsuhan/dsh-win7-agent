@@ -2636,6 +2636,18 @@ const checks = `
   ok('独立工作区点击新建会话也能直接生成最近会话',
     Boolean(currentSession()) && currentSession().scope === 'recent'
       && byId('projectModal').classList.contains('hidden'))
+  const recentCountBefore = (sessionStore.__recent__ || []).length
+  byId('newSession').click()
+  await waitPushes()
+  ok('空会话上再点新建会话不重复创建（用户 2026-11-03 反馈）',
+    (sessionStore.__recent__ || []).length === recentCountBefore
+      && Boolean(currentSession()) && currentSession().messages.length === 0)
+  currentSession().messages.push({ role: 'user', content: '已产生聊天记录' })
+  byId('newSession').click()
+  await waitPushes()
+  ok('有聊天记录后点新建会话才真正新建',
+    (sessionStore.__recent__ || []).length === recentCountBefore + 1
+      && Boolean(currentSession()) && currentSession().messages.length === 0)
   window.dsh.isDesktop = false
   window.dsh.pickNativeFolder = async () => ({ path: '', canceled: false })
   state.projectFolders = []
