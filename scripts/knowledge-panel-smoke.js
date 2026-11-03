@@ -5,6 +5,8 @@
  *  2. 导入区并排「添加资料」与「添加文件夹」两个按钮
  *  3. 删除「每文件最多 8MB」提示文案
  *  4. 预览区/来源区空状态：文件图标在上、文案水平+垂直居中
+ *  5. 左栏宽度可拖拽（把手 #knowledgeListResize：拖动改 --knowledge-list-width，
+ *     松手写 localStorage，双击恢复默认 300px）—— 2026-11-03 第二轮反馈
  */
 const fs = require('fs')
 const os = require('os')
@@ -154,6 +156,46 @@ async function main() {
     ok('空状态水平居中（align-items center）', m.emptyAlign === 'center', m.emptyAlign)
     ok('来源区空状态也带图标（clearResults 路径）', m.srcEmptyExists === true)
     ok('8MB 提示文案已删除', m.hintExists === false)
+
+    /* ---- 左栏宽度可拖拽（第二轮反馈）---- */
+    const RESIZE_INFO = `(function () {
+      var h=document.getElementById('knowledgeListResize'),p=document.getElementById('knowledgeFilePane')
+      if(!h||!p) return JSON.stringify({handleExists:false})
+      var hr=h.getBoundingClientRect(),pr=p.getBoundingClientRect()
+      return JSON.stringify({handleExists:true,cursor:getComputedStyle(h).cursor,
+        paneWidth:Math.round(pr.width),handleLeft:Math.round(hr.left),paneRight:Math.round(pr.right)})
+    })()`
+    const ri = JSON.parse(String(await evalJs(RESIZE_INFO)))
+    ok('左栏拖拽把手存在', ri.handleExists === true)
+    ok('把手光标为 col-resize', ri.cursor === 'col-resize', ri.cursor)
+    ok('默认左栏宽度 300px', Math.abs(ri.paneWidth - 300) <= 1, ri.paneWidth)
+    ok('把手覆盖在左栏右缘（handleLeft≈paneRight-4）', Math.abs(ri.handleLeft - (ri.paneRight - 4)) <= 2, 'left=' + ri.handleLeft + ' right=' + ri.paneRight)
+
+    const DRAG_START = `(function(){
+      var h=document.getElementById('knowledgeListResize')
+      var x=h.getBoundingClientRect().left+4
+      h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true,clientX:x}))
+      document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:x+80}))
+      return 'dragging'
+    })()`
+    await evalJs(DRAG_START)
+    await sleep(200) /* 等一帧让 rAF 节流的 flushDrag 落地 */
+    const DRAG_END = `(function(){
+      var p=document.getElementById('knowledgeFilePane')
+      var w=Math.round(p.getBoundingClientRect().width)
+      document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))
+      return JSON.stringify({widthAfterDrag:w,saved:localStorage.getItem('dsh-knowledge-list-width'),
+        bodyClassCleared:!document.body.classList.contains('resizing-knowledge-list')})
+    })()`
+    const rd = JSON.parse(String(await evalJs(DRAG_END)))
+    ok('向右拖 80px 后左栏变宽到 380px', Math.abs(rd.widthAfterDrag - 380) <= 1, rd.widthAfterDrag)
+    ok('松手后宽度写入 localStorage', rd.saved === '380', rd.saved)
+    ok('松手后拖拽态 body 类已清除', rd.bodyClassCleared === true)
+    await evalJs(`document.getElementById('knowledgeListResize').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`)
+    await sleep(120)
+    const rr = JSON.parse(String(await evalJs(`(function(){return JSON.stringify({width:Math.round(document.getElementById('knowledgeFilePane').getBoundingClientRect().width),saved:localStorage.getItem('dsh-knowledge-list-width')})})()`)))
+    ok('双击把手恢复默认 300px', Math.abs(rr.width - 300) <= 1, rr.width)
+    ok('双击后 localStorage 同步为 300', rr.saved === '300', rr.saved)
   } finally {
     try { await driver.close() } catch (e) {}
     child.kill('SIGKILL')

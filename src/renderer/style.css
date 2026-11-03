@@ -6318,7 +6318,7 @@ select.agent-native-select { position:absolute !important; width:1px !important;
 
 .knowledge-detail-open .knowledge-heading p,.knowledge-detail-open #knowledgeSearchForm,.knowledge-detail-open #knowledgeBases { display:none; }
 .knowledge-detail-open .knowledge-scroll { display:block; overflow:hidden; padding:0; }
-.knowledge-detail-open #knowledgeDetail { display:grid; grid-template-columns:300px minmax(0,1fr); height:100%; gap:0; overflow:hidden; padding:0; border-top:1px solid var(--border); }
+.knowledge-detail-open #knowledgeDetail { display:grid; grid-template-columns:var(--knowledge-list-width,300px) minmax(0,1fr); position:relative; height:100%; gap:0; overflow:hidden; padding:0; border-top:1px solid var(--border); }
 .knowledge-file-pane { overflow:auto; min-height:0; padding:16px 16px 20px 0; border-right:1px solid var(--border); }
 #knowledgeFileQuery { width:100%; }
 .knowledge-file-group { margin:14px 0; }.knowledge-file-group summary{font-size: var(--font-size-caption);color:var(--muted);cursor:pointer;margin:10px 0;}.knowledge-file-group>p{font-size: var(--font-size-caption);padding-left:12px;}
@@ -7495,4 +7495,36 @@ button, [role="button"], .pill {
 #app .sidebar .flat-empty {
   padding: 2px 10px;
   line-height: 16px;
+}
+
+/* ---- 知识库详情左栏宽度可拖拽（用户 2026-11-03 反馈「支持调整左侧窗口的宽度」）----
+   #knowledgeDetail 的首列已改为 var(--knowledge-list-width,300px)（见上方 detail-open 规则），
+   knowledge.js 拖动把手时改写该变量（rAF 节流），松手写 localStorage（dsh-knowledge-list-width）。
+   把手是覆盖在两列分界上的 8px 透明竖条，hover / 拖动时中缝露出 2px var(--divider) 线。 */
+#knowledgeListResize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--knowledge-list-width, 300px) - 4px);
+  width: 8px;
+  cursor: col-resize;
+  z-index: 6;
+  background: transparent;
+}
+#knowledgeListResize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+}
+#knowledgeListResize:hover::after,
+body.resizing-knowledge-list #knowledgeListResize::after {
+  background: var(--divider);
+}
+/* 窄屏（web-bridge 端才会命中）保持固定 210px，把手收起 */
+@media (max-width: 700px) {
+  #knowledgeListResize { display: none; }
 }

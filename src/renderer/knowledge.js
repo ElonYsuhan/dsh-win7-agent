@@ -355,6 +355,37 @@
   $('knowledgeQuery').addEventListener('keydown', event => { if (event.key === 'Enter' && event.isComposing) event.preventDefault() })
   document.addEventListener('click', event => { const b = event.target.closest('[data-knowledge-source]'); if (b) source(b.dataset.knowledgeSource) })
   page.addEventListener('keydown', event => { if (event.key === 'Escape') $('knowledgeClose').click() })
+  /* 左栏宽度可拖拽（2026-11-03）：CSS 变量 --knowledge-list-width 驱动 grid 首列，松手落 localStorage，双击恢复默认 */
+  const LIST_MIN = 220, LIST_MAX = 520, LIST_DEFAULT = 300, LIST_WIDTH_KEY = 'dsh-knowledge-list-width'
+  const detailGrid = $('knowledgeDetail'), resizeHandle = $('knowledgeListResize')
+  const applyListWidth = width => detailGrid.style.setProperty('--knowledge-list-width', width + 'px')
+  const savedWidth = Number(localStorage.getItem(LIST_WIDTH_KEY))
+  if (savedWidth >= LIST_MIN && savedWidth <= LIST_MAX) applyListWidth(savedWidth)
+  let dragStartX = 0, dragStartWidth = 0, dragFrame = 0, dragEvent = null, dragLastWidth = 0
+  const widthFrom = event => Math.min(LIST_MAX, Math.max(LIST_MIN, Math.round(dragStartWidth + event.clientX - dragStartX)))
+  const flushDrag = () => { dragFrame = 0; if (dragEvent) { dragLastWidth = widthFrom(dragEvent); applyListWidth(dragLastWidth); dragEvent = null } }
+  const onDragMove = event => { dragEvent = event; if (!dragFrame) dragFrame = requestAnimationFrame(flushDrag) }
+  const endDrag = () => {
+    if (dragFrame) { cancelAnimationFrame(dragFrame); dragFrame = 0 }
+    flushDrag()
+    document.body.classList.remove('resizing', 'resizing-knowledge-list')
+    document.removeEventListener('mousemove', onDragMove)
+    document.removeEventListener('mouseup', endDrag)
+    if (dragLastWidth) localStorage.setItem(LIST_WIDTH_KEY, String(dragLastWidth))
+  }
+  resizeHandle.addEventListener('mousedown', event => {
+    event.preventDefault()
+    dragStartX = event.clientX
+    dragStartWidth = $('knowledgeFilePane').getBoundingClientRect().width
+    dragLastWidth = 0
+    document.body.classList.add('resizing', 'resizing-knowledge-list')
+    document.addEventListener('mousemove', onDragMove)
+    document.addEventListener('mouseup', endDrag)
+  })
+  resizeHandle.addEventListener('dblclick', () => {
+    applyListWidth(LIST_DEFAULT)
+    localStorage.setItem(LIST_WIDTH_KEY, String(LIST_DEFAULT))
+  })
   const timer = setInterval(() => { if (!document.hidden) refresh() }, 2000)
   window.addEventListener('beforeunload', () => clearInterval(timer), { once: true })
   window.knowledgeUI = { hide, open, refresh, source }
