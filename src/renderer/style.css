@@ -6362,7 +6362,7 @@ select.agent-native-select { position:absolute !important; width:1px !important;
 .knowledge-file-pane .knowledge-document { width:100%; box-sizing:border-box; cursor:pointer; border-radius:6px; }
 .knowledge-file-pane .knowledge-document:hover { background:var(--sidebar-row-hover); }
 .knowledge-file-pane .knowledge-document.selected { background:var(--sidebar-row-selected); }
-.knowledge-file-pane .knowledge-document-title,.knowledge-file-pane .knowledge-document-title:hover,.knowledge-file-pane .knowledge-document-title:active { display:block; width:100%; text-align:left; background:transparent; box-shadow:none; }
+.knowledge-file-pane .knowledge-document-title,.knowledge-file-pane .knowledge-document-title:hover,.knowledge-file-pane .knowledge-document-title:active { display:block; width:100%; text-align:left; background:transparent; box-shadow:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 .knowledge-detail-open #knowledgeNotice:empty { display:none; }
 .knowledge-detail-open #knowledgeOverview { margin:8px 0 10px; }

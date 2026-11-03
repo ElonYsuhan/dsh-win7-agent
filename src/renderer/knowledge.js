@@ -184,9 +184,9 @@
       row.addEventListener('click', event => { if (!event.target.closest('button')) previewDocument(doc) })
       const preview = action(doc.name, () => previewDocument(doc), doc.id + ':preview'); preview.className = 'knowledge-document-title'; preview.setAttribute('aria-pressed', String(previewId === doc.id))
       main.append(preview)
-      if (doc.phase === 'ready' && !Number(doc.chunk_count) && !doc.error) main.append(el('p','已保存原件 · 未建立文本索引','muted'))
       if (doc.phase !== 'ready') main.append(el('p', (labels[doc.phase] || '未处理') + (doc.active ? ' · 旧版本仍可用' : ''), 'muted'))
-      if (doc.error) main.append(el('p', doc.error, 'muted'))
+      /* 解析成功时 job.error 存的是解析器说明（如「已保存原件，未建立文本索引…」），不是错误 —— 用户要求列表只留文件名，不画（2026-11-03）；仅未就绪/失败时才显示真实错误 */
+      if (doc.error && doc.phase !== 'ready') main.append(el('p', doc.error, 'muted'))
       row.append(main)
       const job = snapshot.jobs.find(j => j.doc_id === doc.id)
       if (job && ['queued', 'parsing', 'indexing'].includes(job.phase)) row.append(action('取消处理', async () => { await api('cancel', { id: job.id }); await refresh() }, doc.id + ':cancel'))
