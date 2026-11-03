@@ -1,21 +1,69 @@
+/* 启动授权门 + 设置页授权面板共用一套外观。
+   2026-11-02 按用户要求调整：启动门改成**整页观感**（遮罩完全不透明，看不到下层主界面任何轮廓，
+   不是半透明浮层）、操作按钮与卡片底色拉开对比、所有按钮收到底部一行（含新增的「取消」= 关闭软件）、
+   本机设备与申请改为常驻展开。
+
+   注意特异性：style.css 末尾有统一弹窗收口 `.modal:not(#approvalModal){background:var(--dialog-overlay)}`（1,1,0），
+   单写 `.license-gate` 会被它压住 —— 所以这里覆盖变量而不是覆盖背景值。
+
+   为什么不用 `#app{visibility:hidden}` 把下层整块隐掉：一批真窗口 smoke（theme / typography / drag …）
+   都跑在未授权态，`getComputedStyle().visibility` 一变成 hidden，它们的 visible 断言会集体误红。
+   遮罩提到不透明之后下层本来就一个像素都看不见，没必要动 DOM。 */
+#licenseGate{--dialog-overlay:var(--bg);}
 .license-gate{z-index:2147483000;}
 .license-gate-card{width:540px;gap:12px;}
-.license-gate-card>p{margin:0;font-size:13px;line-height:1.7;}
-.license-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 18px;}
-.license-badge{display:inline-flex;align-items:center;gap:7px;font-size:14px;}
+
+/* 卡片内部：上半部内容区自己滚，底部按钮行固定可见。
+   style.css 末尾的统一收口给了 .modal-card 一个 max-height + overflow:auto，
+   这里要用同特异性以上的选择器改回「外层不滚、内层滚」。 */
+#licenseGate .license-gate-card{width:540px;max-height:calc(100vh - 48px);overflow:hidden;display:flex;flex-direction:column;gap:12px;}
+#licenseGate #licenseGateContent{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;}
+#licenseGate .license-body{overflow:auto;min-height:0;padding-right:2px;padding-bottom:6px;}
+.license-gate-card>p{margin:0;font-size: var(--font-size-small);line-height:1.7;}
+.license-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 14px;}
+.license-badge{display:inline-flex;align-items:center;gap:7px;font-size: var(--font-size-base);}
 .license-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--muted);}
 .license-badge[data-state=licensed]::before,.license-badge[data-state=trial]::before{background:var(--focus);}
-.license-countdown{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;}
-.license-info{display:grid;grid-template-columns:90px minmax(0,1fr);gap:12px;font-size:13px;padding:0 0 18px;border-bottom:1px solid var(--border);}
+.license-countdown{font-size: var(--font-size-caption);color:var(--muted);font-variant-numeric:tabular-nums;}
+.license-info{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;font-size: var(--font-size-small);padding:0 0 14px;border-bottom:1px solid var(--border);}
 .license-info dt{color:var(--muted);}.license-info dd{margin:0;overflow-wrap:anywhere;}
-.license-label{font-size:13px;font-weight:600;margin:18px 0 10px;}
-.license-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;min-height:134px;padding:20px;border:1px dashed var(--border);background:var(--panel-2);text-align:center;font-size:12px;}
-.license-drop strong{font-size:13px;font-weight:500;}.license-upload-icon{font-size:26px;line-height:1;color:var(--muted);}
+.license-label{font-size: var(--font-size-small);font-weight: var(--font-weight-semibold);margin:14px 0 8px;}
+.license-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;min-height:88px;padding:14px;border:1px dashed var(--border);background:var(--panel-2);text-align:center;font-size: var(--font-size-caption);}
+.license-drop strong{font-size: var(--font-size-small);font-weight: var(--font-weight-medium);}
+/* 上传图标：看得出是「丢文件进来」的提示，而不是一个光秃秃的箭头；拖拽经过时跟着变主色。
+   图标本体走 .icon 的全局规则，但 style.css 第 5092 行那条 `button .icon svg`（0,1,2）会把它压回 20px，
+   而 .license-drop 本身就是 <button>。这里多挂一层 .license-drop 把特异性提到（0,2,1）。 */
+.license-drop .license-upload-icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;color:var(--muted);transition:color .12s ease;}
+.license-drop .license-upload-icon svg{width:28px;height:28px;display:block;}
+.license-drop.is-dragging .license-upload-icon{color:var(--focus);}
 .license-drop.is-dragging{border-color:var(--focus);background:var(--selection-bg);}
-.license-error{min-height:20px;line-height:1.6;font-size:12px;overflow-wrap:anywhere;color:var(--muted);margin:8px 0;}
-.license-device{font-size:12px;margin:10px 0 18px;}.license-device summary{cursor:pointer;}.license-device p{line-height:1.7;}.license-device code{display:block;font-size:11px;overflow-wrap:anywhere;user-select:text;}
-.license-device-actions{display:flex;gap:8px;margin-top:12px;}.license-device-actions button{font-size:12px;}
-.license-actions{margin-top:18px;border-top:1px solid var(--border);padding-top:16px;}
-.license-trial-help{font-size:11px;line-height:1.6;text-align:right;margin:10px 0 0;}
+.license-error{min-height:18px;line-height:1.6;font-size: var(--font-size-caption);overflow-wrap:anywhere;color:var(--muted);margin:4px 0;}
+
+/* 本机设备与授权申请：常驻展开，不再有折叠箭头；申请标识单独一行、可选中复制。 */
+.license-device{margin:8px 0 0;padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2);font-size: var(--font-size-caption);}
+.license-device-title{margin:0 0 6px;font-size: var(--font-size-small);font-weight: var(--font-weight-semibold);color:var(--text);}
+.license-device p{margin:0;line-height:1.7;}
+.license-device-code{margin:6px 0 0;font-size: var(--font-size-small);color:var(--muted);overflow-wrap:anywhere;user-select:text;font-variant-numeric:tabular-nums;}
+
+/* 底部操作区：按钮底色比卡片亮一档（浅色下暗一档），和面板底色明确区分；
+   「试用」是唯一主操作，用反色底；「取消」是次要操作，只用描边。 */
+.license-gate-card,#licenseSettings{--license-btn:#3f3f3f;--license-btn-hover:#4c4c4c;--license-btn-border:#636363;}
+[data-theme="light"] .license-gate-card,[data-theme="light"] #licenseSettings{--license-btn:#efefef;--license-btn-hover:#e2e2e2;--license-btn-border:#c9c9c9;}
+.license-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;flex:0 0 auto;margin-top:0;border-top:1px solid var(--border);padding-top:16px;}
+.license-actions button{min-height:34px;padding:8px 14px;font-size: var(--font-size-base);line-height:1.2;background:var(--license-btn);border:1px solid var(--license-btn-border);color:var(--text);}
+.license-actions button:hover:not(:disabled){background:var(--license-btn-hover);border-color:var(--license-btn-border);}
+.license-actions button:active:not(:disabled){transform:translateY(1px);}
+.license-actions button:disabled{opacity:.45;cursor:not-allowed;}
+.license-actions button:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+.license-actions .license-cancel{background:transparent;color:var(--muted);}
+.license-actions .license-cancel:hover:not(:disabled){background:var(--license-btn);color:var(--text);}
+.license-actions .license-primary{background:var(--send-bg);border-color:var(--send-bg);color:var(--send-text);font-weight: var(--font-weight-medium);}
+.license-actions .license-primary:hover:not(:disabled){background:var(--send-hover);border-color:var(--send-hover);}
+
+.license-trial-help{font-size: var(--font-size-caption);line-height:1.6;text-align:right;margin:10px 0 0;}
+
+/* 试用用过之后顶部提示、试用按钮与说明都要真正消失，抵消上面的 display 规则。 */
+#licenseGateDescription[hidden],.license-actions button[hidden],.license-trial-help[hidden]{display:none;}
+
 #licenseSettings{max-width:560px;}
-@media(max-width:600px){.license-info{grid-template-columns:76px minmax(0,1fr);}.license-drop{padding:16px;}.license-device-actions{flex-wrap:wrap;}}
+@media(max-width:600px){.license-info{grid-template-columns:76px minmax(0,1fr);}.license-drop{padding:16px;}.license-actions{justify-content:stretch;}.license-actions button{flex:1 1 auto;}}

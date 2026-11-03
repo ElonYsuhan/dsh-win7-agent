@@ -1,6 +1,6 @@
 'use strict'
 const VERSION = 1
-const LIMITS = Object.freeze({ fileBytes: 8 * 1024 * 1024, textChars: 1000000, chunks: 2000, documents: 500, bases: 32, queue: 16, queryChars: 200, results: 20 })
+const LIMITS = Object.freeze({ fileBytes: 200 * 1024 * 1024, textChars: 1000000, chunks: 2000, documents: 500, bases: 32, queue: 16, queryChars: 200, results: 20 })
 const PHASES = Object.freeze(['queued','parsing','indexing','ready','failed','cancelled','interrupted'])
 function id(value) { if (!/^[a-f0-9]{32}$/.test(String(value || ''))) throw Error('KNOWLEDGE_ID_INVALID'); return value }
 function name(value) { const text=String(value || '').trim(); if (!text || text.length>160 || /[\x00-\x1f]/.test(text)) throw Error('KNOWLEDGE_NAME_INVALID'); return text }

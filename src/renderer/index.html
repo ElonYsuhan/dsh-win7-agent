@@ -5,6 +5,8 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'self' blob:; frame-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'none'">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
   <title>Agent</title>
+  <!-- 排版基准必须排在 style.css 之前：@font-face 与字号/字重令牌都在这里。 -->
+  <link rel="stylesheet" href="typography.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="licensing.css">
   <link rel="stylesheet" href="knowledge-upload.css">
@@ -36,7 +38,7 @@
       <!-- 新建会话是满宽胶囊（原来挂的 .primary 在 CSS 里根本没有规则，等于没样式）；
            下面两个入口按参考样式改成**纵向**行、右侧带真实计数，不再用竖分隔线拼成分段控件。 -->
       <div class="sidebar-shortcuts" role="group" aria-label="聊天与能力入口">
-        <div class="new-session-entry"><button id="newSession" class="new-session pill"><span class="icon" data-icon="plus"></span><span>新建会话</span></button><button id="newSessionAssociation" type="button" aria-label="选择会话类型：普通、项目或知识库" title="选择会话类型">⌄</button></div>
+        <div class="new-session-entry"><button id="newSession" class="new-session pill"><span class="icon" data-icon="plus"></span><span>新建会话</span></button><button id="newSessionAssociation" type="button" aria-label="选择会话类型：普通、项目或知识库" title="选择会话类型"><span class="icon" data-icon="chevron" aria-hidden="true"></span></button></div>
         <button id="openLibrary" type="button" class="sidebar-shortcut" title="管理知识库、资料与来源">
           <span class="icon" data-icon="library" aria-hidden="true"></span>
           <span class="sidebar-shortcut-name">知识库</span>
@@ -147,15 +149,18 @@
             <div class="modal-actions"><button id="knowledgeCancelCreate" type="button">取消</button><button id="knowledgeSave" type="submit" class="primary">创建</button></div>
           </form>
         </div>
-        <button id="knowledgeOverview" class="hidden" type="button">← 全部知识库</button>
+        <button id="knowledgeOverview" class="hidden" type="button"><span class="icon" data-icon="back" aria-hidden="true"></span><span>全部知识库</span></button>
         <div class="knowledge-scroll"><div id="knowledgeBases" class="knowledge-grid"></div>
           <div id="knowledgeDetail" class="hidden">
             <aside id="knowledgeFilePane" class="knowledge-file-pane" aria-label="资料文件列表">
-              <button id="knowledgeImport" type="button" disabled aria-describedby="knowledgeUploadHint"><span class="knowledge-add-icon" aria-hidden="true">＋</span><span>添加资料</span></button>
-              <p id="knowledgeUploadHint" class="knowledge-upload-hint muted">支持多选、拖拽及任意格式，每文件最多8MB</p>
+              <div id="knowledgeImportRow" class="knowledge-import-row">
+                <button id="knowledgeImport" type="button" disabled><span class="knowledge-add-icon" aria-hidden="true">＋</span><span>添加资料</span></button>
+                <button id="knowledgeImportFolder" type="button" disabled><span class="icon" data-icon="folder" aria-hidden="true"></span><span>添加文件夹</span></button>
+              </div>
               <label for="knowledgeFileQuery" class="knowledge-sr-only">搜索当前知识库的文件名和内容</label><input id="knowledgeFileQuery" type="search" placeholder="搜索文件名、内容" maxlength="200">
               <p id="knowledgeFileStatus" class="muted" role="status"></p><div id="knowledgeDocuments"></div>
               <input id="knowledgeFile" type="file" multiple hidden aria-label="选择资料文件，支持多选和任意格式">
+              <input id="knowledgeFolder" type="file" webkitdirectory directory multiple hidden aria-label="选择文件夹以导入其中的全部文件">
               <p id="knowledgeUploadProgress" class="knowledge-upload-progress muted" role="status" aria-live="polite" aria-atomic="true"></p>
               <button id="knowledgeUploadCancel" class="knowledge-upload-cancel" type="button" hidden>停止后续上传</button>
               <details id="knowledgeUploadResults" class="knowledge-upload-results" hidden><summary>本次导入结果</summary><ul id="knowledgeUploadItems" aria-label="各文件导入结果"></ul></details>
@@ -432,7 +437,7 @@
   <div id="licenseGate" class="modal license-gate" role="dialog" aria-modal="true" aria-labelledby="licenseGateTitle" aria-describedby="licenseGateDescription">
     <section class="modal-card license-gate-card">
       <h2 id="licenseGateTitle">软件授权</h2>
-      <p id="licenseGateDescription" class="muted">请导入本机授权文件，或开启一次10分钟试用。</p>
+      <p id="licenseGateDescription" class="muted">请导入本机授权文件，或开启一次1天试用。</p>
       <div id="licenseGateContent"></div>
     </section>
   </div>
@@ -526,7 +531,7 @@
           <div class="model-hint">&#22635;&#20837;&#21508;&#25552;&#20379;&#26041;&#30340; API &#23494;&#38053;&#21363;&#21487;&#20351;&#29992;&#20854;&#27169;&#22411;&#12290;</div>
           <div id="providerList" class="provider-list"></div>
           <div class="provider-footer">
-            <button id="addModel" class="provider-add">+ &#28155;&#21152;&#27169;&#22411;</button>
+            <button id="addModel" class="provider-add"><span class="icon" data-icon="plus" aria-hidden="true"></span><span>&#28155;&#21152;&#27169;&#22411;</span></button>
           </div>
         </div>
             <div class="settings-panel" data-settings-panel="environment">

@@ -71,6 +71,8 @@
   window.dsh = {
     isDesktop: not(nativeShell) ? false : true,
     getState: () => request('GET', '/api/state'),
+    /* 浏览器形态没有「关闭软件」这件事，保留同名 API 让界面不用判断环境 */
+    quitApp: () => nativeShell && typeof nativeShell.close === 'function' ? nativeShell.close() : Promise.resolve(false),
     licenseRequest: (action,data) => ['status','request'].includes(action)?request('GET','/api/licensing/'+action):request('POST','/api/licensing/'+action,data||{}),
     saveSettings: (patch) => request('POST', '/api/settings', patch),
     pickWorkspace: async () => {

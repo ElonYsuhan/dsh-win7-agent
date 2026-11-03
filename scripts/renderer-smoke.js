@@ -378,8 +378,11 @@ sandbox.__approveCalls = []
    __uiStorePuts 记录渲染层推上来的每一份。设成 null 的方法可以模拟老宿主。 */
 sandbox.__uiStoreRemote = null
 sandbox.__uiStorePuts = []
+sandbox.__copiedTexts = []
 sandbox.window.dsh = {
   isDesktop: false,
+  /* 原生剪贴板桩：点击复制按钮会同步走到这里（copyToClipboard 首个 await 前是同步的） */
+  copyText: async (text) => { sandbox.__copiedTexts.push(String(text)); sandbox.__clipboard.push(String(text)); return true },
   getState: async () => {
     const value = {
       settings: settingsState,
@@ -454,6 +457,7 @@ function ok(name, cond, extra) {
 
 const iconsSrc = readRenderer('icons.js')
 const cssSrc = readRenderer('style.css')
+const ribbonSrc = readRenderer('workflow-ribbon.css')
 const htmlSrc = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'index.html'), 'utf8')
 const toolsSrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'agent', 'tools.js'), 'utf8')
 const appSrc = readRenderer('app.js')
@@ -472,6 +476,10 @@ sandbox.ok = ok
 sandbox.results = results
 sandbox.iconsSrc = iconsSrc
 sandbox.cssSrc = cssSrc
+sandbox.ribbonSrc = ribbonSrc
+/* 下拉箭头与授权上传图标都已经从文字字符换成图标库，这里把源码也喂进去钉住。 */
+sandbox.selectControlSrc = readRenderer('select-control.js')
+sandbox.licensingSrc = readRenderer('licensing.js')
 sandbox.htmlSrc = htmlSrc
 sandbox.toolsSrc = toolsSrc
 sandbox.appSrc = appSrc
@@ -586,8 +594,8 @@ const panelStatic = {
   titlebarContainsControls: ['sidebarToggle', 'pageActions', 'windowTitle', 'panelToggle', 'restoreChat']
     .every((id) => titlebarHtml.indexOf('id="' + id + '"') !== -1)
     && htmlSrc.indexOf('</header>') < htmlSrc.indexOf('<div id="app">'),
-  contentBelowTitlebar: /height:\s*48px/.test(titlebarBlock)
-    && /height:\s*calc\(100vh - 48px\)/.test(appGridBlock)
+  contentBelowTitlebar: /height:\s*44px/.test(titlebarBlock)
+    && /height:\s*calc\(100vh - 44px\)/.test(appGridBlock)
     && /position:\s*static/.test(titlebarTogglesBlock),
   resizeUsable: resizeBlock !== '' && !/display:\s*none/.test(resizeBlock),
   /* 网格行钉住剩余内容高度，避免文件面板把整个网格撑高，打断内部滚动链。 */
@@ -868,7 +876,7 @@ const pageStatic = {
   reloadIsFullPage: /function reloadPage\(\)[\s\S]{0,240}?window\.location\.reload\(\)/.test(appSrc),
   /* 链接 = location.origin（http/https 才有；file:// 的开发模式返回空串） */
   linkIsOrigin: /function appLink\(\)[\s\S]{0,420}?loc\.protocol !== 'http:'[\s\S]{0,320}?origin \+ '\/'/.test(appSrc),
-  shareCopiesAndOpens: /async function sharePageLink\(\)[\s\S]{0,700}?navigator\.clipboard\.writeText\(link\)[\s\S]{0,300}?openExternalLink\(link\)/.test(appSrc),
+  shareCopiesAndOpens: /async function sharePageLink\(\)[\s\S]{0,700}?copyToClipboard\(link\)[\s\S]{0,300}?openExternalLink\(link\)/.test(appSrc),
   /* 操作按钮在独立顶栏内按 flex 排列，离开窗口拖拽区。 */
   controlsInHeaderFlow: /display:\s*flex/.test(pageActionsBlock)
     && !/position:\s*absolute/.test(pageActionsBlock)
@@ -976,7 +984,14 @@ const checks = `
   ok('底部渐隐渐变已删除', cssSrc.indexOf('linear-gradient(180deg, rgba(15, 23, 42, 0)') === -1)
   ok('底部浅色渐隐已删除', cssSrc.indexOf('linear-gradient(180deg, rgba(255, 255, 255, 0)') === -1)
   const footerRules = cssSrc.match(/[^{}]*\.sidebar-footer[^{}]*\{[^}]*\}/g) || []
-  ok('底部不再用 --sidebar 实心底', footerRules.length > 0 && footerRules.every((rule) => rule.indexOf('background: var(--sidebar)') === -1))
+  /* 2026-11-03 需求反转（有理由，不是回退）：页脚必须**不透明**——列表滚到底时最后
+     半行字会从页脚底下透出来（用户截图里那截 ghost 字「这些空间是啥」）。
+     但底色只能取侧栏自己的 --sidebar，一旦换成 --panel / --panel-2 / 渐变，就又变成
+     2026-10-17 那种「底部一大块色斑」。伪元素（分割线 ::before / 渐隐 ::after）不算。 */
+  const footerBlockRules = footerRules.filter((rule) => rule.split('{')[0].indexOf('::') === -1)
+  ok('底部填充只许用 --sidebar 同色，不许换色或渐变（伪元素除外）',
+    footerBlockRules.length > 0 && footerBlockRules.every((rule) => rule.indexOf('--panel') === -1 && rule.indexOf('linear-gradient') === -1),
+    footerBlockRules.map((r) => r.replace(/\s+/g, ' ').slice(0, 90)).join(' | '))
 
   // --- 右键菜单：按内容自适应 + 文字左对齐 ---
   ok('菜单不再写死 150px 宽', cssSrc.indexOf('min-width: 150px') === -1)
@@ -1299,6 +1314,15 @@ const checks = `
     && msgBox.children[2].className === 'bubble-group'
     && msgBox.children[2].children.length === 2,
     msgBox.children[2] ? msgBox.children[2].className : 'missing')
+  /* 用户 2026-11-03：「复制按钮不生效，复制不到东西」。真因是 navigator.clipboard.writeText
+     要求 document 有焦点，Electron 窗口不在前台就抛 NotAllowedError，渲染层只能静默失败。
+     现在按钮改走 window.dsh.copyText → 主进程原生剪贴板，不看焦点。 */
+  window.__copiedTexts.length = 0
+  const copyBtn = msgBox.children[3] && msgBox.children[3].querySelector('.bubble-action')
+  if (copyBtn) copyBtn.click()
+  ok('点复制按钮把正文交给原生剪贴板通道',
+    window.__copiedTexts.length === 1 && window.__copiedTexts[0] === '第二条回复',
+    JSON.stringify(window.__copiedTexts))
   ok('助手消息操作行仍在气泡内', msgBox.children[3]
     && msgBox.children[3].className.indexOf('bubble assistant') !== -1
     && msgBox.children[3].querySelector('.bubble-actions') !== null)
@@ -1345,7 +1369,7 @@ const checks = `
   ok('面板收起时整块 display:none', panelStatic.panelHidden)
   ok('「只看文件」模式把前两列压成 0', panelStatic.chatHiddenColumns)
   ok('侧栏/面板开关、页面操作和标题都在 #app 外的独立 header 中', panelStatic.titlebarContainsControls)
-  ok('48px 顶栏与剩余内容高度分离，开关按钮跟随顶栏布局', panelStatic.contentBelowTitlebar)
+  ok('44px 顶栏与剩余内容高度分离，开关按钮跟随顶栏布局', panelStatic.contentBelowTitlebar)
   ok('拖拽把手不是 display:none（否则拖不动）', panelStatic.resizeUsable)
   ok('#app 的网格行钉死在视口高（minmax(0,1fr)，不然面板把行撑爆、滚动条不出现）',
     panelStatic.gridRowPinned)
@@ -2681,6 +2705,9 @@ const checks = `
   tlRefresh()
   ok('切到下一步后状态行改成当前步骤',
     tlStatusText.textContent.indexOf('执行 npm run dev') !== -1, tlStatusText.textContent)
+  ok('执行中摘要写「正在处理」，不会提前告诉用户「已执行」',
+    domText(tlBlocks[0].querySelector('summary')).indexOf('正在处理') !== -1,
+    domText(tlBlocks[0].querySelector('summary')))
   await handleEvent({ type: 'finished', sessionId: 's1', messages: [] })
   ok('跑完状态行收起、计时器清掉',
     tlStatus.classList.contains('hidden') && state.runStatusTimer === null, tlStatus.className)
@@ -2717,9 +2744,43 @@ const checks = `
       /* 反斜杠会被外层模板字符串吃掉（\s 变 s、[\s\S] 变 [sS]），正则里一律用字符类 / [^] */
       && /@media [(]max-width: 900px[)][^]{0,400}[.]sidebar-rail [{][^]{0,60}display: flex/.test(cssSrc),
     'rail kept for <900px')
-  ok('窄窗口下胶囊与两个入口都要隐藏（只剩图标栏 + 会话列表）',
+  ok('窄窗口下胶囊与两个入口都要隐藏（只剩图标栏）',
     /@media [(]max-width: 900px[)][^]{0,400}[.]new-session,[^]{0,160}[.]sidebar-shortcuts/.test(cssSrc),
     'media query covers pill + shortcuts')
+  /* 2026-11-02 用户截图：窄栏里还漏出一整列会话标题、文字溢出到侧栏外。
+     根因是文件末尾「侧边栏纵向节奏」块的 .sidebar-scroll{display:flex}（0,1,0）压掉了
+     @media 里的 .sidebar-scroll{display:none}（同特异性、后写生效）。收口规则改用 #app 提特异性，
+     这里钉住它，避免以后又被人按顺序覆盖掉。
+     注意：本文件 942 行起是一整段模板字符串，这里的注释同样在字符串里 —— 不能出现反引号
+     和「美元符号加大括号」，否则会提前截断模板、被当成代码解析。 */
+  /* 不能用 lastIndexOf：后面又加了别的 900px 块（窄栏里的设置按钮），
+     它会取到最后一个。改成把每个 900px 块都试一遍。 */
+  const narrowRule = /#app [.]sidebar [.]sidebar-scroll [{][^]{0,40}display: none/
+  let narrowOk = false
+  for (let at = cssSrc.indexOf('@media (max-width: 900px)'); at !== -1; at = cssSrc.indexOf('@media (max-width: 900px)', at + 1)) {
+    if (narrowRule.test(cssSrc.slice(at, at + 600))) { narrowOk = true; break }
+  }
+  ok('窄窗口 48px 图标栏里不再漏出会话列表（#app 前缀收口）',
+    narrowOk,
+    'rail hides .sidebar-scroll')
+  /* 控件图标必须走图标库的 SVG，不能退回文字字符（用户 2026-11-02 连着点名两次「敷衍」：
+     会话类型下拉的 ⌄、授权页上传区的 ↑）。这里把源码钉住，免得以后又有人图省事写字符。 */
+  /* 注释里会提到原来那个字符，所以只钉「有没有挂 data-icon」，不去查字符有没有出现。 */
+  ok('自定义下拉箭头用图标库的 chevron，不是文字字符',
+    selectControlSrc.indexOf("'data-icon', 'chevron'") !== -1 && selectControlSrc.indexOf('window.applyIcons') !== -1,
+    'select-control uses data-icon chevron')
+  ok('授权页上传图标用图标库的 upload，不是文字箭头',
+    licensingSrc.indexOf("'data-icon','upload'") !== -1 && licensingSrc.indexOf("el('span','↑'") === -1,
+    'licensing uses data-icon upload')
+  /* 设置 → 模型 的「添加模型」原来是一个正文字符 '+'（14px 字里只有 8px 见方，用户
+     2026-11-02「这图标呀太小了」）。钉住：必须挂 data-icon 的 plus，且图标尺寸显式给到 20px。 */
+  ok('添加模型按钮的加号用图标库的 plus，不是文字字符',
+    /id="addModel" class="provider-add"><span class="icon" data-icon="plus"/.test(htmlSrc),
+    'addModel uses data-icon plus')
+  ok('添加模型按钮的图标 20px 且与文字一起居中',
+    /[.]provider-add [{][^}]*display: flex[^}]*justify-content: center/.test(cssSrc)
+      && /[.]provider-add [.]icon svg [{][^}]*width: 20px[^}]*height: 20px/.test(cssSrc),
+    'provider-add icon sizing')
   /* DOM shim 是懒建空元素的，拿不到 index.html 里的 class，所以这几条只能静态断言 */
   ok('新建会话是独立的胶囊按钮（原来只有 .primary，CSS 里根本没有这条规则）',
     htmlSrc.indexOf('id="newSession" class="new-session pill"') !== -1
@@ -2743,9 +2804,154 @@ const checks = `
   const sbSpace = cssSrc.slice(cssSrc.indexOf('侧边栏纵向节奏'))
   ok('侧边栏纵向节奏收口在末尾（分组之间有间距、入口行距统一）',
     /[.]sidebar [{][^}]*gap: 10px/.test(sbSpace)
-      && /[.]sidebar-scroll [{][^}]*gap: 10px/.test(sbSpace)
+      && /[.]sidebar-scroll [{][^}]*gap: 6px/.test(sbSpace)
       && /[.]sidebar-shortcuts [{][^}]*gap: 2px/.test(sbSpace),
     'spacing block present')
+  /* 用户 2026-11-02：「项目」「聊天」两块空太多。三处一起收才有效 ——
+     分组叠加的 margin-top 归零、空态行从 35px 压到 20px、标题行的 + 按钮不再被
+     全局 min-height:34px 撑高（否则标题行 34 而非 28，白多出 6px）。 */
+  ok('分组之间不再叠加 margin（间距只由 sidebar-scroll 的 gap 决定）',
+    /[.]sidebar [.]sidebar-section [+] [.]sidebar-section [{][^}]*margin-top: 0/.test(cssSrc))
+  ok('空态行压到 20px（2px 内距 + 16px 行高）',
+    /#app [.]sidebar [.]flat-empty [{][^}]*padding: 2px 10px[^}]*line-height: 16px/.test(cssSrc))
+  ok('分组标题行的 + 按钮不再撑高标题行',
+    /[.]sidebar [.]section-head [.]icon-button [{][^}]*min-height: 28px/.test(cssSrc))
+  /* 用户 2026-11-03：「流程中的这个竖线白色主题看不清」。三个原因叠在一起：
+     浅色是 #eee 画在 #f5f5f5 上、深色更彻底（#303030 画在与它同值的 panel-2 上），
+     再加上 1px 落在半像素上会被摊成两列浅灰。改用独立的 --divider 令牌。 */
+  ok('Ribbon 分组竖线改用 --divider，浅/深两套主题各有一档明确中间色',
+    /--divider: #4c4c4c/.test(cssSrc) && /--divider: #c9c9c9/.test(cssSrc)
+      && (ribbonSrc.match(/border-right:1px solid var[(]--divider[)]/g) || []).length === 2)
+  /* 用户 2026-11-03：「整体变窄之后，工具条会被压缩变高」。窗口一窄节点组就溢出，
+     #workflowNodeTypes 的横向滚动条白占 17px 高度，Ribbon 从 69 顶到 86，画布跟着下跳。 */
+  ok('Ribbon 隐藏横向滚动条并锁死 69px 高（窄窗口不再被滚动条撑高）',
+    ribbonSrc.indexOf('.workflow-editor-mode .workflow-node-types::-webkit-scrollbar{width:0;height:0;}') !== -1
+      && ribbonSrc.indexOf('.workflow-editor-mode .workflow-editor-topbar{height:69px;min-height:69px;}') !== -1)
+
+  /* 用户 2026-11-03：执行中那条折叠条一直写着「已执行 N 步」、箭头也是静态的，
+     整轮跑下来界面没有任何「正在处理」的信号。三处叠加：摘要文案被硬编码、
+     ::before 被压成静态 ▸、run-status 行在有步骤时又被裁掉。 */
+  ok('执行中的折叠条写「正在处理」，耗时一直在（运行中实时累加）',
+    appSrc.indexOf("'正在处理 · ' + count + ' 步'") !== -1
+      && appSrc.indexOf('function timelineLiveMs(') !== -1
+      && appSrc.indexOf('const timeText = ms >= 1000 ? formatDuration(ms)') !== -1
+      && appSrc.indexOf("time.textContent = running ? ''") === -1
+      && appSrc.indexOf('title.textContent = 已执行 ') === -1)
+  /* 用户 2026-11-03：「这个圈应该在后面，前面依然是折叠图标，运行的时候后面的时间没了」。
+     同时修掉转圈卡成斜线的真因：摘要每 500ms 重建 → 动画反复归零。 */
+  /* 2026-11-03 追加：▸/▾ 是文本字符，字体缺字形时渲染成「方框套三角」；更糟的是
+     .thinking-block.thinking-active summary::before 权重更高，运行中把箭头换成转圈圆环，
+     整枚小标都在转。现在箭头是独立的 SVG 节点，::before 用 #app 前缀彻底置空。 */
+  ok('折叠箭头是图标库 chevron，::before 文本字符已置空、不再被转圈顶掉',
+    cssSrc.indexOf('.timeline-summary-chevron {') !== -1
+      && cssSrc.indexOf('.process-timeline[open] > summary .timeline-summary-chevron {') !== -1
+      && cssSrc.indexOf('#app .thinking-block.process-timeline.thinking-active > summary::before {') !== -1
+      && cssSrc.indexOf(".process-timeline > summary::before { content: '▸'") === -1
+      && cssSrc.indexOf('.timeline-summary-spinner.is-on { display: block; }') !== -1
+      && appSrc.indexOf("chevron.setAttribute('data-icon', 'chevron-right')") !== -1
+      && appSrc.indexOf('summary.appendChild(chevron)') !== -1)
+  ok('复制按钮走主进程原生剪贴板（不再依赖 navigator.clipboard 的焦点状态）',
+    appSrc.indexOf('async function copyToClipboard(') !== -1
+      && appSrc.indexOf('window.dsh.copyText') !== -1
+      && appSrc.indexOf('copyToClipboard(text).then((done) => setStatus') !== -1
+      && appSrc.indexOf('navigator.clipboard.writeText(text).then') === -1
+      && mainSrc.indexOf("'clipboard:write'") !== -1
+      && mainSrc.indexOf('clipboard.writeText(String(') !== -1
+      && preloadSrc.indexOf("ipcRenderer.invoke('clipboard:write', text)") !== -1)
+  /* 用户 2026-11-03：「输入框虽然是富文本框，但允许 Ctrl+Enter 换行，还要支持另起一行没有任何样式」。
+     原来 Ctrl+Enter 直接发送、Shift+Enter 只是往当前块塞 <br>，新行继续吃粘贴内容的标题/粗体。 */
+  ok('Enter 发送，Ctrl/Shift+Enter 另起一行且不带继承样式',
+    appSrc.indexOf('function insertPlainLineBreak()') !== -1
+      && appSrc.indexOf('if (event.shiftKey || event.ctrlKey || event.metaKey) insertPlainLineBreak()') !== -1
+      && appSrc.indexOf('&& not(event.shiftKey)) {') === -1
+      && appSrc.indexOf('tail.setEndAfter(top)') !== -1
+      && appSrc.indexOf('top.parentNode.insertBefore(plain, top.nextSibling)') !== -1)
+  ok('摘要节点复用不重建（转圈动画不会每 500ms 被拽回起点）',
+    appSrc.indexOf('function ensureTimelineSummary(') !== -1
+      && appSrc.indexOf('const parts = ensureTimelineSummary(summary)') !== -1
+      && appSrc.indexOf("parts.spinner.classList.toggle('is-on'") !== -1)
+  /* ---- 流式 Markdown 渲染（2026-11-03 用户报「返回结果一直是 md 源码」） ----
+     assistant:delta 以前只往气泡里追加文本节点，全靠 assistant:message 整体渲染一次；
+     这一轮要是没走到收尾（报错 / 被停止 / 模型吐完不回头），气泡就永远停在
+     "## " 和 "**" 的源码里 —— 用户截图里那条新闻摘要就是这种情况。 */
+  const quoteHtml = renderMarkdown('> 说明：官网抓取失败\\n\\n---\\n\\n正文')
+  ok('引用块渲染成 blockquote，不当正文原样打出来',
+    quoteHtml.indexOf('<blockquote class="md-quote">') !== -1 && quoteHtml.indexOf('&gt; 说明') === -1,
+    quoteHtml.slice(0, 100))
+  ok('三个连字符渲染成分隔线',
+    quoteHtml.indexOf('<hr class="md-hr">') !== -1 && quoteHtml.indexOf('>---<') === -1)
+  ok('引用块/分隔线样式已落 CSS，竖线用 --divider',
+    /[.]bubble-body [.]md-quote [{][^}]*border-left: 2px solid var[(]--divider[)]/.test(cssSrc)
+      && cssSrc.indexOf('.bubble-body .md-hr') !== -1)
+  ok('流式渲染带节流窗口，长文自动放宽（不是每帧全量重排）',
+    appSrc.indexOf('const STREAM_PAINT_MS = 90') !== -1
+      && appSrc.indexOf('const STREAM_PAINT_LONG_CHARS = 20000') !== -1
+      && appSrc.indexOf('if (streamPaints.has(body)) return') !== -1)
+
+  const streamPrevSession = state.currentSessionId
+  const streamProject = Object.keys(sessionStore)[0] || 'p-stream'
+  if (!Array.isArray(sessionStore[streamProject])) sessionStore[streamProject] = []
+  sessionStore[streamProject].push({ id: 'md-stream', title: 'md 流式', messages: [], processTimeline: [] })
+  state.currentSessionId = 'md-stream'
+  state.runs = {}
+  window.__dshRunningSessions = []
+  applyRunState()
+  renderMessages(findSessionById('md-stream'))
+  const streamBody = () => {
+    const list = document.getElementById('messagesInner').children
+    for (let index = list.length - 1; index >= 0; index -= 1) {
+      if (String(list[index].className).indexOf('bubble assistant') !== -1) return list[index].children[1]
+    }
+    return null
+  }
+  await handleEvent({ type: 'assistant:delta', sessionId: 'md-stream', text: '## 今日 AI 大事件\\n\\n> 说明：抓取失败\\n\\n' })
+  ok('第一段增量一到就排版，而不是先看到 ## 源码',
+    streamBody() !== null && streamBody().innerHTML.indexOf('<h2>今日 AI 大事件</h2>') !== -1,
+    streamBody() ? streamBody().innerHTML.slice(0, 80) : 'no assistant body')
+  await handleEvent({ type: 'assistant:delta', sessionId: 'md-stream', text: '**Reuters**：10 月 AI 股大跌' })
+  await new Promise((resolve) => setTimeout(resolve, 160))
+  ok(
+    '节流窗口过后补画的增量也带格式（不是攒着不画）',
+    streamBody().innerHTML.indexOf('<strong>Reuters</strong>') !== -1
+      && streamBody().innerHTML.indexOf('<blockquote class="md-quote">') !== -1,
+    streamBody().innerHTML.slice(0, 120))
+  /* 收尾事件不带正文（被停止 / 报错时就是这样）：必须用累积的增量自己收口 */
+  await handleEvent({ type: 'error', sessionId: 'md-stream', message: 'connect ETIMEDOUT 198.18.0.128:443' })
+  ok('报错收尾后半截正文仍是排版好的，不留源码',
+    streamBody().innerHTML.indexOf('<h2>今日 AI 大事件</h2>') !== -1
+      && streamBody().innerHTML.indexOf('**Reuters**') === -1,
+    streamBody().innerHTML.slice(0, 100))
+  ok('同一次报错只多一条可读的错误提示',
+    document.getElementById('messagesInner').querySelectorAll('.bubble.error').length === 1)
+  state.currentSessionId = streamPrevSession
+  state.runs = {}
+  window.__dshRunningSessions = []
+  applyRunState()
+
+  /* 用户 2026-11-03：老弹 connect ETIMEDOUT 198.18.0.128:443。那个 IP 是代理工具的 fake-ip，
+     原文对用户毫无意义，要翻成能落地的话。 */
+  ok('网络层错误翻译成可行动的提示，不把 fake-ip 原文丢给用户',
+    appSrc.indexOf('/ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ECONNREFUSED/i') !== -1
+      && appSrc.indexOf('连接模型服务超时') !== -1)
+  /* 用户 2026-11-02：「这个上下边距太高了」。页脚内距（12/4）+ 侧栏底部内距 14 叠起来
+     把「设置」那一带撑到 72px，收成 4/0 + 8 = 54px。
+     2026-11-03 又要求「顶部一条 80% 居中的分割线、整体高度再往低跳一跳」：
+     分割线绝对定位（窄栏 footer 是 flex，普通块会被挤成 flex 项）、按钮 32 → 26、
+     侧栏底部 8 → 6，整块 44 → 37px。 */
+  ok('页脚（设置行）上内距 5、侧栏底部 6（整块 37px）',
+    /[.]sidebar-footer [{][^}]*padding: 5px 0 0/.test(cssSrc)
+      && /[.]sidebar [{][^}]*padding-bottom: 6px/.test(cssSrc))
+  /* 分割线只占 80% 宽、居中，且不能走进布局流 —— 窄栏（<=900px）时 .sidebar-footer 是
+     display:flex，::before 若为普通项会和按钮并排把齿轮挤走。 */
+  const footerBar = (cssSrc.match(/[.]sidebar-footer::before [{][^}]*[}]/) || [''])[0]
+  ok('页脚分割线：绝对定位 + 左右各留 10%（= 中间 80% 居中）+ 用 --divider',
+    footerBar.indexOf('position: absolute') !== -1
+      && footerBar.indexOf('left: 10%') !== -1
+      && footerBar.indexOf('right: 10%') !== -1
+      && footerBar.indexOf('background: var(--divider)') !== -1
+      && footerBar.indexOf('height: 1px') !== -1)
+  ok('页脚按钮 26px 高，图标与文字锁同一条中线（flex + center + line-height 1）',
+    /#sidebar [.]footer-button [{][^}]*height: 26px[^}]*align-items: center[^}]*line-height: 1/.test(cssSrc))
   /* 品牌显示卡片已移除（用户 2026-10-17）：设置里不该再有品牌表单，
      品牌行也不该再读 settings 里的自定义值 —— 否则删掉入口后旧值永远卡在侧栏上。 */
   ok('设置里不再有「品牌显示」卡片', htmlSrc.indexOf('brand-settings') === -1

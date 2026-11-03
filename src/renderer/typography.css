@@ -1,0 +1,84 @@
+/* 排版基准层（2026-11-02 引入）
+   目的：把字体、字号、字重收敛成一份令牌，界面其余 CSS 只引用变量，不再各写一套。
+   加载顺序必须排在 style.css 之前（index.html 里第一张样式表）。
+
+   字体来源（随安装包内置，不安装、不替换系统字体）：
+   - Inter 400/500/600 —— 拉丁与数字
+   - Noto Sans SC 400/600 —— 中文。Noto Sans SC 与 Adobe 的「思源黑体 Source Han Sans」
+     是同一套设计的不同命名，采用 Google 侧发行的简体子集（约 1.1MB/字重）。
+     缺失的生僻字按 --font-ui 的回退链落到系统的微软雅黑，不会出现方框。
+   - JetBrains Mono 400 —— 代码、路径、标识
+
+   @font-face 的 family 名必须与 --font-ui / --font-mono 里写的一致。 */
+
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("fonts/noto-sans-sc-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("fonts/noto-sans-sc-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/jetbrains-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* 回退链：Inter 管拉丁与数字，Noto 管中文，再退系统雅黑（Win7 只有 Microsoft YaHei，
+     Win8+ 多一个 YaHei UI）。Win7 上这两条回退都必须留着。 */
+  --font-ui: "Inter", "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+
+  /* 字号阶梯：只有这 6 档，新代码不要再写字面量。 */
+  --font-size-caption: 12px;  /* 参数说明、辅助信息 */
+  --font-size-small: 13px;    /* 表格、数据、代码 */
+  --font-size-base: 14px;     /* 正文、菜单、按钮 */
+  --font-size-heading: 16px;  /* 模块标题 */
+  --font-size-title: 20px;    /* 页面标题 */
+  --font-size-display: 24px;  /* 软件主标题 */
+
+  /* 字重：只留三档。Win7 的微软雅黑没有 Medium，500 会落到 400 —— 这是可接受的降级；
+     600 在前面的 Noto/Inter 上是真 Semibold，不会像以前那样被合成加粗。 */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  --line-height-tight: 1.35;
+  --line-height-base: 1.55;
+}

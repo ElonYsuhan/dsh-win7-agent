@@ -542,6 +542,48 @@ function rememberSentMessage(text) {
   inputDraftBeforeHistory = ''
 }
 
+/* Ctrl/Shift+Enter：另起一行，且新行不带任何样式（2026-11-03 用户反馈）。
+   输入框是 contenteditable，粘进来的是 <h2>/<strong>/<ul> 这类富文本；原来
+   execCommand('insertLineBreak') 只往当前块里塞 <br>，光标仍留在原块的行内样式里，
+   接着写的内容继续是大标题/粗体，跟自己写的那行分不清。
+   做法：把光标所在的顶层块一分为二 —— 光标前原样保留，光标后的内容搬进一个干净的
+   div（并压成纯文本），光标落在新 div 开头。顶层直接是文本节点（用户手打的纯文本）
+   时不拆块，插 <br> 本来就干净。 */
+function insertPlainLineBreak() {
+  const input = byId('input')
+  if (not(input)) return
+  const selection = typeof window.getSelection === 'function' ? window.getSelection() : null
+  if (not(selection) || selection.rangeCount === 0) return
+  const range = selection.getRangeAt(0)
+  if (not(input.contains(range.startContainer))) return
+  let top = range.startContainer
+  while (top && top.parentNode !== input) top = top.parentNode
+  if (not(top)) return
+  if (top.nodeType !== 1) {
+    document.execCommand('insertLineBreak')
+    autoResizeComposer()
+    return
+  }
+  const plain = document.createElement('div')
+  try {
+    const tail = document.createRange()
+    tail.setStart(range.endContainer, range.endOffset)
+    tail.setEndAfter(top)
+    plain.textContent = tail.extractContents().textContent || ''
+  } catch (error) {
+    plain.textContent = ''
+  }
+  if (plain.textContent === '') plain.appendChild(document.createElement('br'))
+  top.parentNode.insertBefore(plain, top.nextSibling)
+  try {
+    const caret = document.createRange()
+    caret.setStart(plain, 0)
+    caret.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(caret)
+  } catch (error) {}
+  autoResizeComposer()
+}
 function setInputContent(text) {
   const input = byId('input')
   if (not(input)) return
@@ -1274,13 +1316,7 @@ async function sharePageLink() {
     setStatus('\u5f53\u524d\u73af\u5883\u62ff\u4e0d\u5230\u53ef\u5206\u4eab\u7684\u94fe\u63a5')
     return
   }
-  let copied = false
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(link)
-      copied = true
-    }
-  } catch (error) {}
+  const copied = await copyToClipboard(link)
   const opened = openExternalLink(link)
   if (opened) setStatus(copied ? '\u94fe\u63a5\u5df2\u590d\u5236\uff0c\u5df2\u5728\u6d4f\u89c8\u5668\u6253\u5f00' : '\u5df2\u5728\u6d4f\u89c8\u5668\u6253\u5f00\uff1a' + link)
   else setStatus(link)
@@ -1993,11 +2029,66 @@ function scrollToBottom() {
   messages.scrollTop = messages.scrollHeight
 }
 
+/* ---- 流式 Markdown 渲染 ----
+   以前 assistant:delta 只往气泡里追加文本节点（纯源码），要等 assistant:message
+   才整体渲染一次。于是只要这一轮没走到收尾（报错 / 被停止 / 模型吐完不回头），
+   界面上就永远停在一堆 "## " 和 "**" 的原文里；过程里也是边看边被源码刷屏。
+   现在按节流窗口重渲染：首帧同步出排版，之后每 90ms 合并一次；正文超 20KB 的长文
+   放宽到 280ms —— 当初不做实时渲染是怕边生成边全量 innerHTML 把主线程占满，
+   节流 + 长文放宽正好把这两头都顾上。 */
+const STREAM_PAINT_MS = 90
+const STREAM_PAINT_MS_LONG = 280
+const STREAM_PAINT_LONG_CHARS = 20000
+const streamPaints = new Map()
+
+function streamPaintWindow(length) {
+  return length > STREAM_PAINT_LONG_CHARS ? STREAM_PAINT_MS_LONG : STREAM_PAINT_MS
+}
+
+/* 只在正文真的变了才重排：收尾的 setBubbleText 与兜底一次绘制不会互相覆盖。 */
+function paintAssistantBody(body) {
+  const value = body.dataset.raw || ''
+  if (body.__paintedRaw === value) return
+  body.__paintedRaw = value
+  if (typeof window.renderMarkdown === 'function') body.innerHTML = window.renderMarkdown(value)
+  else body.textContent = value
+  if (window.agentUI) window.agentUI.artifacts(body)
+}
+
+function clearPendingPaint(body) {
+  const timer = streamPaints.get(body)
+  if (timer === undefined) return
+  clearTimeout(timer)
+  streamPaints.delete(body)
+}
+
+function scheduleStreamPaint(body) {
+  if (not(body)) return
+  const now = Date.now()
+  const last = Number(body.dataset.paintedAt || 0)
+  const wait = streamPaintWindow((body.dataset.raw || '').length)
+  if (now - last >= wait) {
+    body.dataset.paintedAt = String(now)
+    paintAssistantBody(body)
+    return
+  }
+  if (streamPaints.has(body)) return
+  streamPaints.set(body, setTimeout(() => {
+    streamPaints.delete(body)
+    if (body.isConnected === false) return
+    body.dataset.paintedAt = String(Date.now())
+    paintAssistantBody(body)
+    scrollToBottom()
+  }, Math.max(16, wait - (now - last))))
+}
+
 function setBubbleText(body, text, markdown) {
   const value = String(text === undefined || text === null ? '' : text)
+  clearPendingPaint(body)
   if (markdown && typeof window.renderMarkdown === 'function') {
     body.dataset.raw = value
     body.innerHTML = window.renderMarkdown(value)
+    body.__paintedRaw = value
     syncAssistantImages(body)
     if (window.agentUI) window.agentUI.artifacts(body)
     return
@@ -2101,6 +2192,34 @@ function addBubble(role, text, options) {
 }
 
 /* 消息悬停操作：默认隐藏，hover 才显示（最后一条常显）。用户消息=复制+编辑；助手消息=复制+删除 */
+/* 复制到剪贴板：优先走主进程原生剪贴板（2026-11-03 用户反馈「复制按钮不生效」）。
+   navigator.clipboard.writeText 在 Chromium 里要求 document 有焦点，Electron 窗口不在前台、
+   或刚点完别处时直接抛 NotAllowedError: Document is not focused —— 渲染层只能静默失败。
+   顺序：IPC 原生 → 浏览器剪贴板 API → execCommand 兜底（网页版没有 IPC）。 */
+async function copyToClipboard(value) {
+  const text = String(value === undefined || value === null ? '' : value)
+  if (text === '') return false
+  if (window.dsh && typeof window.dsh.copyText === 'function') {
+    try { await window.dsh.copyText(text); return true } catch (error) {}
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(text); return true } catch (error) {}
+  }
+  try {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', 'readonly')
+    area.style.position = 'fixed'
+    area.style.top = '-1000px'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    const done = document.execCommand('copy')
+    area.remove()
+    return done === true
+  } catch (error) { return false }
+}
+window.copyToClipboard = copyToClipboard
 function bubblePlainText(wrapper, role, body) {
   if (role === 'assistant') return body.dataset.raw || body.textContent || ''
   const textBox = wrapper.querySelector('.user-text')
@@ -2135,11 +2254,7 @@ function attachBubbleActions(wrapper, role, body) {
   make('copy', '\u590d\u5236', () => {
     const text = bubblePlainText(wrapper, role, body)
     if (not(text)) return
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => setStatus('\u5df2\u590d\u5236')).catch(() => setStatus('\u590d\u5236\u5931\u8d25'))
-    } else {
-      setStatus('\u5f53\u524d\u73af\u5883\u4e0d\u652f\u6301\u590d\u5236')
-    }
+    copyToClipboard(text).then((done) => setStatus(done ? '\u5df2\u590d\u5236' : '\u590d\u5236\u5931\u8d25'))
   })
   if (role === 'user') {
     make('edit', '\u7f16\u8f91', () => {
@@ -2262,9 +2377,12 @@ function beginAssistant() {
 
 function endAssistant(finalText) {
   const body = beginAssistant()
-  if (finalText !== undefined && finalText !== '') {
-    setBubbleText(body, finalText, true)
-  }
+  /* 收尾事件没带正文时（被停止 / 报错 / 模型只走了增量），用累积的增量自己渲染一遍，
+     否则气泡会永远停在源码形态。 */
+  const value = finalText === undefined || finalText === null || finalText === ''
+    ? (body.dataset.raw || '')
+    : String(finalText)
+  setBubbleText(body, value, true)
   state.currentAssistant = null
 }
 
@@ -2285,6 +2403,12 @@ function formatError(message) {
   if (value.startsWith('WORKSPACE_NOT_SET')) return '\u8bf7\u5148\u9009\u62e9\u6216\u65b0\u5efa\u672c\u5730\u5de5\u4f5c\u533a\u76ee\u5f55'
   if (value === 'AGENT_EVENT_DISCONNECTED' || value === 'AGENT_EVENT_CONNECT_TIMEOUT') return '消息连接未建立，请检查服务连接后重新发送'
   if (value === 'NO_NATIVE_OPENER') return '当前桌面版本无法打开工作区目录，请更新客户端'
+  /* 网络层错误原文是「connect ETIMEDOUT 198.18.0.128:443」这种，用户看不懂也没法行动，
+     而且 198.18.x 是代理工具的 fake-ip 池，直接曝出来只会让人以为是客户端 bug。
+     统一翻成一句能落地的话。 */
+  if (/ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ECONNREFUSED/i.test(value)) {
+    return '连接模型服务超时，请检查网络；如果开了代理，请把模型服务域名设为直连后重试'
+  }
   return value.replace(/^LLM_HTTP_(\d+): /, '\u6a21\u578b\u670d\u52a1\u8fd4\u56de $1: ')
 }
 
@@ -2532,10 +2656,63 @@ function timelineTotalMs(content) {
 /* 折叠条标题：跑的时候报进度，跑完报总量。 */
 function timelineSummaryText(content, running) {
   const count = timelineStepCount(content)
-  if (count === 0) return ''
-  const total = timelineTotalMs(content)
-  if (running) return '思考中…（' + count + ' 步）'
-  return '已执行 ' + count + ' 步' + (total > 0 ? ' · ' + formatDuration(total) : '')
+  /* 运行中和跑完必须是两句不同的话。以前这里算了 running 分支，但
+     refreshTimelineSummary 又把文案硬编码回「已执行 N 步」，等于白算：
+     整轮跑下来折叠条一直写着「已执行」，加上箭头被 CSS 压成静态 ▸，
+     用户完全看不出还在处理（2026-11-03 反馈）。 */
+  if (running) return count === 0 ? '正在处理…' : '正在处理 · ' + count + ' 步'
+  return count === 0 ? '' : '已执行 ' + count + ' 步'
+}
+
+/* 摘要行里的「标题 / 转圈 / 耗时」三个节点必须复用同一个 DOM：
+   updateRunStatus 每 500ms 就 refreshTimeline 一次，以前这里每次都
+   summary.textContent = '' 整个重建，等于把 .timeline-summary-spinner 的
+   CSS 动画每半秒拽回 0 度 —— 12px 的圆环只剩顶上那段亮蓝可见，
+   看上去就是一根钉死的斜线，而不是转圈（2026-11-03 用户反馈）。 */
+function ensureTimelineSummary(summary) {
+  const title = summary.querySelector('.timeline-summary-title')
+  if (title) {
+    return {
+      chevron: summary.querySelector('.timeline-summary-chevron'),
+      title,
+      spinner: summary.querySelector('.timeline-summary-spinner'),
+      time: summary.querySelector('.timeline-summary-time')
+    }
+  }
+  summary.textContent = ''
+  /* 折叠箭头用图标库的 chevron，不再拿 '▸/▾' 文本字符当图标：字体缺字形时会渲染成
+     「方框套三角」，而且 .thinking-block.thinking-active summary::before 那条老规则
+     权重更高，运行中会把箭头整个替换成转圈圆环（2026-11-03 用户反馈）。 */
+  const chevron = document.createElement('span')
+  chevron.className = 'timeline-summary-chevron'
+  chevron.setAttribute('data-icon', 'chevron-right')
+  chevron.setAttribute('aria-hidden', 'true')
+  const nextTitle = document.createElement('span')
+  nextTitle.className = 'timeline-summary-title'
+  const spinner = document.createElement('span')
+  spinner.className = 'timeline-summary-spinner'
+  spinner.setAttribute('aria-hidden', 'true')
+  const time = document.createElement('span')
+  time.className = 'timeline-summary-time'
+  summary.appendChild(chevron)
+  summary.appendChild(nextTitle)
+  summary.appendChild(spinner)
+  summary.appendChild(time)
+  /* applyIcons 不含 root 自身，所以传 summary 让子节点被扫描到。 */
+  if (window.applyIcons) window.applyIcons(summary)
+  return { chevron, title: nextTitle, spinner, time }
+}
+
+/* 运行中的累计耗时 = 已结束各步之和 + 当前这步还没落账的增量。
+   updateRunStatus 会把进行中那步的 .tl-dur 实时写进去，写过了就别重复加。
+   以前运行中这里直接留空（怕冻住的数字看着像已经结束），结果标题右边一片空白，
+   用户以为耗时丢了（2026-11-03 反馈）。数字每 500ms 跟着走，就不会误判成结束。 */
+function timelineLiveMs(content) {
+  const step = activeTimelineStep(content)
+  const ms = timelineTotalMs(content)
+  if (not(step) || stepDuration(step) > 0) return ms
+  const started = Number(step._startAt || step.getAttribute('data-started-at')) || 0
+  return started > 0 ? ms + (Date.now() - started) : ms
 }
 
 function refreshTimelineSummary(details, content, running) {
@@ -2544,16 +2721,13 @@ function refreshTimelineSummary(details, content, running) {
   if (not(summary)) return
   const text = timelineSummaryText(content, running)
   if (text === '') return
-  summary.textContent = ''
-  const title = document.createElement('span')
-  title.className = 'timeline-summary-title'
-  title.textContent = '已执行 ' + timelineStepCount(content) + ' 步'
-  const time = document.createElement('span')
-  time.className = 'timeline-summary-time'
-  const total = timelineTotalMs(content)
-  time.textContent = total > 0 ? formatDuration(total) : ''
-  summary.appendChild(title)
-  summary.appendChild(time)
+  const parts = ensureTimelineSummary(summary)
+  if (parts.title.textContent !== text) parts.title.textContent = text
+  if (parts.spinner) parts.spinner.classList.toggle('is-on', Boolean(running))
+  const ms = running ? timelineLiveMs(content) : timelineTotalMs(content)
+  /* 不足 1 秒不写：0.5s 刷新一次，冒出「0ms / 500ms」比空着更像坏掉了。 */
+  const timeText = ms >= 1000 ? formatDuration(ms) : ''
+  if (parts.time && parts.time.textContent !== timeText) parts.time.textContent = timeText
   if (window.agentUI && window.agentUI.positionPlan) window.agentUI.positionPlan()
 }
 
@@ -2946,11 +3120,8 @@ async function handleEvent(event) {
   if (event.type === 'assistant:delta') {
     clearWaitingTimer()
     const body = beginAssistant()
-    const text = event.text || ''
-    body.dataset.raw = (body.dataset.raw || '') + text
-    const last = body.lastChild
-    if (last && last.nodeType === 3) last.appendData(text)
-    else body.appendChild(document.createTextNode(text))
+    body.dataset.raw = (body.dataset.raw || '') + (event.text || '')
+    scheduleStreamPaint(body)
     scrollToBottom()
     return
   }
@@ -2994,6 +3165,13 @@ async function handleEvent(event) {
   if (event.type === 'error') {
     clearWaitingTimer()
     endThinking('执行失败')
+    /* 半截正文也要按 markdown 收一次口，别让它留成源码。 */
+    if (state.currentAssistant) {
+      clearPendingPaint(state.currentAssistant)
+      paintAssistantBody(state.currentAssistant)
+      syncAssistantImages(state.currentAssistant)
+      state.currentAssistant = null
+    }
     addBubble('error', formatError(event.message || '未知错误'))
     return
   }
@@ -3796,12 +3974,8 @@ async function openWorkspaceAction() {
       await window.dsh.openPath(state.workspacePath)
       return
     }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(state.workspacePath)
-      setStatus('\u5de5\u4f5c\u533a\u8def\u5f84\u5df2\u590d\u5236')
-    } else {
-      setStatus(state.workspacePath)
-    }
+    const done = await copyToClipboard(state.workspacePath)
+    setStatus(done ? '\u5de5\u4f5c\u533a\u8def\u5f84\u5df2\u590d\u5236' : state.workspacePath)
   } catch (error) {
     addBubble('error', formatError(error && error.message ? error.message : String(error)))
   }
@@ -4505,15 +4679,11 @@ async function init() {
       }
       return
     }
-    if (event.key === 'Enter' && not(event.shiftKey)) {
+    if (event.key === 'Enter') {
       event.preventDefault()
-      sendMessage()
-      return
-    }
-    if (event.key === 'Enter' && event.shiftKey) {
-      event.preventDefault()
-      document.execCommand('insertLineBreak')
-      autoResizeComposer()
+      /* Enter 发送；Ctrl/⌘/Shift + Enter 另起一行，且不带上面继承下来的样式 */
+      if (event.shiftKey || event.ctrlKey || event.metaKey) insertPlainLineBreak()
+      else sendMessage()
     }
   })
   /* 输入框的 input / paste / MutationObserver 绑定已提前到 setupComposer()

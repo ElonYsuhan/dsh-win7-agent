@@ -1,6 +1,7 @@
 'use strict'
 const assert=require('assert'),fs=require('fs'),os=require('os'),path=require('path'),crypto=require('crypto')
 const issuer=require('./license-authority/issuer'),{Licensing}=require('../src/main/licensing/service'),{stamp}=require('./desktop/license-policy'),{PluginHost}=require('../src/main/plugins/plugin-host')
+const {TRIAL_MS}=require('../src/main/contracts/licensing')
 async function main(){
  assert.strictEqual(issuer.fileStem('abcdef123'+'0'.repeat(55)), 'Agent-ABC-DEF-123')
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'agent-license-')),directory=path.join(root,'owner'),authority=issuer.init(directory),policy={version:1,enforced:true,publicKeys:authority.publicKeys},device={version:1,platform:'darwin',arch:'arm64',name:'test',deviceDigest:'a'.repeat(64)}
@@ -9,7 +10,7 @@ async function main(){
  const sign=(changes={})=>{const value=issuer.issue({directory,requestText:JSON.stringify({version:1,product:'dsh-agent',...Object.fromEntries(Object.entries(device).filter(([k])=>k!=='version'))}),customer:'测试客户',days:1,now}),claims={...value.claims,...changes},bytes=Buffer.from(require('../src/main/contracts/licensing').canonical(claims));return JSON.stringify({version:1,keyId:authority.keyId,payload:bytes.toString('base64'),signature:crypto.sign(null,bytes,fs.readFileSync(path.join(directory,'private.pem'))).toString('base64')})}
  try{
   const service=make('trial');assert.strictEqual(service.status().allowed,false);assert.throws(()=>service.assert('chat'),/LICENSE_REQUIRED/)
-  assert.strictEqual(service.startTrial().status,'trial');tick=599999;now+=599999;assert.strictEqual(service.status().allowed,true);tick++;now++;assert.strictEqual(service.status().allowed,false);assert.throws(()=>service.startTrial(),/已使用/)
+  assert.strictEqual(service.startTrial().status,'trial');tick+=TRIAL_MS-1;now+=TRIAL_MS-1;assert.strictEqual(service.status().allowed,true);tick++;now++;assert.strictEqual(service.status().allowed,false);assert.throws(()=>service.startTrial(),/已使用/)
   assert.strictEqual(make('trial').status().allowed,false);assert.throws(()=>make('trial').startTrial(),/已使用/)
   const locked=make('locked');fs.writeFileSync(path.join(locked.dir,'state.lock'),JSON.stringify({pid:process.pid,at:Date.now()}));assert.throws(()=>locked.startTrial(),/其他窗口/);assert(!fs.existsSync(locked.file))
   const text=sign(),before=service.activate({text});assert.strictEqual(before.status,'licensed');assert.strictEqual(before.customer,'测试客户')
@@ -22,7 +23,7 @@ async function main(){
   const host=new PluginHost({workspaceRoot:root,settings:{file:path.join(root,'runtime/settings.json'),data:{}},licensing:{policy,device}})
   try{await host.ready();const service=host.requireService('licensing');assert(!service.status().allowed);assert.throws(()=>host.requireService('workflows').run({id:'missing'}),/LICENSE_REQUIRED/);assert.throws(()=>host.requireService('tasks').run('missing'),/LICENSE_REQUIRED/);await assert.rejects(host.executeTool('license_probe',{},{}),/LICENSE_REQUIRED/);await assert.rejects(host.requireService('llm').request({}),/LICENSE_REQUIRED/);service.startTrial();assert(service.status().allowed)}finally{await host.dispose()}
   let allowed=true,executed=false;const Registry=require('../src/main/plugins/tool-registry').ToolRegistry,registry=new Registry({decideToolPermission:()=> 'ask',buildApprovalRequest:()=>({})},undefined,()=>{if(!allowed)throw Error('LICENSE_REQUIRED')});registry.register({name:'expiry_during_approval',description:'test',parameters:{type:'object',properties:{}},permission:'write',execute:()=>{executed=true}});await assert.rejects(registry.execute('expiry_during_approval',{}, {settings:{},approve:async()=>{allowed=false;return true}}),/LICENSE_REQUIRED/);assert(!executed)
-  console.log('PASS licensing: signature, device binding, invalid import preservation, sequence, exact 10-minute trial, restart, clock rollback, corrupt storage, public-only build policy, real Cordis model/tool denial')
+  console.log('PASS licensing: signature, device binding, invalid import preservation, sequence, exact 1-day trial, restart, clock rollback, corrupt storage, public-only build policy, real Cordis model/tool denial')
  }finally{fs.rmSync(root,{recursive:true,force:true})}
 }
 main().catch(e=>{console.error(e);process.exitCode=1})

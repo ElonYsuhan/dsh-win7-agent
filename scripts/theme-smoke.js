@@ -30,7 +30,7 @@ function serveRenderer() {
     const file = path.join(renderer, req.url.split('?')[0] === '/' ? 'index.html' : req.url.split('?')[0])
     if (!file.startsWith(renderer + path.sep) || !fs.existsSync(file)) { res.writeHead(404); res.end(); return }
     const ext = path.extname(file)
-    const mime = ext === '.js' ? 'application/javascript' : (ext === '.css' ? 'text/css' : (ext === '.png' ? 'image/png' : 'text/html'))
+    const mime = ext === '.js' ? 'application/javascript' : (ext === '.css' ? 'text/css' : (ext === '.png' ? 'image/png' : (ext === '.woff2' ? 'font/woff2' : 'text/html')))
     res.writeHead(200, { 'content-type': mime + '; charset=utf-8' })
     res.end(fs.readFileSync(file))
   })

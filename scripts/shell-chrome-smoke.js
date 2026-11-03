@@ -25,7 +25,7 @@ function cssBlock(source, selector) {
   return ''
 }
 
-check('shared titlebar height is 48px', chrome.TITLEBAR_HEIGHT === 48)
+check('shared titlebar height is 44px', chrome.TITLEBAR_HEIGHT === 44)
 const mac = chrome.windowChromeOptions('darwin')
 check('macOS keeps native traffic lights in a hidden titlebar', mac.titleBarStyle === 'hidden' && mac.frame !== false)
 check('macOS traffic lights use the reserved 16,16 position', mac.trafficLightPosition.x === 16 && mac.trafficLightPosition.y === 16)
@@ -78,8 +78,8 @@ for (const file of ['shell/loading.html', 'shell/settings.html', 'shell/offline.
 for (const file of ['src/renderer/style.css', 'shell/style.css']) {
   const css = read(file)
   const bar = cssBlock(css, '.titlebar-drag')
-  check(file + ': uses a 48px titlebar', /height\s*:\s*48px/.test(bar))
-  check(file + ': titlebar has the shared height', /height\s*:\s*48px/.test(bar))
+  check(file + ': uses a 44px titlebar', /height\s*:\s*44px/.test(bar))
+  check(file + ': titlebar has the shared height', /height\s*:\s*44px/.test(bar))
   check(file + ': titlebar is draggable in desktop windows', /-webkit-app-region\s*:\s*drag/.test(cssBlock(css, '.shell-window .titlebar-drag')) || /-webkit-app-region\s*:\s*drag/.test(bar))
   check(file + ': reserves macOS native traffic lights', /padding-left\s*:\s*88px/.test(cssBlock(css, '.shell-mac .titlebar-drag')))
   check(file + ': reserves 132px for left window controls', /padding-left\s*:\s*144px/.test(cssBlock(css, '.window-controls-left .titlebar-drag')))
@@ -92,7 +92,7 @@ for (const file of ['src/renderer/style.css', 'shell/style.css']) {
   check(file + ': app menu button centres with margin, not transform', !!menuButton && /margin\s*:\s*auto/.test(menuButton) && !/transform\s*:\s*translate/.test(menuButton))
 }
 const css = read('src/renderer/style.css')
-check('app occupies the content area below the titlebar', /height\s*:\s*calc\(100vh\s*-\s*48px\)/.test(cssBlock(css, '#app')))
+check('app occupies the content area below the titlebar', /height\s*:\s*calc\(100vh\s*-\s*44px\)/.test(cssBlock(css, '#app')))
 check('sidebar toggle uses titlebar flow layout', !/position\s*:\s*absolute/.test(cssBlock(css, '.titlebar-drag .sidebar-toggle')))
 check('page actions use titlebar flow layout', !/position\s*:\s*absolute/.test(cssBlock(css, '.titlebar-drag .page-actions')))
 check('panel toggle uses titlebar flow layout', !/position\s*:\s*absolute/.test(cssBlock(css, '.titlebar-drag .panel-toggle')))

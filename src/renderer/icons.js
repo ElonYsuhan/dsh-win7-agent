@@ -53,6 +53,8 @@
     moon: '<svg ' + base + '><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>',
     check: '<svg ' + base + '><path d="M5 13l4 4L19 7"/></svg>',
     chevron: '<svg ' + base + '><path d="M6 9l6 6 6-6"/></svg>',
+    /* 返回（左指箭头）：用于「全部知识库」等返回按钮，替代原来文本字符 ← */
+    back: '<svg ' + base + '><path d="m14 5-7 7 7 7"/></svg>',
     trash: '<svg ' + base + '><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/></svg>',
     copy: '<svg ' + base + '><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
     edit: '<svg ' + base + '><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',

@@ -56,7 +56,7 @@
     const wrapper = document.createElement('div'); wrapper.className = 'dropdown select-control'
     const trigger = document.createElement('button'); trigger.type = 'button'; trigger.className = 'dropdown-trigger select-trigger'
     const label = document.createElement('span'); label.className = 'select-label'
-    const arrow = document.createElement('span'); arrow.className = 'dropdown-chevron'; arrow.textContent = '⌄'; arrow.setAttribute('aria-hidden', 'true')
+    const arrow = document.createElement('span'); arrow.className = 'dropdown-chevron'; arrow.setAttribute('data-icon', 'chevron'); arrow.setAttribute('aria-hidden', 'true')
     const menu = document.createElement('div'); menu.className = 'dropdown-menu hidden'; menu.setAttribute('role', 'listbox')
     menu.id = (select.id || 'select-' + document.querySelectorAll('.select-control').length) + '-options'
     trigger.setAttribute('aria-haspopup', 'listbox'); trigger.setAttribute('aria-controls', menu.id); trigger.setAttribute('aria-expanded', 'false')
@@ -64,6 +64,9 @@
     menu.setAttribute('aria-label', name)
     const item = { select, wrapper, trigger, label, menu, name }; controls.set(select, item)
     select.parentNode.insertBefore(wrapper, select); wrapper.append(select, trigger, menu); trigger.append(label, arrow)
+    /* 箭头走全站图标库（原来是文字字符「⌄」，字形跟着字体走，和项目里其它下拉不一致）。
+       applyIcons 只在子节点里找 [data-icon]，所以要在 append 之后对 trigger 跑。 */
+    if (window.applyIcons) window.applyIcons(trigger)
     select.classList.add('agent-native-select'); select.tabIndex = -1; select.setAttribute('aria-hidden', 'true')
     select.addEventListener('change', () => refresh(select))
     select.addEventListener('invalid', event => { event.preventDefault(); trigger.focus(); trigger.setAttribute('aria-invalid', 'true') })

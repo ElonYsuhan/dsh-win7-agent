@@ -197,6 +197,9 @@ contextBridge.exposeInMainWorld('dsh', {
   mcpRequest: (action, data) => ipcRenderer.invoke('mcp:request', action, data),
   isDesktop: true,
   getState: () => ipcRenderer.invoke('app:get-state'),
+  /* 原生剪贴板：渲染层的 navigator.clipboard 需要文档焦点，Electron 里经常直接失败 */
+  copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
+  quitApp: () => ipcRenderer.invoke('app:quit'),
   licenseRequest: (action,data) => ipcRenderer.invoke('licensing:request',action,data),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
   pickWorkspace: () => ipcRenderer.invoke('workspace:pick'),

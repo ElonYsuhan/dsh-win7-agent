@@ -3,7 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const url = require('url')
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences, nativeTheme } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, systemPreferences, nativeTheme, clipboard } = require('electron')
 const { hideApplicationMenu, configureWindowMenu } = require('../../shell/menu')
 const { windowChromeOptions, controlsSide, windowState, applyWindowAction, attachWindowChrome, normalizeTheme, windowBackground, applyWindowTheme } = require('../../shell/window-chrome')
 const { Settings } = require('./agent/settings')
@@ -197,7 +197,7 @@ ipcMain.on('shell:titlebar-dblclick', (event) => {
 // Transport gate uses the Cordis licensing service. Window exit and cancellation
 // remain available; no UI-controlled switch can disable packaged enforcement.
 function licensedHandle(channel,handler){
-  const publicChannels=['window:theme','window:state','window:action','app:get-state','licensing:request','chat:stop','chat:reset','ui-store:get','ui-store:put','shell:open-path','shell:open-external']
+  const publicChannels=['window:theme','window:state','window:action','app:get-state','app:quit','licensing:request','chat:stop','chat:reset','ui-store:get','ui-store:put','shell:open-path','shell:open-external','clipboard:write']
   ipcMain.handle(channel,(event,...args)=>{assertSender(event,[mainWindow],ipcFiles);const cancellation=channel==='workflows:request'&&['stop','pause','cancelDesign'].includes(args[0])||channel==='tasks:request'&&args[0]==='stop'||channel==='term:kill';if(!publicChannels.includes(channel)&&!cancellation)pluginHost.requireService('licensing').assert('all');return handler(event,...args)})
 }
 licensedHandle('window:theme', () => normalizeTheme(settings && settings.data.theme))
@@ -212,6 +212,19 @@ licensedHandle('window:state', (event) => windowState(BrowserWindow.fromWebConte
 licensedHandle('window:action', (event, action) => applyWindowAction(BrowserWindow.fromWebContents(event.sender), action))
 
 licensedHandle('app:get-state', () => stateValue())
+
+/* 渲染层的 navigator.clipboard.writeText 在 Chromium 里要求 document 有焦点，
+   Electron 窗口不在前台时会抛 NotAllowedError: Document is not focused，
+   界面上表现为「点了复制但什么都没进剪贴板」（2026-11-03 用户反馈）。
+   走主进程的原生剪贴板不看焦点，稳定生效。 */
+licensedHandle('clipboard:write', (event, text) => {
+  clipboard.writeText(String(text === undefined || text === null ? '' : text))
+  return true
+})
+
+/* 授权页的「取消」= 关闭软件。安装后未授权时唯一能用的出口，因此必须进 publicChannels；
+   app.quit() 会走 before-quit 的清理流程，别改成直接 process.exit。 */
+licensedHandle('app:quit', () => { setImmediate(() => app.quit()); return true })
 
 licensedHandle('settings:save', async (_event, patch) => {
   const next = settings.update(patch || {})

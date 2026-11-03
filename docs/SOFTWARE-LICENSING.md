@@ -1,6 +1,7 @@
 # 软件授权（离线设备绑定首版）
 
-2026-10-24：按用户要求启用发布包强制授权、不可关闭的授权蒙版和一次10分钟试用。
+2026-10-24：按用户要求启用发布包强制授权、不可关闭的授权蒙版和一次试用。
+2026-11-02：试用时长按用户要求由 10 分钟改为 **1 天**（`TRIAL_MS=86400000`，仍是唯一真源）。
 软件使用授权与节点运行权限相互独立。源码开发模式不启用授权；默认平台交付构建必须
 从签发目录读取公钥，缺少公钥时构建失败，不允许静默发布未授权模式。
 
@@ -57,9 +58,50 @@ HTTP/IPC写入口、模型、工具（含长时间权限确认后的复查）、
 
 无授权、到期、设备或存储故障时，最高层蒙版禁止关闭，背景 inert，限制焦点和 Esc；
 仍可使用系统退出。强制蒙版是本次用户明确要求，优先于一般弹窗 Esc 关闭规则。
-试用由后端记录首次启用时间，10分钟后前端锁定且后端拒绝执行；正常退出、重启和更新
+试用由后端记录首次启用时间，1 天后前端锁定且后端拒绝执行；正常退出、重启和更新
 不重置试用。进程单调时钟与持久化已见时间用于识别明显回拨，客户端不依赖 localStorage
 决定授权。异常读写失败保持受限状态。
+
+## 授权门界面规则（2026-11-02）
+
+用户对照实际截图提的六条，全部落在 `src/renderer/licensing.{js,css}`：
+
+1. **按钮全部收到底部一行**：`导出申请文件` 从「本机设备与授权申请」区块里搬出来，和
+   `重新检查`、`试用`、新增的 `取消` 一起放进 `.license-actions`。顺序按统一弹窗规范：
+   取消在左，主操作（试用）在右并用反色底。
+2. **取消 = 关闭软件**：新增 `app:quit` 通道（`licensedHandle` + `publicChannels`，未授权态必须
+   可用），preload 暴露 `dsh.quitApp()`，浏览器桥同名空实现。走 `app.quit()` 而不是
+   `process.exit`，这样 `before-quit` 的 tasks/pool/pluginHost 清理照常执行。
+3. **按钮要与卡片底色区分**：卡片是 `--panel`(#2b2b2b)，按钮提到 `--btn #3f3f3f` + `#636363` 描边
+   （浅色 `#efefef`/`#c9c9c9`）；主操作用 `--send-bg`/`--send-text` 反色。
+4. **整页观感：遮罩完全不透明**（2026-11-02 二次调整）：`#licenseGate` 把 `--dialog-overlay` 直接取
+   `var(--bg)`，同时去掉 `backdrop-filter` 模糊 —— 用户反馈「测试的时候整个页面就不要了吧，浮层」，
+   半透明 + 模糊仍能看出下层界面轮廓。现在启动门就是一片纯背景 + 居中卡片，主界面一个像素都看不到。
+   没有采用「锁定期间 `#app{visibility:hidden}`」：一批真窗口 smoke（theme / typography / drag …）
+   跑在未授权态，`visibility` 一变 hidden，它们的 visible 断言会集体误红；遮罩不透明之后下层本来
+   也看不见，没必要动 DOM。注意 style.css 末尾统一收口是 `.modal:not(#approvalModal)`（特异性 1,1,0），
+   单写 `.license-gate` 会被压住，所以覆盖变量。
+5. **本机设备与授权申请不折叠**：`<details>/<summary>` 换成常驻 `section`，标题、说明、
+   申请标识三行全部显示。
+6. **试用用过之后不再显示**：`trialAvailable:false` 时顶部提示 `#licenseGateDescription`、
+   试用按钮、试用说明一起置 `hidden`（按钮不再以「试用已使用」的禁用态留着）。
+   倒计时按 1 天格式化（≥1 小时显示 `HH:MM:SS`）。
+
+7. **拖拽上传区的图标走图标库**：原来是文字字符 `↑`，字形跟字体走、粗细大小不可控。现在用
+   `data-icon="upload"` + `window.applyIcons()`（宿主页不引 `icons.js` 就只剩空 span，验收里也钉了）。
+   注意 `applyIcons` 只在**子节点**里找 `[data-icon]`，所以标记要挂在里层 span 上。
+   尺寸规则要用 `.license-drop .license-upload-icon svg`（0,2,1）—— `style.css` 那条全局
+   `button .icon svg`（0,1,2）会把图标压回 20px，而 `.license-drop` 本身就是 `<button>`。
+
+布局上还有一条：申请区常开后卡片会变高，所以卡片改成「内容区滚动 + 按钮行常驻」
+（`#licenseGate .license-gate-card` 外层 `overflow:hidden`，`.license-body` 内层滚动），
+小窗口下 `取消` 不会被挤出可视区。
+
+验收：`check:licensing:gate`（真 Electron 窗口，27 条：按钮收口与顺序、按钮行完整可见、
+内容区滚动、申请区展开、遮罩不透明与满屏、上传图标是 28px 的 SVG、深浅两套主题下的底色对比、
+试用用过后的三处隐藏、`quitApp` 调用）+ `licensing-smoke`（1 天边界，假时钟）+
+`licensing-e2e-smoke`（打包态，mac，文本与到期夹具已同步）。
+截图：`release/validation/license-gate-trial.png`、`license-gate-trial-used.png`。
 
 ## 迁移、保护与限制
 
@@ -78,7 +120,7 @@ HTTP/IPC写入口、模型、工具（含长时间权限确认后的复查）、
 序号下降、试用准确边界及重启、回拨、状态损坏、构建仅复制公钥与真实 Cordis 模型/工具
 拒绝执行。`licensing-e2e-smoke.js` 隔离运行实际受保护 Mac 包，验证蒙版、焦点、Esc、
 错误拖拽、点击上传、设置页、试用重启、到期重新锁定及 HTTP 拒绝；试用到期的UI场景
-使用隔离状态中过去的试用事实，不等待真实10分钟，准确600000ms由核心假时钟验证。
+使用隔离状态中过去的试用事实，不等待真实 1 天，准确 86400000ms 由核心假时钟验证。
 深浅主题截图与报告在 `release/validation/`。这些不是 Win7 真机、Windows 或Linux的
 硬件采集实测；跨平台实际行为仍需对应目标机验收。
 

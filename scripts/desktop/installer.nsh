@@ -44,6 +44,15 @@
   ; file is an installer and re-extracts on every launch. electron-builder skips
   ; desktop shortcut creation on the update path, so create it explicitly.
   CreateShortCut "$DESKTOP\Agent.lnk" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+  ; The shell caches desktop icons by shortcut path and does not always notice
+  ; that the target exe carries a new icon after an in-place upgrade, so users
+  ; keep seeing the old (smaller) bitmap and report "installing does not update
+  ; the icon". Drop the cache at the end of every install. SHChangeNotify is the
+  ; portable part (works on Win7); ie4uinit only ships from Win8 on.
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+  ${IfNot} ${IsWin7}
+    ExecWait '"$SYSDIR\ie4uinit.exe" -ClearIconCache'
+  ${EndIf}
   ClearErrors
 !macroend
 

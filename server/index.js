@@ -38,7 +38,10 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  /* 排版层把字体随包内置；MIME 给错的话 Chromium 会拒收字体并静默回落系统字体。 */
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff'
 }
 
 const settingsStore = new SettingsStore(AGENT_HOME)

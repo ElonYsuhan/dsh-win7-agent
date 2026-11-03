@@ -1,5 +1,7 @@
 'use strict'
-const PRODUCT = 'dsh-agent', TRIAL_MS = 600000, MAX_BYTES = 65536
+// 试用时长是唯一真源：界面文案、倒计时与过期判定都从这里取。
+// 2026-11-02 用户要求由 10 分钟改为 1 天（86400000ms）。
+const PRODUCT = 'dsh-agent', TRIAL_MS = 86400000, MAX_BYTES = 65536
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 function parse(value, message='授权文件格式无效，请选择签发工具生成的 .agentlic 文件') { try { return JSON.parse(value) } catch (_) { throw Error(message) } }
 function exact(value, keys) { if (!object(value) || Object.keys(value).length !== keys.length || Object.keys(value).some(key => !keys.includes(key))) throw Error('授权文件字段无效') }

@@ -32,7 +32,7 @@
     let bar=$('knowledgeTabs'),body=$('knowledgePreviewBody');if(!bar){bar=el('div',undefined,'panel-tabs');bar.id='knowledgeTabs';bar.setAttribute('role','tablist');bar.setAttribute('aria-label','知识库文件');body=el('div',undefined,'panel-preview');body.id='knowledgePreviewBody';host.prepend(bar);host.append(body)}
     bar.textContent='';body.textContent='';body.classList.remove('is-fit');
     for(const tab of current.tabs){const group=el('div',undefined,'panel-tab'+(tab.target===current.active?' active':''));const button=action(tab.value.title,()=>{current.active=tab.target;selectedFile=tab.target;renderPreviewTabs();render()});button.setAttribute('role','tab');button.setAttribute('aria-selected',String(tab.target===current.active));const close=action('×',()=>{current.tabs=current.tabs.filter(t=>t!==tab);if(tab.url)URL.revokeObjectURL(tab.url);if(current.active===tab.target)current.active=current.tabs.length?current.tabs[current.tabs.length-1].target:'';selectedFile=current.active;renderPreviewTabs();render()});close.setAttribute('aria-label','关闭 '+tab.value.title);group.append(button,close);bar.append(group)}
-    const active=current.tabs.find(t=>t.target===current.active);if(active){window.filePreview.render(body,active.value);if(active.value.download&&active.value.url){const download=action('下载原文件',()=>{const link=el('a');link.href=active.value.url;link.download=active.value.title;document.body.append(link);link.click();link.remove()});download.className='knowledge-download';body.append(download)}selectedFile=active.target}else body.textContent='选择左侧文件以预览资料'
+    const active=current.tabs.find(t=>t.target===current.active);if(active){window.filePreview.render(body,active.value);if(active.value.download&&active.value.url){const download=action('下载原文件',()=>{const link=el('a');link.href=active.value.url;link.download=active.value.title;document.body.append(link);link.click();link.remove()});download.className='knowledge-download';body.append(download)}selectedFile=active.target}else{body.textContent='';body.append(emptyState('选择左侧文件以预览资料'))}
   }
   const treeCache = new Map(), treePending = new Set()
   function fileGroup(key, title) {
@@ -82,6 +82,13 @@
   const labels = { queued: '等待处理', parsing: '正在解析', indexing: '正在建立索引', ready: '可检索', failed: '处理失败', cancelled: '已取消', interrupted: '已中断' }
   const api = (action, data) => window.dsh.knowledgeRequest(action, data)
   function el(tag, text, className) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n }
+  /* 空状态：文件图标在上、文案居中（水平+垂直），用于预览区与来源区没有内容时 */
+  function emptyState(text) {
+    const wrap = el('div', undefined, 'knowledge-empty-state')
+    const icon = el('span', undefined, 'icon'); icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = window.renderIcon('file')
+    wrap.append(icon, el('p', text))
+    return wrap
+  }
   function location(value) { return [value.heading, value.line ? '第 ' + value.line + ' 行' : '', value.paragraph !== undefined ? '第 ' + (value.paragraph + 1) + ' 段' : '', value.sheet ? value.sheet + ' · ' + value.cell : '', value.formulaCached ? '公式缓存值' : ''].filter(Boolean).join(' · ') }
   function notice(message) { $('knowledgeNotice').textContent = message || '' }
   function action(text, fn, key) {
@@ -93,7 +100,7 @@
     })
     return b
   }
-  function clearResults() { sourceToken++; searchToken++; $('knowledgeResults').textContent = ''; $('knowledgeSource').classList.remove('hidden'); $('knowledgeSource').textContent = '选择左侧文件以预览资料'; $('knowledgeSearch').disabled = false }
+  function clearResults() { sourceToken++; searchToken++; $('knowledgeResults').textContent = ''; $('knowledgeSource').classList.remove('hidden'); $('knowledgeSource').textContent = ''; $('knowledgeSource').append(emptyState('选择左侧文件以预览资料')); $('knowledgeSearch').disabled = false }
   function choose(id) { detail = true; selected = id; previewId = ''; fileMatches = null; $('knowledgeFileQuery').value = ''; fileSearchToken++; clearResults(); render(); if ($('knowledgeQuery').value.trim()) search() }
   function hide() {  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=null}; sourceToken++; searchToken++; page.classList.add('hidden'); $('app').classList.remove('knowledge-open'); $('openLibrary').removeAttribute('aria-current') }
   function open() {
@@ -152,7 +159,9 @@
     }
     if (!snapshot.bases.length) bases.append(el('p', '新建一个知识库，再添加资料。', 'capability-empty'))
     const base = snapshot.bases.find(b => b.id === selected)
-    $('knowledgeImport').disabled = !base || uploading; $('knowledgeImport').setAttribute('aria-busy',String(uploading));renderUploads(); $('knowledgeSearch').disabled = !base
+    $('knowledgeImport').disabled = !base || uploading; $('knowledgeImport').setAttribute('aria-busy',String(uploading))
+    if ($('knowledgeImportFolder')) $('knowledgeImportFolder').disabled = !base || uploading
+    renderUploads(); $('knowledgeSearch').disabled = !base
     $('knowledgeQuery').placeholder = base ? '搜索「' + base.name + '」中的资料' : '请先新建知识库'
     $('knowledgeDocumentsTitle').textContent = base ? base.name + ' · 资料' : '资料'
     const linkedProjects = base ? (snapshot.projects || []).filter(p => (p.folders || []).some(scope => (base.scopes || []).includes(scope))) : []
@@ -323,7 +332,6 @@
       if(stopUploads){item.status='skipped';renderUploads();continue}
       item.status='uploading';renderUploads()
       try{
-        const limit=snapshot.limits&&snapshot.limits.fileBytes||8*1024*1024;if(file.size>limit)throw Error('单份资料不能超过 '+Math.round(limit/1024/1024)+' MB')
         const bytes=new Uint8Array(await file.arrayBuffer());let imported
         for(let attempt=0;attempt<120;attempt++){
           if(stopUploads)break
@@ -332,10 +340,12 @@
         if(imported){item.status='uploaded';item.documentId=imported.documentId;uploadedCount++}else item.status='skipped'
       }catch(error){item.status='failed';item.error=error.message||'导入失败'}
       renderUploads();await refresh().catch(error=>notice('文件已上传，但列表刷新失败：'+error.message))
-    }}finally{uploading=false;$('knowledgeFile').value='';render();notice('已上传 '+uploadedCount+' 个文件，处理状态见本次导入结果')}
+    }}finally{uploading=false;$('knowledgeFile').value='';if($('knowledgeFolder'))$('knowledgeFolder').value='';render();notice('已上传 '+uploadedCount+' 个文件，处理状态见本次导入结果')}
   }
   $('knowledgeImport').addEventListener('click',()=>{if(!uploading)$('knowledgeFile').click()})
   $('knowledgeFile').addEventListener('change',()=>uploadFiles($('knowledgeFile').files).catch(error=>notice(error.message)))
+  $('knowledgeImportFolder').addEventListener('click',()=>{if(!uploading)$('knowledgeFolder').click()})
+  $('knowledgeFolder').addEventListener('change',()=>uploadFiles($('knowledgeFolder').files).catch(error=>notice(error.message)))
   $('knowledgeUploadCancel').addEventListener('click',()=>{stopUploads=true;renderUploads()})
   const uploadPane=$('knowledgeFilePane')
   for(const type of ['dragenter','dragover'])uploadPane.addEventListener(type,event=>{if(!Array.from(event.dataTransfer.types||[]).includes('Files'))return;event.preventDefault();if(!uploading)uploadPane.classList.add('is-dragging')})

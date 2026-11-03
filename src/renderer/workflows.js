@@ -64,6 +64,7 @@
  function glyph(name,cls){const icon=node('span',undefined,'icon'+(cls?' '+cls:''));icon.setAttribute('aria-hidden','true');if(window.renderIcon)icon.innerHTML=window.renderIcon(name);return icon}
  function formatBytes(size){return size<1024?size+' 字节':size<1024*1024?(size/1024).toFixed(1)+' KB':(size/1024/1024).toFixed(1)+' MB'}
  async function copyText(text){
+  if(typeof window.copyToClipboard==='function'&&await window.copyToClipboard(text))return
   if(navigator.clipboard&&typeof navigator.clipboard.writeText==='function'){await navigator.clipboard.writeText(text);return}
   const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove()
  }

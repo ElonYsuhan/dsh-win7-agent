@@ -109,7 +109,7 @@ const PROBE = `(() => {
   const labels = Array.from(document.querySelectorAll('.titlebar-brand, #windowTitle, .titlebar-page-title')).map((el, i) => Object.assign({ id: 'label-' + i }, rect(el))).filter((r) => r.visible);
   const br = band.getBoundingClientRect();
   const root = document.documentElement;
-  const native = root.classList.contains('shell-mac') ? [{ id: 'native-traffic-lights', left: 0, right: 88, top: 0, bottom: 48, w: 88, h: 48, visible: true }] : [];
+  const native = root.classList.contains('shell-mac') ? [{ id: 'native-traffic-lights', left: 0, right: 88, top: 0, bottom: Math.round(br.bottom), w: 88, h: Math.round(br.height), visible: true }] : [];
   const overlap = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
   const items = buttons.concat(controls, labels, native);
   const collisions = [];
@@ -118,10 +118,10 @@ const PROBE = `(() => {
   }
   const dragPoints = [];
   for (let x = 100; x < innerWidth - 20; x += 25) {
-    const hit = document.elementFromPoint(x, 44);
+    const hit = document.elementFromPoint(x, Math.round(br.height / 2));
     if (hit && hit.closest('#titlebarDrag') && !hit.closest('button, a, input, select, textarea') && !native.some((r) => x >= r.left && x < r.right)) dragPoints.push(x);
   }
-  const below = document.elementFromPoint(Math.round(innerWidth / 2), 49);
+  const below = document.elementFromPoint(Math.round(innerWidth / 2), Math.round(br.bottom) + 1);
   const runHint = document.getElementById('composerRunHint');
   const sidebar = document.querySelector('.sidebar');
   return {
@@ -960,15 +960,15 @@ async function runInElectron() {
           const p = await win.webContents.executeJavaScript(PROBE)
           const label = variant.name + '/' + width + '/' + theme + '/' + mode.name
           geometries.push({ label, geometry: p })
-          check(label + ': titlebar is a 48px independent header', p.band.tag === 'HEADER' && p.band.parentIsBody && p.band.top === 0 && p.band.left === 0 && p.band.w === p.innerWidth && p.band.h === 48)
-          check(label + ': content starts below the titlebar', p.app.top === 48 && p.app.h === p.innerHeight - 48 && [p.main, p.sidebar, p.panel, p.frame].every((r) => !r || !r.visible || r.top >= 48))
+          check(label + ': titlebar is a 44px independent header', p.band.tag === 'HEADER' && p.band.parentIsBody && p.band.top === 0 && p.band.left === 0 && p.band.w === p.innerWidth && p.band.h === 44)
+          check(label + ': content starts below the titlebar', p.app.top === 44 && p.app.h === p.innerHeight - 44 && [p.main, p.sidebar, p.panel, p.frame].every((r) => !r || !r.visible || r.top >= 44))
           check(label + ': window controls and app actions do not overlap', p.collisions.length === 0, p.collisions.join(',') || 'none')
-          check(label + ': titlebar actions remain clickable and no-drag', p.buttons.length > 0 && p.buttons.every((r) => r.header && r.hit && r.region === 'no-drag' && r.top >= 0 && r.bottom <= 48))
-          check(label + ': control buttons have safe 44px targets', variant.platform === 'darwin' ? p.controls.length === 0 : p.controls.length === 3 && p.controls.every((r) => r.w === 44 && r.h === 48 && r.hit && r.region === 'no-drag'))
+          check(label + ': titlebar actions remain clickable and no-drag', p.buttons.length > 0 && p.buttons.every((r) => r.header && r.hit && r.region === 'no-drag' && r.top >= 0 && r.bottom <= 44))
+          check(label + ': control buttons have safe 44px targets', variant.platform === 'darwin' ? p.controls.length === 0 : p.controls.length === 3 && p.controls.every((r) => r.w === 44 && r.h === 44 && r.hit && r.region === 'no-drag'))
           check(label + ': drag space is available and ends above content', p.band.region === 'drag' && p.dragPoints.length > 0 && !p.belowIsTitlebar)
           check(label + ': viewport has no accidental vertical overflow', p.scrollHeight <= p.innerHeight)
           if (mode.collapsed && !mode.code) check(label + ': sidebar fully hides', !p.sidebar.visible && (mode.panel || p.main.w === p.innerWidth))
-          if (mode.panel) check(label + ': panel stays within the content grid', p.panel.visible && p.panel.top === 48 && p.panel.right === p.innerWidth && (!p.main.visible || p.main.right <= p.panel.left))
+          if (mode.panel) check(label + ': panel stays within the content grid', p.panel.visible && p.panel.top === p.band.h && p.panel.right === p.innerWidth && (!p.main.visible || p.main.right <= p.panel.left))
           if (mode.code) check(label + ': file-only mode retains its titlebar restore action', p.buttons.some((r) => r.id === 'restoreChat') && !p.main.visible && !p.sidebar.visible && p.panel.w === p.innerWidth)
           if ((width === 1000 && theme === 'dark' && mode.name === 'normal') || (width === 640 && theme === 'light' && mode.name === 'code')) {
             const screenshot = await win.webContents.capturePage()
@@ -1135,8 +1135,8 @@ async function runInElectron() {
       const sc = await win.webContents.executeJavaScript(PROBE_PANEL_INTERACT)
       check('面板：网格行没被面板撑爆（#app 自身不产生滚动）',
         sc.appOverflowed === false, sc.appScrollH + ' vs ' + sc.appClientH)
-      check('面板：面板高度 = 内容区高（视口减48px顶栏）',
-        sc.panelH !== null && Math.abs(sc.panelH - (sc.innerHeight - 48)) <= 1,
+      check('面板：面板高度 = 内容区高（视口减44px顶栏）',
+        sc.panelH !== null && Math.abs(sc.panelH - (sc.innerHeight - 44)) <= 1,
         sc.panelH + ' / ' + sc.innerHeight)
       check('面板：文件列表超出后真的滚得动（scrollTop 改得动）',
         sc.tree !== null && sc.tree.scrollH > sc.tree.clientH && sc.tree.moved > 0,
@@ -1367,7 +1367,7 @@ async function runInElectron() {
       check('只看文件：面板铺满整窗', chatHidden.panelWidth === chatHidden.innerWidth,
         chatHidden.panelWidth + ' / ' + chatHidden.innerWidth)
       check('只看文件：文件工具栏从独立顶栏下方开始',
-        chatHidden.headTop >= 48, 'headTop=' + chatHidden.headTop)
+        chatHidden.headTop >= 44, 'headTop=' + chatHidden.headTop)
       check('只看文件：面板折叠操作仍留在独立顶栏',
         chatHidden.panelToggleDisplay !== 'none', chatHidden.panelToggleDisplay)
       check('只看文件：左侧折叠按钮退场（左边已经没有侧边栏可折）',

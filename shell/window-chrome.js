@@ -5,7 +5,7 @@ const os = require('os')
 const path = require('path')
 const { execFileSync } = require('child_process')
 
-const TITLEBAR_HEIGHT = 48
+const TITLEBAR_HEIGHT = 44 /* 与 style.css 的 .titlebar-drag 高度保持一致（2026-11-02 由 48 收紧到 44） */
 const MAC_TRAFFIC_LIGHT = { x: 16, y: 16 }
 let linuxControlsSide = ''
 

@@ -145,6 +145,26 @@ function renderMarkdown(input) {
       }
       continue
     }
+    /* 引用块：连续的 &gt; 行合并成一块。renderMarkdown 是「先整体转义再分行」，
+       走到这里时 > 已经变成 &gt;，所以匹配的是实体而不是字符本身。
+       模型写新闻/资料类摘要几乎必用「> 说明」和「---」，缺了这两条就会把记号原样打在正文里。 */
+    if (/^&gt;(?:\s|$)/.test(trimmed)) {
+      closeAll(state, output)
+      const quoted = []
+      while (i < lines.length && /^&gt;(?:\s|$)/.test(lines[i].trim())) {
+        quoted.push(renderInline(lines[i].trim().replace(/^&gt;\s?/, '')))
+        i += 1
+      }
+      i -= 1
+      output.push('<blockquote class="md-quote">' + quoted.join('<br>') + '</blockquote>')
+      continue
+    }
+    /* 分隔线必须在列表之前判：`- - -` 会被 /^[-*]\s+/ 当成无序列表项吃掉。 */
+    if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed.replace(/\s+/g, ''))) {
+      closeAll(state, output)
+      output.push('<hr class="md-hr">')
+      continue
+    }
     const heading = line.match(/^(#{1,6})\s+(.*)$/)
     if (heading) {
       closeAll(state, output)

@@ -70,6 +70,12 @@
   function notify(text) { if (host) host.status(text) }
   async function copy(text) {
     try {
+      if (typeof window.copyToClipboard === 'function') {
+        const done = await window.copyToClipboard(text)
+        if (!done) throw new Error('COPY_FAILED')
+        notify('已复制')
+        return
+      }
       if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text)
       else {
         const previous=doc.activeElement,area=el('textarea');area.value=text;area.style.position='fixed';area.style.opacity='0';doc.body.appendChild(area);area.select()
