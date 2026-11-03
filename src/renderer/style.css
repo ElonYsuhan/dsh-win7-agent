@@ -7528,3 +7528,103 @@ body.resizing-knowledge-list #knowledgeListResize::after {
 @media (max-width: 700px) {
   #knowledgeListResize { display: none; }
 }
+
+/* ===== 三个内容页（知识库 / 能力中心 / 工作流）统一版心、页头与卡片 =====
+   用户 2026-11-03 反馈：「这三个内容区域宽度大小都不一样，统一一下，风格统一，卡片样式统一」。
+   此前三页各写一套：能力中心 padding 32px clamp(20px,4vw,56px) 且内容封顶 960px 居中；
+   知识库 28px clamp(16px,4vw,56px) 不封顶；工作流 24px 36px 不封顶。这里抽成共享变量：
+   - 版心：--page-gutter（左右留白）+ --page-max（居中最大宽度）
+   - 页头：h1 --font-size-display、副标题 --font-size-small muted、右侧「返回聊天」同款按钮
+   - 卡片：--card-bg / --card-border / --card-radius / --card-pad
+   本块放文件末尾：同特异性下后写生效，用来压平前面的历史差异。
+   注意末尾块会压掉前面同特异性的 @media，栅格窄屏留白在本块末尾重写。 */
+#capabilityCenter,
+.knowledge-page,
+.workflow-page {
+  --page-gutter: clamp(20px, 4vw, 56px);
+  --page-max: 1200px;
+  --card-bg: var(--panel-2);
+  --card-border: var(--border);
+  --card-radius: 10px;
+  --card-pad: 14px 16px;
+  box-sizing: border-box;
+  padding: 28px var(--page-gutter) 24px;
+}
+/* 浅色档卡片若用 --panel（=纯白）会和白底融在一起（能力中心原来单独特判成 #f5f5f4），
+   三页统一走同一条浅色特判，卡片在白底上始终有可辨的底色与描边。 */
+[data-theme="light"] #capabilityCenter,
+[data-theme="light"] .knowledge-page,
+[data-theme="light"] .workflow-page { --card-bg: #f5f5f4; --card-border: #e1e1df; }
+/* 版心：三页的直接子块同宽居中；流程画布编辑器按可用宽度铺满，不套版心 */
+#capabilityCenter > *,
+.knowledge-page > *:not(#knowledgeDialog),
+.workflow-page > * {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-left: auto;
+  margin-right: auto;
+}
+.workflow-page.workflow-editor-mode > * { max-width: none; }
+/* 「全部知识库」是行内小按钮，不参与版心拉伸，保持与内容左边缘对齐 */
+.knowledge-page > #knowledgeOverview { width: auto; margin-left: 0; margin-right: 0; }
+
+/* 页头：标题 / 副标题 / 右侧「返回聊天」三页同一套（副标题不再一页 13px 一页 14px） */
+#capabilityCenter .capability-heading,
+.knowledge-page .knowledge-heading,
+.workflow-page .workflow-header { align-items: center; gap: 16px; margin: 0 0 16px; }
+#capabilityCenter .capability-heading h1,
+.knowledge-page .knowledge-heading h1,
+.workflow-page .workflow-header h1 { margin: 0; font-size: var(--font-size-display); line-height: 1.3; }
+#capabilityCenter .capability-heading p,
+.knowledge-page .knowledge-heading p,
+.workflow-page .workflow-header p { margin: 6px 0 0; color: var(--muted); font-size: var(--font-size-small); line-height: 1.5; }
+#knowledgeClose,
+#closeCapabilities,
+#workflowClose {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+#knowledgeClose:hover:not(:disabled),
+#closeCapabilities:hover:not(:disabled),
+#workflowClose:hover:not(:disabled) { background: var(--sidebar-row-selected); }
+
+/* 卡片：同一套底色 / 描边 / 圆角 / 内边距（工作流卡只改底色等，active/waiting 的描边各留各的） */
+.knowledge-card,
+.capability-row {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
+  padding: var(--card-pad);
+  box-sizing: border-box;
+}
+/* 工作流卡片的底色用 ID 前缀压过 [data-theme="light"] .workflow-card，
+   只改底色/圆角/内边距，不动 is-active / is-waiting 自己的描边与左侧色条 */
+#workflowPage .workflow-card { background: var(--card-bg); border-radius: var(--card-radius); padding: var(--card-pad); }
+#workflowPage .workflow-card:not(.is-active):not(.is-waiting) { border-color: var(--card-border); }
+/* 卡片栅格：知识库与工作流同一列宽节奏（320px 起、16px 间距） */
+.knowledge-grid,
+.workflow-grid { gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+/* 滚动容器：底部留白统一交给页面 padding，去掉知识库右侧多出的 8px（卡片与页头不再错位） */
+.knowledge-scroll { padding: 2px 0 0; }
+.workflow-scroll { padding-bottom: 0; }
+/* 页头到第一行工具条：三页统一 16px（知识库原来 16+空提示+16=60px，工作流 28px，能力中心 16px） */
+.knowledge-page .knowledge-actions { margin: 0 0 16px; }
+.workflow-page .workflow-toolbar { margin: 0 0 16px; }
+/* 空提示条不占位（能力中心早有此规则，知识库漏了才会多出 30px 空档） */
+#knowledgeNotice:empty { display: none; }
+@media (max-width: 900px) {
+  #capabilityCenter, .knowledge-page, .workflow-page { --page-gutter: 16px; padding-top: 20px; }
+}
