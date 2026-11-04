@@ -132,6 +132,9 @@
   版心规则会给直接子块加 `width:100%`，行内小按钮（如 `#knowledgeOverview`）要单独复位 `width:auto`。
   **页头的 `margin: 0 0 16px` 会冲掉版心的 `margin:auto`** → 一旦给内容设了 max-width，页头贴左、
   列表居中，错位一截；所以宽度必须靠 `width:100%` 铺满，别用居中封顶。
+  能力中心页头（2026-11-04）已无副标题，「安装离线扩展包」整条挂在 `.capability-heading` 里紧跟 h1：
+  `flex-wrap:nowrap` + h1 `flex:0 0 auto` + 安装条 `flex:1 1 auto;min-width:0`（说明文字 ellipsis），
+  只有 ≤760px 才折行 —— 靠 `flex-wrap:wrap` 自然换行会让「返回聊天」在 960 宽掉到第二行左侧。
 - 同一批选择器被写进多处时**最后写入的赢** → 在文件末尾放明确归属的收口块并写注释。
 - 末尾收口块会反过来压掉前面的 `@media`（同特异性）；隐藏类规则用 `#app` 前缀提特异性，别靠顺序。
 - 图标尺寸真源是 style.css 的全局表（`button .icon svg` = 20px，特异性 0,2,1）；单独改要带前缀。
