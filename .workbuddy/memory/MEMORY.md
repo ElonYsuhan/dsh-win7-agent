@@ -136,6 +136,12 @@
   `flex-wrap:nowrap` + h1 `flex:0 0 auto` + 安装条 `flex:1 1 auto;min-width:0`（说明文字 ellipsis），
   只有 ≤760px 才折行 —— 靠 `flex-wrap:wrap` 自然换行会让「返回聊天」在 960 宽掉到第二行左侧。
 - 同一批选择器被写进多处时**最后写入的赢** → 在文件末尾放明确归属的收口块并写注释。
+- **列表类 UI 不要在定时刷新里无条件重建 DOM**：`workflows.js` 每 1.5s `refresh()`，`renderFlows()`
+  原来每次 `textContent=''` 重建卡片 → 新 DOM 没有 `:hover`，「hover 才淡入」的删除按钮一秒闪一次。
+  现在 `renderFlows(force)` / `renderRuns(force)` 先比数据签名（`flowsRenderKey`/`runsRenderKey`），
+  没变就 return，`ResizeObserver` 用 `force` 穿透。删除按钮也改成常显 muted 色（hover 转危险色）。
+- 危险色要压过 `.workflow-icon-action:hover:not(:disabled)`（0,3,1），属性选择器 + `:is()` 只有 0,2,1
+  → 写 `.workflow-card-actions .workflow-icon-action[data-workflow-action=delete]:hover:not(:disabled)`。
 - 末尾收口块会反过来压掉前面的 `@media`（同特异性）；隐藏类规则用 `#app` 前缀提特异性，别靠顺序。
 - 图标尺寸真源是 style.css 的全局表（`button .icon svg` = 20px，特异性 0,2,1）；单独改要带前缀。
   viewBox 是 24 正方形，别写非方形宽高（会把圆压成椭圆）。
