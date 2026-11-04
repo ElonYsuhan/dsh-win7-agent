@@ -152,9 +152,11 @@
   var(--knowledge-list-width,300px) - 4px)`）改 CSS 变量驱动 grid 首列，夹 220~520、松手写 localStorage、双击
   回 300；rAF 节流照 panel.js `bindColResize`（IIFE 私有，自己抄）。测它合成 MouseEvent 要**拆三步**
   （down+move → sleep 等 rAF → up）；探针等 `openLibrary` 出现后 `sleep(500)` 再点（监听器在 init 后半段）。
-- 连接器卡（`--cap-card-height:78px`）只放概要，工具清单走 `#mcpDetailModal`（`openMcpDetail/closeMcpDetail`）；
-  内置服务也有「详情」，所以 `querySelectorAll('#mcpList .mcp-icon-action').length===0` 不再等于「不能编辑
-  删除」，要用 `.danger` 判。
+- 连接器卡（`--cap-card-height:78px`，`height:auto`）只放概要，工具清单走 `#mcpDetailModal`
+  （`openMcpDetail(server, trigger)` / `closeMcpDetail`）。**整张卡片就是入口**（`tabIndex=0` + `role=button`
+  + `aria-haspopup=dialog`），点内部按钮不冒泡开弹窗靠 `event.target.closest('button,a,input,select,textarea')`
+  守卫；`trigger` 必须传，否则 `mcpDetailPriorFocus` 拿到的是 body，关弹窗后焦点回不去。
+  内置服务也有详情入口，所以「有没有 `.mcp-icon-action`」不能再当「能不能编辑删除」的证据，要用 `.danger` 判。
 
 ## 其他
 - md-skills（65 个）在 `src/main/agent/md-skills/`，系统提示只放 id + 90 字简介。自我验证工具用完必须关浏览器、
