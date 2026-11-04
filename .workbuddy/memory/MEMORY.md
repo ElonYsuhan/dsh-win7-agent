@@ -54,6 +54,15 @@
   `phase!=='ready'` 画 error；改文案去 `parser-worker.js`。
 
 ## 性能纪律（都实测过）
+- **切会话窗口化**：首屏只画最近 24 条（`HISTORY_WINDOW`），更早的在顶部 `.history-more`
+  （滚到顶也自动补）按 8ms/帧分片回填（`fillEarlier`/`historyToken`）；两段都写离屏 `renderTarget`
+  fragment、一次挂载（`renderHost()`），因为 `addBubble` 末尾的 `scrollToBottom()` 每条都要一次强制布局。
+  实测 219–269ms 长任务 → 首屏 16–24ms、零长任务；`renderOneMessage(ctx,index)` 是唯一渲染入口。
+- **ui-store 别每次全量推**：`buildUiStorePayload({light:true})` 不带 sessions（服务端 `save()` 是
+  `Object.assign` 浅合并），切会话只发 currentSessionId+prefs；整份 5MB stringify+跨进程克隆 =
+  50–70ms，曾整段卡在点击的同步路径里。`uiStorePush.full` 记账，中间有一次全量就按全量发。
+- **`saveSettings`+`refreshState` 别挡在渲染前**（`switchProjectContext` 放渲染之后 fire-and-forget）。
+- `content-visibility` 在这类场景没用（成本在建 DOM/HTML 解析，不在布局），A/B 过，别重复试。
 - **点一次只动被点的那个节点**。侧边栏项目展开/收起曾走 `renderWorkspaceList()` 整列重建（1080 行
   59–81ms），现 `setProjectExpanded` / `syncProjectNode` 只替换目标节点的会话列表（3ms），整列用
   `DocumentFragment` 一次挂上，节点带 `dataset.projectId`。复用节点的闭包 `expanded` 是旧值，点击时必须从
