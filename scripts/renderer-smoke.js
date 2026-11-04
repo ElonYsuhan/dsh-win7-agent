@@ -2984,6 +2984,18 @@ const checks = `
   ok('分组标题离自己那组内容 4px、列表行距 4px（原来全是 0，标题贴死第一行）',
     /[.]sidebar .sidebar-section [{][^}]*gap: 4px/.test(sbSpace)
       && /[.]flat-list,[^}]*gap: 4px/.test(sbSpace))
+  /* 2026-11-04 用户反馈「能力中心占用地方太窄，铺满」：三页版心不再按固定宽度封顶，
+     只留 --page-gutter。封顶时大窗口两侧各空 170px+，且页头（margin 被重置）会与居中的
+     列表错开一截，所以这条同时守住「不封顶」。 */
+  const shellAt = cssSrc.indexOf('统一版心、页头与卡片')
+  const shellBlock = shellAt < 0 ? '' : cssSrc.slice(shellAt, shellAt + 1600)
+  ok('知识库/能力中心/工作流三页版心铺满（不再被固定 max-width 封顶）',
+    shellBlock !== ''
+      && /--page-max: none/.test(shellBlock)
+      && /--page-gutter: clamp[(]20px, 4vw, 56px[)]/.test(shellBlock))
+  ok('三页内容区左右留白对各段一致（页头与列表同宽，不错位）',
+    /#capabilityCenter > [*],[^}]*width: 100%/.test(cssSrc)
+      && !/max-width: 960px; margin-left: auto/.test(cssSrc))
 })().then(() => { harnessDone() }).catch((e) => { harnessError(e) })
 `
 
