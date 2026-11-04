@@ -7696,3 +7696,34 @@ body.resizing-knowledge-list #knowledgeListResize::after {
    放在文件末尾用 `.project-session-list.is-collapsed`（0,2,0）压过前面的
    `.sidebar .project-session-list { display: flex }`（同为 0,2,0，后写赢）。 */
 .project-session-list.is-collapsed { display: none; }
+
+/* 历史窗口化：只在消息数超过首屏窗口时出现，点它（或滚到顶）才补更早的一批。
+   样式跟面板里的小按钮一致：--panel-2 底 + --divider 描边 + 显式 --text 色。 */
+.history-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto 14px;
+  padding: 8px 14px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.history-more:hover:not(:disabled) {
+  background: var(--selection-bg);
+  border-color: var(--hover-border);
+  color: var(--text);
+}
+.history-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.history-more:disabled { cursor: default; opacity: .8; }

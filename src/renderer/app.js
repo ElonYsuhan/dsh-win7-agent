@@ -271,7 +271,7 @@ function workspaceLabel(value) {
 
 let uiStoreRemoteCurrentSessionId = '' /* 服务端记录的「当前会话」，加载后由 readSavedCurrentSessionId 优先取 */
 let uiPrefsFromServer = null /* 服务端 prefs（sectionCollapsed/sidebarCollapsed/messageWidth/sentHistory） */
-const uiStorePush = { inFlight: false, dirty: false, retryTimer: null, retryDelay: 1000 }
+const uiStorePush = { inFlight: false, dirty: false, full: false, retryTimer: null, retryDelay: 1000 }
 let composerObserver = null
 
 function uiStoreApi() {
@@ -280,13 +280,12 @@ function uiStoreApi() {
     : null
 }
 
-function buildUiStorePayload() {
+function buildUiStorePayload(options) {
   let sectionCollapsed = {}
   try {
     sectionCollapsed = JSON.parse(localStorage.getItem('dsh-section-collapsed') || '{}')
   } catch (error) {}
-  return {
-    sessions: sessionStore,
+  const payload = {
     currentSessionId: state.currentSessionId || '',
     prefs: {
       sectionCollapsed: sectionCollapsed,
@@ -295,10 +294,21 @@ function buildUiStorePayload() {
       sentHistory: sentHistory.slice(0, SENT_HISTORY_LIMIT)
     }
   }
+  /* 只动了 currentSessionId / 偏好时不要再把整份会话库传一遍：大会话库几 MB，
+     stringify + 跨进程克隆一次就是六七十毫秒。服务端 save() 是浅合并，
+     不带 sessions 这个键就保留原来的那份（带了空对象才会被当成清空）。 */
+  if (!(options && options.light)) payload.sessions = sessionStore
+  return payload
 }
 
-function scheduleUiStorePush() {
+/* 不再延迟：真正贵的是「整份会话库 stringify + 跨进程克隆」，而那件事已经靠
+   buildUiStorePayload({light:true}) 绕开了（切会话只发几 KB 的 currentSessionId + 偏好）。
+   in-flight 合并本来就会把同一瞬间的多次保存压成一次，不必再加 debounce 拖慢落盘。 */
+function scheduleUiStorePush(options) {
   uiStorePush.dirty = true
+  /* 默认按「全量」记账：只有明确说了 light 的调用（比如切会话只改 currentSessionId）
+     才允许省掉 sessions。中间只要有一次全量请求，这一轮就按全量发。 */
+  if (!(options && options.light)) uiStorePush.full = true
   /* 本地时间戳：加载时和服务端的 updatedAt 比「谁新」——
      关窗瞬间在途 PUT 被掐、或双客户端互相覆盖时，本地这份更新的不能被服务端旧数据盖掉。 */
   try {
@@ -316,7 +326,9 @@ async function flushUiStorePush() {
     /* while：写盘的那几百毫秒里可能又保存了几次，补发到干净为止 */
     while (uiStorePush.dirty) {
       uiStorePush.dirty = false
-      await api.uiStorePut(buildUiStorePayload())
+      const full = uiStorePush.full
+      uiStorePush.full = false
+      await api.uiStorePut(buildUiStorePayload({ light: !full }))
     }
     uiStorePush.retryDelay = 1000
   } catch (error) {
@@ -428,7 +440,8 @@ function saveCurrentSessionId(sessionId) {
   } catch (error) {}
   /* 调用点都在 state.currentSessionId 更新之后，payload 里直接带权威值 */
   syncFilePanelContext()
-  scheduleUiStorePush()
+  /* 切会话只改了 currentSessionId，会话库本身没动 → 发轻量那份，别把几 MB 再传一遍。 */
+  scheduleUiStorePush({ light: true })
 }
 
 function readSavedCurrentSessionId() {
@@ -784,6 +797,13 @@ function getAllSessions() {
 // One visible conversation only; never keep a cache of hidden conversation DOM trees.
 let renderedConversation = null
 
+/* 渲染目标：正常是 #messagesInner；补历史时是一块离屏 fragment。
+   把 DOM 建在 fragment 上再一次性挂载，能避免每条消息都触发一次同步布局。 */
+let renderTarget = null
+function renderHost() {
+  return renderTarget || messagesContent()
+}
+
 function updateSessionMessages(sessionId, messages, memory) {
   if (renderedConversation && renderedConversation.id === sessionId) renderedConversation = null
   const session = findSessionById(sessionId)
@@ -796,7 +816,7 @@ function updateSessionMessages(sessionId, messages, memory) {
 }
 
 function addThinkingBlock(html) {
-  const container = messagesContent()
+  const container = renderHost()
   const previous = container.children[container.children.length - 1]
   if (previous && previous.classList && previous.classList.contains('process-timeline')) {
     const prior = previous.querySelector('.thinking-content')
@@ -817,7 +837,7 @@ function addThinkingBlock(html) {
   if (not(currentRunning())) for (const step of content.querySelectorAll('.tl-running')) closeTimelineStep(step, 'interrupted')
   details.appendChild(summary)
   details.appendChild(content)
-  messagesContent().appendChild(details)
+  renderHost().appendChild(details)
   /* 老会话存的是纯文本 / .thinking-tool，没有 .tl-step：这时 summary 保持「思考过程」，
      有步骤的新记录才升级成「已执行 N 步」。 */
   refreshTimelineSummary(details, content, false)
@@ -880,42 +900,149 @@ function saveProcessTimelineContent(session, html) {
   saveSessionStore()
 }
 
-function renderProcessTimeline(session, list, runningHere) {
-  const remaining = session.processTimeline.slice()
-  if (session.legacyProcessHtml) addThinkingBlock(session.legacyProcessHtml)
-  for (let messageIndex = 0; messageIndex < list.length; messageIndex += 1) {
-    const message = list[messageIndex]
+/* ---- 历史消息窗口化渲染 ----
+   切会话时把几百条消息一次性同步画完，是 200-270ms 的主线程长任务：Markdown 解析本来就贵，
+   更贵的是每插一条 addBubble 都调 scrollToBottom()（读 scrollHeight 会触发强制同步布局），
+   三百条就是三百次 layout。现在按主流 agent 的做法拆成两步：
+   1. 首屏只同步画最近 HISTORY_WINDOW 条（写进离屏 fragment，一次挂载 + 一次滚动），
+      切过去立刻能读、能输入；
+   2. 更早的历史在顶部给「载入更早」入口，点击或滚到顶时再按 8ms 帧预算分片回填 ——
+      每片同样写在离屏 fragment 里，全部就绪才一次挂上，回填期间一次 layout 都不触发。 */
+const HISTORY_WINDOW = 24
+const HISTORY_PAGE = 40
+const HISTORY_FRAME_MS = 8
+const historyStarts = new Map()
+let historyToken = 0
+let historyJob = null
+
+/* 渲染上下文：把「画到第几条了」以及过程队列的状态收进一个对象，
+   这样同一段逻辑既能同步画首屏，也能分片画历史（分片之间必须能续上状态）。 */
+function createRenderContext(session, list, runningHere, staticProcessHtml, start) {
+  const timeline = Boolean(session && Array.isArray(session.processTimeline))
+  const ctx = {
+    session: session || null,
+    list: list || [],
+    runningHere: Boolean(runningHere),
+    staticProcessHtml: staticProcessHtml || '',
+    start: start || 0,
+    timeline,
+    remaining: timeline ? session.processTimeline.slice() : null,
+    processRendered: false,
+    toolThinking: null,
+    legacyCount: session ? (session.legacyMessageCount || 0) : 0,
+    activeHtml: ''
+  }
+  if (ctx.start > 0) advanceToWindow(ctx, ctx.start)
+  return ctx
+}
+
+/* 窗口之前那段不建 DOM，只把状态推到窗口起点：过程条目按 beforeText 顺序匹配掉，
+   否则它们会被当成本窗口消息的过程块错插到末尾。纯字符串比较，三百条也就一两毫秒。 */
+function advanceToWindow(ctx, start) {
+  if (ctx.timeline) {
+    const remaining = ctx.remaining
+    for (let index = 0; index < start; index += 1) {
+      const message = ctx.list[index]
+      if (message.role !== 'assistant' || not(message.content)) continue
+      const text = Array.isArray(message.content) ? extractUserContent(message.content).text : message.content
+      const match = remaining.findIndex((entry) => entry.beforeText === text && index >= (entry.afterMessage || 0))
+      if (match !== -1) remaining.splice(0, match + 1)
+    }
+    /* beforeText 为空的条目是「还在跑、尚未定位到回复」的过程，留着给尾部去接。 */
+    ctx.remaining = remaining.filter((entry) => not(entry.beforeText) || (entry.afterMessage || 0) >= start)
+    return
+  }
+  for (let index = 0; index < start; index += 1) {
+    const message = ctx.list[index]
+    if (message.role === 'assistant' && message.content) {
+      ctx.processRendered = true
+      break
+    }
+  }
+}
+
+/* 画第 index 条消息。以前这段是写死在 renderMessages 里的两个 for 循环，
+   现在抽出来，首屏和历史回填共用同一份逻辑。 */
+function renderOneMessage(ctx, index) {
+  const message = ctx.list[index]
+  if (not(message)) return
+  if (ctx.timeline) {
     if (message.role === 'user') addUserBubble(message.content)
-    if (message.role === 'tool' && message.content && messageIndex < (session.legacyMessageCount || 0)) {
+    if (message.role === 'tool' && message.content && index < ctx.legacyCount) {
       const content = document.createElement('div')
       appendProcessToolResult(content, message.name || '工具', message.content)
       addThinkingBlock(content.innerHTML)
     }
-    if (message.role !== 'assistant' || not(message.content)) continue
+    if (message.role !== 'assistant' || not(message.content)) return
     const text = Array.isArray(message.content) ? extractUserContent(message.content).text : message.content
-    const index = remaining.findIndex((entry) => entry.beforeText === text && messageIndex >= (entry.afterMessage || 0))
-    if (index !== -1) {
+    const match = ctx.remaining.findIndex((entry) => entry.beforeText === text && index >= (entry.afterMessage || 0))
+    if (match !== -1) {
       /* 压缩/断线造成定位回复缺失时，仍保留之前未匹配的过程。 */
-      for (const entry of remaining.splice(0, index + 1)) {
+      for (const entry of ctx.remaining.splice(0, match + 1)) {
         if (entry.html) addThinkingBlock(entry.html)
       }
     }
     if (text) addBubble('assistant', text, { markdown: true })
+    return
   }
-  let activeHtml = ''
-  for (const entry of remaining) {
-    if (runningHere && not(entry.beforeText)) activeHtml += entry.html || ''
-    else if (entry.html) addThinkingBlock(entry.html)
+  if (message.role === 'user') {
+    ctx.toolThinking = null
+    addUserBubble(message.content)
   }
-  if (runningHere) {
-    dropProcessRecord(session.id)
-    resumeThinking(activeHtml)
-    scheduleWaitingHint()
+  if (message.role === 'assistant' && message.content) {
+    ctx.toolThinking = null
+    const assistantText = Array.isArray(message.content) ? extractUserContent(message.content).text : message.content
+    if (assistantText) {
+      if (not(ctx.processRendered) && ctx.staticProcessHtml) {
+        addThinkingBlock(ctx.staticProcessHtml)
+        ctx.processRendered = true
+      }
+      addBubble('assistant', assistantText, { markdown: true })
+    }
   }
+  if (message.role === 'tool' && message.content) {
+    /* 旧数据只有会话级过程 HTML：仍在工具原位置恢复结果，不能全部隐藏。 */
+    if (not(ctx.toolThinking)) {
+      const details = document.createElement('details')
+      details.className = 'thinking-block'
+      const summary = document.createElement('summary')
+      summary.textContent = '\u601d\u8003\u8fc7\u7a0b'
+      const content = document.createElement('div')
+      content.className = 'thinking-content'
+      details.appendChild(summary)
+      details.appendChild(content)
+      renderHost().appendChild(details)
+      ctx.toolThinking = content
+    }
+    const block = document.createElement('div')
+    block.className = 'thinking-tool-result'
+    block.textContent = '\u5de5\u5177\u7ed3\u679c\n' + message.content
+    ctx.toolThinking.appendChild(block)
+  }
+}
+
+/* 一段消息画完后的收尾：把剩下没定位到的过程块补在最末（仍在离屏目标里画）。 */
+function flushRenderContext(ctx) {
+  if (ctx.timeline) {
+    const remaining = ctx.remaining
+    ctx.remaining = []
+    for (const entry of remaining) {
+      if (ctx.runningHere && not(entry.beforeText)) ctx.activeHtml += entry.html || ''
+      else if (entry.html) addThinkingBlock(entry.html)
+    }
+    return
+  }
+  if (not(ctx.processRendered) && ctx.staticProcessHtml) addThinkingBlock(ctx.staticProcessHtml)
+}
+
+function renderRange(ctx, from, to) {
+  for (let index = from; index < to; index += 1) renderOneMessage(ctx, index)
 }
 
 function renderMessages(session) {
   flushProcessSaves()
+  historyToken += 1
+  cancelHistoryFill()
   clearMessages()
   state.currentAssistant = null
   state.currentThinking = null
@@ -941,58 +1068,168 @@ function renderMessages(session) {
   const runningHere = Boolean(session && session.id === state.currentSessionId && currentRunning())
   const seedHtml = runningHere && session && session.processHtml ? session.processHtml : ''
   const staticProcessHtml = runningHere ? '' : processHtml
-  if (session && Array.isArray(session.processTimeline)) {
-    renderProcessTimeline(session, list, runningHere)
-    scrollToBottom()
-    return
+  const total = list.length
+  const start = total > HISTORY_WINDOW ? total - HISTORY_WINDOW : 0
+  if (session && session.id) historyStarts.set(session.id, start)
+  const ctx = createRenderContext(session, list, runningHere, staticProcessHtml, start)
+  /* 首屏也走离屏 fragment：一条消息一个 scrollToBottom 的写法，光是强制布局就够呛。 */
+  const fragment = document.createDocumentFragment()
+  renderTarget = fragment
+  try {
+    /* 老会话把早期的过程存成一整段 HTML（legacyProcessHtml），只在窗口覆盖到会话
+       开头时才有它的位置；窗口是从中间切进来的，它就属于还没画的那部分历史。 */
+    if (start === 0 && session && session.legacyProcessHtml) addThinkingBlock(session.legacyProcessHtml)
+    renderRange(ctx, start, total)
+    flushRenderContext(ctx)
+  } finally {
+    renderTarget = null
   }
-  let processRendered = false
-  let toolThinking = null
-  for (const message of list) {
-    if (message.role === 'user') {
-      toolThinking = null
-      addUserBubble(message.content)
-    }
-    if (message.role === 'assistant' && message.content) {
-      toolThinking = null
-      const assistantText = Array.isArray(message.content) ? extractUserContent(message.content).text : message.content
-      if (assistantText) {
-        if (not(processRendered) && staticProcessHtml) {
-          addThinkingBlock(staticProcessHtml)
-          processRendered = true
-        }
-        addBubble('assistant', assistantText, { markdown: true })
-      }
-    }
-    if (message.role === 'tool' && message.content) {
-      /* 旧数据只有会话级过程 HTML：仍在工具原位置恢复结果，不能全部隐藏。 */
-      if (not(toolThinking)) {
-        const details = document.createElement('details')
-        details.className = 'thinking-block'
-        const summary = document.createElement('summary')
-        summary.textContent = '\u601d\u8003\u8fc7\u7a0b'
-        const content = document.createElement('div')
-        content.className = 'thinking-content'
-        details.appendChild(summary)
-        details.appendChild(content)
-        messagesContent().appendChild(details)
-        toolThinking = content
-      }
-      const block = document.createElement('div')
-      block.className = 'thinking-tool-result'
-      block.textContent = '\u5de5\u5177\u7ed3\u679c\n' + message.content
-      toolThinking.appendChild(block)
-    }
-  }
-  if (not(processRendered) && staticProcessHtml) addThinkingBlock(staticProcessHtml)
+  messagesContent().appendChild(fragment)
   if (runningHere) {
     /* 之前的游离累积区已经同步进 processHtml，接着画就够，别再单独记一份 */
     dropProcessRecord(session.id)
-    resumeThinking(seedHtml)
+    resumeThinking(ctx.timeline ? ctx.activeHtml : seedHtml)
     scheduleWaitingHint()
   }
+  if (window.agentUI && window.agentUI.positionPlan) window.agentUI.positionPlan()
+  /* 先把「载入更早」入口插好再滚到底：两件事都要读布局，反过来的话就是两次强制布局。 */
+  syncHistoryMore()
   scrollToBottom()
-  if(session&&!currentRunning())renderedConversation={id:session.id,session,messages:session.messages,memory:session.memory,processTimeline:session.processTimeline,processHtml:session.processHtml,updatedAt:session.updatedAt}
+  if (session && !currentRunning() && !ctx.timeline) renderedConversation = { id: session.id, session, messages: session.messages, memory: session.memory, processTimeline: session.processTimeline, processHtml: session.processHtml, updatedAt: session.updatedAt }
+}
+
+/* 顶部「载入更早」入口：剩余条数、忙碌态都在这里统一刷新。 */
+function syncHistoryMore() {
+  const host = messagesContent()
+  if (not(host)) return
+  const session = currentSession()
+  const start = session && session.id ? (historyStarts.get(session.id) || 0) : 0
+  let button = host.querySelector('.history-more')
+  if (not(session) || start <= 0) {
+    if (button) button.remove()
+    return
+  }
+  if (not(button)) {
+    button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'history-more'
+    button.addEventListener('click', function () { loadEarlierMessages() })
+    host.insertBefore(button, host.firstChild)
+  }
+  const busy = Boolean(historyJob)
+  button.disabled = busy
+  button.dataset.remaining = String(start)
+  button.classList.toggle('is-busy', busy)
+  button.textContent = busy ? '正在载入更早的消息…' : '载入更早的消息（还有 ' + start + ' 条）'
+}
+
+function cancelHistoryFill() {
+  if (not(historyJob)) return
+  historyJob.cancelled = true
+  historyJob = null
+}
+
+/* 回填一批更早的消息：分片只建 frag，全部画完才挂上去，所以中途不产生任何布局。 */
+function loadEarlierMessages() {
+  if (historyJob) return
+  const session = currentSession()
+  if (not(session) || not(Array.isArray(session.messages))) return
+  const list = session.messages
+  const start = historyStarts.get(session.id) || 0
+  if (start <= 0) { syncHistoryMore(); return }
+  const from = Math.max(0, start - HISTORY_PAGE)
+  const staticHtml = from === 0 ? (session.processHtml || '') : ''
+  const ctx = createRenderContext(session, list, false, staticHtml, from)
+  /* from 为 0 说明历史从头补起，会话级过程 HTML 该画在这批的最前面。 */
+  if (from === 0 && not(ctx.timeline)) ctx.processRendered = false
+  historyJob = {
+    session, list, from, to: start, index: from,
+    ctx,
+    /* 补到会话开头时，早期那整段 legacy 过程 HTML 也该落在这一批的最前面 */
+    pendingLegacy: from === 0 ? (session.legacyProcessHtml || '') : '',
+    frag: document.createDocumentFragment(),
+    token: historyToken,
+    cancelled: false
+  }
+  syncHistoryMore()
+  fillEarlier(historyJob)
+}
+
+function fillEarlier(job) {
+  if (job.cancelled || job.token !== historyToken) return
+  const deadline = performance.now() + HISTORY_FRAME_MS
+  const previous = renderTarget
+  renderTarget = job.frag
+  try {
+    if (job.pendingLegacy) {
+      addThinkingBlock(job.pendingLegacy)
+      job.pendingLegacy = ''
+    }
+    while (job.index < job.to) {
+      renderOneMessage(job.ctx, job.index)
+      job.index += 1
+      if ((job.index & 3) === 0 && performance.now() > deadline) break
+    }
+    if (job.index >= job.to) flushRenderContext(job.ctx)
+  } finally {
+    renderTarget = previous
+  }
+  if (job.index < job.to) {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { fillEarlier(job) })
+    else setTimeout(function () { fillEarlier(job) }, 16)
+    return
+  }
+  commitEarlier(job)
+}
+
+function commitEarlier(job) {
+  if (job.cancelled || job.token !== historyToken) return
+  const host = messagesContent()
+  const scroller = byId('messages')
+  /* 前置插入会让 scrollTop 一起跳，先记住「离底部还有多远」，插完再补回来，
+     用户正在看的那屏内容就不会动。 */
+  const distanceToBottom = scroller ? scroller.scrollHeight - scroller.scrollTop : 0
+  const head = (host && (host.querySelector('.memory-block') || host.querySelector('.history-more'))) || null
+  const before = head ? head.nextSibling : (host ? host.firstChild : null)
+  if (host) host.insertBefore(job.frag, before)
+  if (scroller) scroller.scrollTop = scroller.scrollHeight - distanceToBottom
+  historyStarts.set(job.session.id, job.from)
+  historyJob = null
+  syncHistoryMore()
+}
+
+/* 滚到顶自动补一批（顶部还有入口可点，两条路都通）。 */
+function bindHistoryAutoLoad() {
+  const scroller = byId('messages')
+  if (not(scroller) || scroller.__historyBound) return
+  scroller.__historyBound = true
+  let ticking = false
+  scroller.addEventListener('scroll', function () {
+    if (ticking) return
+    ticking = true
+    const run = function () {
+      ticking = false
+      if (scroller.scrollTop > 80) return
+      const session = currentSession()
+      if (not(session) || not(session.id)) return
+      if ((historyStarts.get(session.id) || 0) <= 0) return
+      loadEarlierMessages()
+    }
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run)
+    else setTimeout(run, 16)
+  }, { passive: true })
+}
+
+/* 切项目上下文 = 写设置 + 刷状态，两趟服务端往返 + 一堆设置面板重绘。
+   调用方一律不等它：先把这一屏消息画出来，别的随后再说。 */
+function switchProjectContext(project) {
+  if (not(project)) return Promise.resolve()
+  return (async () => {
+    try {
+      state.settings = await window.dsh.saveSettings({ currentProjectId: project.id, workspacePath: (project.folders || [])[0] || state.workspacePath })
+      await refreshState()
+    } catch (error) {}
+  })()
 }
 
 async function selectSession(sessionId) {
@@ -1008,6 +1245,7 @@ async function selectSession(sessionId) {
   const session = findSessionById(sessionId)
   if (not(session)) return
   const settings = state.settings || {}
+  let pendingProjectSwitch = null
   if (session.scope === 'recent') {
     state.activeProjectId = ''
     const workspacePath = session.knowledgeBaseId ? state.workspacePath : session.workspacePath || state.workspacePath
@@ -1023,13 +1261,9 @@ async function selectSession(sessionId) {
     state.activeProjectId = session.projectId
     if (settings.currentProjectId !== session.projectId) {
       const project = (settings.projects || []).find((item) => item.id === session.projectId)
-    if (project) {
-      state.settings = await window.dsh.saveSettings({
-        currentProjectId: project.id,
-        workspacePath: (project.folders || [])[0] || state.workspacePath
-      })
-        await refreshState()
-      }
+      /* 切项目要走两趟服务端（saveSettings + refreshState）。它以前挡在 renderMessages
+         前面 —— 点一下得等完两趟网络才看见内容。先记下来，这一屏画完再去切。 */
+      if (project) pendingProjectSwitch = project
     }
   }
   const shown=renderedConversation
@@ -1039,6 +1273,7 @@ async function selectSession(sessionId) {
     syncRunningState().then(()=>flushPendingMessage()).catch(()=>{})
     if(state.pendingMessages.length>0)scheduleQueueFlush()
     applyRunState()
+    switchProjectContext(pendingProjectSwitch)
     return
   }
   state.currentSessionId = sessionId
@@ -1062,6 +1297,8 @@ async function selectSession(sessionId) {
   /* 换了会话 = 换了「谁在跑」的参照物，发送/停止按钮和提示条都要重算 */
   applyRunState()
   setStatus('\u4f1a\u8bdd\u5df2\u5207\u6362')
+  /* 首屏已经画完，这时候再去切项目上下文，网络多慢都不影响用户看到内容。 */
+  switchProjectContext(pendingProjectSwitch)
 }
 
 async function renameSession(session) {
@@ -2253,7 +2490,7 @@ function syncAssistantImages(body) {
    用 var 而不是 let：clearMessages() 定义在上面，首屏渲染可能在声明语句执行前就调到它。 */
 var emptyClearedFor = null
 function addBubble(role, text, options) {
-  const messages = messagesContent()
+  const messages = renderHost()
   if (emptyClearedFor !== messages) {
     const empty = messages.querySelector('.chat-empty')
     if (empty) empty.remove()
@@ -2282,6 +2519,9 @@ function addBubble(role, text, options) {
   } else {
     messages.appendChild(wrapper)
   }
+  /* 离屏渲染（补历史）时既不滚动也不量计划位置：fragment 还不在文档里，
+     读写布局既没意义，还会把「一次性挂载」省下来的时间又还回去。 */
+  if (renderTarget) return body
   if (window.agentUI && window.agentUI.positionPlan) window.agentUI.positionPlan()
   scrollToBottom()
   return body
@@ -2532,7 +2772,7 @@ function beginThinking(initialText) {
   if (initialText) appendProcessText(content, initialText)
   details.appendChild(summary)
   details.appendChild(content)
-  messagesContent().appendChild(details)
+  renderHost().appendChild(details)
   state.currentThinking = content
   state.currentThinkingDetails = details
   refreshTimelineSummary(details, content, currentRunning())
@@ -4525,6 +4765,7 @@ function setupComposer() {
 async function init() {
   if (window.applyIcons) window.applyIcons(document)
   setupMessageResize()
+  bindHistoryAutoLoad()
   setupSidebarToggle()
   setupTitlebar()
   autoResizeComposer()

@@ -3072,6 +3072,33 @@ const checks = `
       && navBlock.indexOf('background: #e1e7f2') > 0
       && navBlock.indexOf('color: #315efb') > 0
       && navBlock.indexOf('background: rgba(91, 139, 255, .24)') > 0)
+
+  /* ---- 切会话窗口化渲染（2026-11-04：切老会话卡顿，要异步加载）----
+     以前一次性同步画完几百条 = 220-270ms 主线程长任务（Markdown + 每条一次强制布局）。
+     现在首屏只画最近 HISTORY_WINDOW 条，更早的滚到顶或点按钮再按帧预算分片补，
+     而且都先建在离屏 fragment 里，整段就绪才一次挂载。 */
+  ok('首屏只渲染最近一屏消息（HISTORY_WINDOW），不是整段历史',
+    /const HISTORY_WINDOW = [0-9]+/.test(appSrc)
+      && appSrc.indexOf('const start = total > HISTORY_WINDOW ? total - HISTORY_WINDOW : 0') > 0)
+  ok('首屏与补历史都先写离屏 fragment，一次挂载（renderHost）',
+    appSrc.indexOf('function renderHost()') > 0
+      && appSrc.indexOf('renderTarget = fragment') > 0
+      && /if [(]renderTarget[)] return body/.test(appSrc))
+  ok('更早的历史按帧预算分片回填（HISTORY_FRAME_MS + requestAnimationFrame）',
+    /const HISTORY_FRAME_MS = [0-9]+/.test(appSrc)
+      && appSrc.indexOf('function fillEarlier(job)') > 0
+      && appSrc.indexOf('requestAnimationFrame(function () { fillEarlier(job) })') > 0)
+  ok('顶部「载入更早」入口 + 滚到顶自动加载两条路都在',
+    appSrc.indexOf("className = 'history-more'") > 0
+      && appSrc.indexOf('function bindHistoryAutoLoad()') > 0
+      && cssSrc.indexOf('.history-more') > 0)
+  ok('切会话先画消息、再异步切项目上下文（两趟网络不再挡首屏）',
+    appSrc.indexOf('function switchProjectContext(project)') > 0
+      && appSrc.lastIndexOf('switchProjectContext(pendingProjectSwitch)') > appSrc.indexOf('renderMessages(fresh)'))
+  ok('只改 currentSessionId 时发轻量 ui-store（不再重传几 MB 会话库）',
+    appSrc.indexOf('scheduleUiStorePush({ light: true })') > 0
+      && appSrc.indexOf('if (!(options && options.light)) payload.sessions = sessionStore') > 0
+      && appSrc.indexOf('uiStorePut(buildUiStorePayload({ light: !full }))') > 0)
 })().then(() => { harnessDone() }).catch((e) => { harnessError(e) })
 `
 
