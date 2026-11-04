@@ -6135,14 +6135,26 @@ button .dropdown-chevron svg, button .dropdown-check svg { width: 14px; height: 
   word-break: break-word;
 }
 
-.mcp-tool-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
+/* 连接器详情弹窗：列表内联展开会撑破固定高度的卡片（工具条溢出到卡片外），
+   所以工具清单、配置、错误信息统一放进弹窗。
+   注意末尾 `.modal-card` 那条带 max-height:calc(100vh-48px) + overflow:auto 的通用规则，
+   这里必须用 #mcpDetailModal 提特异性，并且让中间内容区自己滚（整卡滚动会连带标题和按钮）。 */
+#mcpDetailModal .modal-card { width:620px; max-width:92vw; max-height:min(720px, calc(100vh - 80px)); padding:20px 20px 16px; overflow:hidden; }
+.mcp-detail-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex:0 0 auto; }
+#mcpDetailModal .mcp-detail-heading h2 { flex:1 1 auto; min-width:0; margin:0; font-size:var(--font-size-heading); line-height:22px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mcp-detail-heading button { flex:0 0 auto; width:26px; height:26px; min-height:26px; padding:0; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--muted); font-size:var(--font-size-heading); line-height:1; cursor:pointer; }
+.mcp-detail-heading button:hover:not(:disabled) { background:var(--panel-2); color:var(--text); }
+.mcp-detail-body { display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; overflow-y:auto; padding-right:2px; }
+.mcp-detail-meta { display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 14px; margin:0; font-size:var(--font-size-small); line-height:1.5; }
+.mcp-detail-meta dt { color:var(--muted); }
+.mcp-detail-meta dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+.mcp-detail-section { margin:2px 0 0; color:var(--muted); font-size:var(--font-size-caption); font-weight:var(--font-weight-semibold); }
+.mcp-detail-tools { display:flex; flex-direction:column; gap:8px; }
+.mcp-detail-tool { padding:9px 11px; border:1px solid var(--divider); border-radius:8px; background:var(--panel-2); }
+.mcp-detail-tool-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.mcp-detail-tool-head strong { font-size:var(--font-size-small); font-weight:var(--font-weight-semibold); }
+.mcp-detail-tool-head code { color:var(--muted); font-family:var(--font-mono); font-size:var(--font-size-caption); }
+.mcp-detail-tool p { margin:4px 0 0; color:var(--muted); font-size:var(--font-size-caption); line-height:1.5; }
 
 .mcp-enabled-row {
   flex-direction: row;
@@ -6179,10 +6191,6 @@ select.agent-native-select { position:absolute !important; width:1px !important;
 .mcp-server { padding:10px 12px; border-radius:9px; }
 .mcp-server-head { gap:8px; }
 .mcp-server-info strong { line-height:19px; }
-.mcp-tool-details { margin:4px 0 0 16px; font-size: var(--font-size-caption); color:var(--muted); }
-.mcp-tool-details > summary { width:fit-content; cursor:pointer; padding:3px 0; }
-.mcp-tool-chips { margin-top:5px; padding-top:6px; gap:5px; }
-.mcp-tool-chips .plugin-tool-chip { font-size: var(--font-size-caption); padding:3px 6px; }
 #mcpForm { width:480px; padding:20px; border-radius:16px; font-size: var(--font-size-caption); }
 #mcpForm .task-dialog-heading { margin-bottom:12px; }
 #mcpForm .task-dialog-heading h2 { font-size: var(--font-size-heading); }
@@ -6222,7 +6230,7 @@ select.agent-native-select { position:absolute !important; width:1px !important;
 #mcpForm .mcp-access-row .mcp-enabled-row { display:flex; align-items:center; white-space:nowrap; margin:0 12px 0 0; font-size: var(--font-size-caption); }
 #mcpForm .select-control .dropdown-menu { z-index:40; }
 #mcpForm .mcp-rows:empty { display:none; }
-.mcp-tool-details summary:focus-visible, #mcpForm button:focus-visible, #mcpForm summary:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+.mcp-detail-card button:focus-visible, #mcpForm button:focus-visible, #mcpForm summary:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
 /* Dialog chrome stays visible on short windows; scroll only its form fields. */
 #mcpForm { display:flex; flex-direction:column; overflow:hidden; }
 #mcpForm .task-dialog-heading, #mcpForm .modal-actions, #mcpTestResult { flex:0 0 auto; }
@@ -6491,12 +6499,14 @@ html.chat-hidden #app.knowledge-open.panel-open .main,html.chat-hidden #app.know
 #capabilityCenter .plugin-card-desc { margin:0; max-height:36px; overflow:auto; }
 #capabilityCenter .plugin-card-tools { min-height:0; max-height:32px; overflow:auto; }
 #capabilityCenter .task-card-description { height:36px; margin:6px 0; line-height:18px; -webkit-line-clamp:2; }
-#capabilityCenter .mcp-server:has(details[open]) { height:auto; }
+/* 连接器卡片不再内联展开工具清单（点「详情」看弹窗），因此不需要为折叠条预留高度：
+   高度跟随内容，出错时卡片自己长高，不裁掉错误信息。 */
+#capabilityCenter #mcpList > .mcp-server { height:auto; }
 #capabilityCenter .mcp-error { max-height:36px; overflow:auto; }
 #capabilityCenter #taskList > .scheduled-task.task-selected { border-color:#5b8bff; box-shadow:0 0 0 1px #5b8bff; }
 /* Equal heights within each category, sized for that category's content. */
 #capabilityCenter #capSkills { --cap-card-height:96px; }
-#capabilityCenter #capConnectors { --cap-card-height:112px; }
+#capabilityCenter #capConnectors { --cap-card-height:78px; }
 #capabilityCenter #capPlugins { --cap-card-height:144px; }
 #capabilityCenter #taskList { --cap-card-height:144px; }
 

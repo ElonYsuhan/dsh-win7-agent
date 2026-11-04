@@ -4191,6 +4191,11 @@ function handleGlobalKeydown(event) {
       hideCapabilityModal()
       return
     }
+    if (modalVisible('mcpDetailModal')) {
+      event.preventDefault()
+      closeMcpDetail()
+      return
+    }
     return
   }
   if (event.key !== 'Enter' || event.isComposing) return
@@ -4554,6 +4559,7 @@ async function init() {
   byId('clearApprovalAllow').addEventListener('click', clearApprovalAllow)
   document.addEventListener('click', () => closeAllMenus())
   byId('capabilityOk').addEventListener('click', hideCapabilityModal)
+  bindMcpDetailModal()
   byId('capabilitySettings').addEventListener('click', () => {
     hideCapabilityModal()
     openCapabilities('plugins')
@@ -4785,7 +4791,6 @@ let mcpEditingConfig = null
 let mcpTransport = 'stdio'
 let mcpSavePending = false
 let mcpPriorFocus = null
-const mcpExpandedTools = new Set()
 
 function mcpConfigList() {
   const list = state.settings && Array.isArray(state.settings.mcpServers) ? state.settings.mcpServers : []
@@ -4864,29 +4869,102 @@ function renderMcp(data) {
     })
     head.append(dot, info, spacer)
     if (!server.builtin) head.append(edit, remove)
-    head.appendChild(toggle)
+    const detail = document.createElement('button')
+    detail.type = 'button'; detail.className = 'mcp-icon-button'; detail.textContent = '详情'
+    detail.setAttribute('aria-label', '查看连接器详情 ' + (server.name || server.id))
+    detail.addEventListener('click', () => openMcpDetail(server))
+    head.append(detail, toggle)
     card.appendChild(head)
     if (server.error) {
       const error = document.createElement('p'); error.className = 'mcp-error'; error.textContent = formatError(server.error); card.appendChild(error)
     }
-    if (server.tools.length > 0) {
-      const details = document.createElement('details'); details.className = 'mcp-tool-details'
-      details.open = mcpExpandedTools.has(server.id)
-      details.addEventListener('toggle', () => { if (details.open) mcpExpandedTools.add(server.id); else mcpExpandedTools.delete(server.id) })
-      const summary = document.createElement('summary'); summary.textContent = '查看 ' + server.tools.length + ' 个工具'
-      details.appendChild(summary)
-      const chips = document.createElement('div'); chips.className = 'mcp-tool-chips'
-      for (const tool of server.tools.slice(0, 40)) {
-        const chip = document.createElement('span'); chip.className = 'plugin-tool-chip'
-        const titles = { docx_read: '读取 Word', docx_create: '新建 Word', docx_edit: '编辑 Word', xlsx_read: '读取 Excel', xlsx_create: '新建 Excel', xlsx_edit: '编辑 Excel' }
-        chip.textContent = (server.builtin && titles[tool.name] ? titles[tool.name] + ' · ' : '') + tool.name
-        chip.title = (tool.exposedName || tool.name) + (tool.description ? '\n' + tool.description : '')
-        chips.appendChild(chip)
-      }
-      details.appendChild(chips); card.appendChild(details)
-    }
     list.appendChild(card)
   }
+}
+
+/* 连接器详情弹窗：卡片只放概要，工具清单与配置放进弹窗。
+   列表内联展开会把固定高度的卡片撑破（chips 溢出到卡片外），所以统一走弹窗。 */
+const MCP_BUILTIN_TOOL_TITLES = { docx_read: '读取 Word', docx_create: '新建 Word', docx_edit: '编辑 Word', xlsx_read: '读取 Excel', xlsx_create: '新建 Excel', xlsx_edit: '编辑 Excel' }
+let mcpDetailPriorFocus = null
+
+function openMcpDetail(server) {
+  const modal = byId('mcpDetailModal'), body = byId('mcpDetailBody')
+  if (not(modal) || not(body) || not(server)) return
+  const tools = Array.isArray(server.tools) ? server.tools : []
+  byId('mcpDetailTitle').textContent = server.name || server.id || '连接器详情'
+  body.textContent = ''
+  const online = server.status === 'connected' || server.status === 'available'
+  const statusText = online ? (server.builtin ? '离线可用' : '已连接') : server.status === 'error' ? '连接失败' : server.status === 'disabled' ? '已停用' : '未连接'
+  const rows = [
+    ['类型', server.builtin ? '内置服务' : server.transport === 'http' ? 'HTTP 服务' : 'stdio 服务'],
+    ['状态', statusText],
+    ['工具', tools.length + ' 个'],
+    ['标识', String(server.id || '')]
+  ]
+  const info = server.serverInfo ? [server.serverInfo.name, server.serverInfo.version].filter(Boolean).join(' ') : ''
+  if (info) rows.push(['服务端', info])
+  const config = server.config || {}
+  if (!server.builtin) {
+    if (server.transport === 'http') rows.push(['地址', String(config.url || '') || '未填写'])
+    else rows.push(['命令', [config.command].concat(Array.isArray(config.args) ? config.args : []).filter(Boolean).join(' ') || '未填写'])
+    const keys = Object.keys(config.env || {}).concat(Object.keys(config.headers || {}))
+    if (keys.length) rows.push(['凭据', keys.length + ' 项（不在界面显示明文）'])
+  }
+  const meta = document.createElement('dl')
+  meta.className = 'mcp-detail-meta'
+  for (const [label, value] of rows) {
+    const dt = document.createElement('dt'); dt.textContent = label
+    const dd = document.createElement('dd'); dd.textContent = value
+    meta.append(dt, dd)
+  }
+  body.appendChild(meta)
+  if (server.error) {
+    const error = document.createElement('p'); error.className = 'mcp-error'; error.textContent = formatError(server.error); body.appendChild(error)
+  }
+  const heading = document.createElement('p')
+  heading.className = 'mcp-detail-section'
+  heading.textContent = tools.length ? '可用工具 · ' + tools.length : '可用工具'
+  body.appendChild(heading)
+  if (not(tools.length)) {
+    const empty = document.createElement('p'); empty.className = 'muted'
+    empty.textContent = '当前没有暴露工具，先确认连接状态或重新连接后再看。'
+    body.appendChild(empty)
+  } else {
+    const grid = document.createElement('div'); grid.className = 'mcp-detail-tools'
+    for (const tool of tools) {
+      const item = document.createElement('div'); item.className = 'mcp-detail-tool'
+      const line = document.createElement('div'); line.className = 'mcp-detail-tool-head'
+      const label = document.createElement('strong')
+      label.textContent = (server.builtin && MCP_BUILTIN_TOOL_TITLES[tool.name] ? MCP_BUILTIN_TOOL_TITLES[tool.name] + ' · ' : '') + tool.name
+      const code = document.createElement('code'); code.textContent = tool.exposedName || tool.name
+      line.append(label, code); item.appendChild(line)
+      const desc = document.createElement('p'); desc.textContent = tool.description || '未提供说明'
+      item.appendChild(desc)
+      grid.appendChild(item)
+    }
+    body.appendChild(grid)
+  }
+  mcpDetailPriorFocus = document.activeElement
+  modal.classList.remove('hidden')
+  body.scrollTop = 0
+  const ok = byId('mcpDetailOk'); if (ok && typeof ok.focus === 'function') ok.focus()
+}
+
+function closeMcpDetail() {
+  const modal = byId('mcpDetailModal')
+  if (not(modal) || modal.classList.contains('hidden')) return
+  modal.classList.add('hidden')
+  const prior = mcpDetailPriorFocus
+  mcpDetailPriorFocus = null
+  if (prior && prior.isConnected && typeof prior.focus === 'function') prior.focus()
+}
+
+function bindMcpDetailModal() {
+  const modal = byId('mcpDetailModal')
+  if (not(modal)) return
+  byId('mcpDetailOk').addEventListener('click', closeMcpDetail)
+  byId('mcpDetailClose').addEventListener('click', closeMcpDetail)
+  modal.addEventListener('mousedown', (event) => { if (event.target === modal) closeMcpDetail() })
 }
 
 // Repeatable rows keep argv values literal; no whitespace splitting or shell parsing.

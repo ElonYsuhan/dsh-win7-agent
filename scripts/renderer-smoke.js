@@ -3008,6 +3008,20 @@ const checks = `
       && /#capabilityCenter [.]capability-heading [{][^}]*flex-wrap: nowrap/.test(cssSrc)
       && /#capabilityCenter [.]capability-heading #extensionInstallBar [{][^}]*flex: 1 1 auto/.test(cssSrc)
       && /#capabilityCenter [.]capability-heading #extensionInstallBar [.]muted [{][^}]*text-overflow: ellipsis/.test(cssSrc))
+  /* 2026-11-04 用户反馈：连接器卡片下方「查看 N 个工具」内联展开会把固定高度的卡片撑破
+     （工具标签溢出到卡片外），改成点「详情」用弹窗看。 */
+  ok('连接器卡片不再内联展开工具清单（改点「详情」开弹窗）',
+    appSrc.indexOf('mcp-tool-details') === -1
+      && appSrc.indexOf('mcpExpandedTools') === -1
+      && /detail[.]textContent = '详情'/.test(appSrc)
+      && appSrc.indexOf('function openMcpDetail') > 0
+      && htmlSrc.indexOf('id="mcpDetailModal"') > 0
+      && htmlSrc.indexOf('id="mcpDetailBody"') > 0)
+  ok('连接器详情弹窗：卡片高度跟随内容 + 弹窗中间区域自滚动（不整卡滚）',
+    /#capabilityCenter #mcpList > [.]mcp-server [{] height:auto;/.test(cssSrc)
+      && /#mcpDetailModal [.]modal-card [{][^}]*max-height:min[(]720px, calc[(]100vh - 80px[)][)][^}]*overflow:hidden/.test(cssSrc)
+      && /[.]mcp-detail-body [{][^}]*overflow-y:auto/.test(cssSrc)
+      && /[.]mcp-detail-tool [{][^}]*border:1px solid var[(]--divider[)]/.test(cssSrc))
   /* 2026-11-04 用户反馈：工作流卡片删除按钮 hover 一直闪 —— 定时 refresh 无条件重建列表，
      新 DOM 没有 :hover，opacity 反复掉回 0。改成按数据签名重绘 + 删除按钮常显弱化。 */
   ok('工作流列表按数据签名重绘（定时刷新不再重建卡片，hover 不被打断）',
