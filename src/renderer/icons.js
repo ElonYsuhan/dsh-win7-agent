@@ -80,6 +80,20 @@
     return icons[name] || ''
   }
 
+  /* 高频列表（侧边栏项目/会话等）用：SVG 只解析一次，之后 cloneNode。
+     直接 innerHTML 塞字符串每次都要走一遍 HTML 解析，一次重建几百行时是主要开销。 */
+  const iconNodes = Object.create(null)
+  window.iconNode = function (name) {
+    let node = iconNodes[name]
+    if (node === undefined) {
+      const holder = document.createElement('template')
+      holder.innerHTML = (icons[name] || '').trim()
+      node = holder.content && holder.content.firstElementChild ? holder.content.firstElementChild : null
+      iconNodes[name] = node
+    }
+    return node ? node.cloneNode(true) : null
+  }
+
   window.applyIcons = function (root) {
     const scope = root || document
     const nodes = scope.querySelectorAll('[data-icon]')

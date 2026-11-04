@@ -1482,145 +1482,202 @@ async function deleteProject(project) {
   setStatus('\u5de5\u4f5c\u533a\u5df2\u5220\u9664')
 }
 
+/* 侧边栏高频列表（项目/会话）的两处开销，2026-11-04 优化：
+   ① 图标原来每次 innerHTML = SVG 字符串，重建一次要解析上千个 svg；改成缓存节点的 cloneNode；
+   ② 展开/收起原来走 renderWorkspaceList 整列重建（项目 + 会话 + 聊天全删重插，一次 7000+ 节点）；
+      现在只动被点的那一个项目节点。 */
+function setIcon(button, name) {
+  if (not(button)) return
+  const node = window.iconNode ? window.iconNode(name) : null
+  button.textContent = ''
+  /* 拿不到缓存节点（比如 smoke 的精简 DOM 没有 template.content）就退回字符串写法 */
+  if (node) button.appendChild(node)
+  else button.innerHTML = window.renderIcon(name)
+}
+
+function createSessionRow(session) {
+  const item = document.createElement('div')
+  item.className = 'flat-item chat-item' + (session.id === state.currentSessionId ? ' active' : '') + (session.pinned ? ' pinned' : '')
+  item.dataset.sessionId = session.id
+  const title = document.createElement('span')
+  title.className = 'flat-name'
+  title.textContent = session.title || '新会话'
+  title.title = title.textContent
+  const more = document.createElement('button')
+  more.className = 'chat-more'
+  setIcon(more, 'more')
+  more.title = '更多'
+  more.addEventListener('click', (event) => {
+    event.stopPropagation()
+    openSessionMenu(session, event)
+  })
+  if (window.agentUI) item.appendChild(window.agentUI.sessionBadge(session, isSessionRunning(session.id)))
+  item.appendChild(title)
+  item.appendChild(more)
+  item.setAttribute('role', 'button'); item.tabIndex = 0
+  item.addEventListener('keydown', (event) => { if (event.target === item && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(session.id) } })
+  item.addEventListener('click', () => selectSession(session.id))
+  return item
+}
+
+/* 运行状态变化只换徽标：原来这里走 renderWorkspaceList() 整列重建，
+   而 syncRunningState() 每 500ms 一轮，运行中的会话会让侧边栏一直重建
+   （鼠标下的行被换掉、滚动位置被打断，看起来就是卡）。 */
+function syncSessionBadges() {
+  if (not(window.agentUI) || typeof window.agentUI.sessionBadge !== 'function') return
+  const rows = document.querySelectorAll('.flat-item.chat-item')
+  for (const item of rows) {
+    const id = item.dataset ? item.dataset.sessionId : ''
+    if (not(id)) continue
+    const session = findSessionById(id)
+    if (not(session)) continue
+    const next = window.agentUI.sessionBadge(session, isSessionRunning(id))
+    const current = item.querySelector('.session-state')
+    if (current) item.replaceChild(next, current)
+    else item.insertBefore(next, item.firstChild)
+  }
+}
+
+function createProjectSessionList(project) {
+  const sessions = getProjectSessions(project.id)
+  const list = document.createElement('div')
+  list.className = 'project-session-list'
+  if (sessions.length === 0) {
+    const empty = document.createElement('div')
+    empty.className = 'flat-empty session-empty'
+    empty.textContent = '暂无会话'
+    list.appendChild(empty)
+    return list
+  }
+  const frag = document.createDocumentFragment()
+  for (const session of sessions) frag.appendChild(createSessionRow(session))
+  list.appendChild(frag)
+  return list
+}
+
+function findProjectNode(id) {
+  const list = byId('projectList')
+  if (not(list) || not(id)) return null
+  for (const node of list.children) {
+    if (node && node.dataset && node.dataset.projectId === id) return node
+  }
+  return null
+}
+
+/* 只改一个项目节点的展开态：重建它的会话列表，其它项目、聊天列表都不动。 */
+function syncProjectNode(node, project, expanded) {
+  if (not(node)) return
+  const folder = node.querySelector('.project-folder-toggle')
+  if (folder) {
+    setIcon(folder, expanded ? 'folder-open' : 'folder')
+    folder.title = expanded ? '收起会话' : '展开会话'
+    folder.setAttribute('aria-label', folder.title)
+    folder.setAttribute('aria-expanded', String(expanded))
+  }
+  const current = node.querySelector('.project-session-list')
+  if (expanded) {
+    const next = createProjectSessionList(project)
+    if (current) node.replaceChild(next, current)
+    else node.appendChild(next)
+  } else if (current) {
+    current.remove()
+  }
+}
+
+function setProjectExpanded(project, expanded) {
+  if (not(project)) return
+  state.expandedProjects[project.id] = expanded
+  const node = findProjectNode(project.id)
+  if (node) syncProjectNode(node, project, expanded)
+  else renderProjectList()
+}
+
+function createProjectNode(project) {
+  const expanded = state.expandedProjects[project.id] !== false
+  const node = document.createElement('div')
+  node.className = 'project-node'
+  node.dataset.projectId = project.id
+  const row = document.createElement('div')
+  row.className = 'flat-item project-item'
+  const folder = document.createElement('button')
+  folder.className = 'project-folder-toggle'
+  setIcon(folder, expanded ? 'folder-open' : 'folder')
+  folder.title = expanded ? '收起会话' : '展开会话'
+  folder.setAttribute('aria-label', folder.title)
+  folder.setAttribute('aria-expanded', String(expanded))
+  folder.addEventListener('click', (event) => {
+    event.stopPropagation()
+    /* 从 state 读当前值：节点会被局部更新复用，闭包里的 expanded 是渲染时的旧值 */
+    setProjectExpanded(project, state.expandedProjects[project.id] === false)
+  })
+  const name = document.createElement('span')
+  name.className = 'flat-name'
+  name.textContent = project.name || workspaceLabel((project.folders || [])[0])
+  name.title = name.textContent + '\n' + (project.folders || []).join('\n')
+  const add = document.createElement('button')
+  add.className = 'project-add'
+  setIcon(add, 'plus')
+  add.title = '新建会话'
+  add.addEventListener('click', (event) => {
+    event.stopPropagation()
+    const session = createSession(project.id, '新会话', 'project')
+    state.expandedProjects[project.id] = true
+    selectSession(session.id)
+  })
+  const more = document.createElement('button')
+  more.className = 'project-more'
+  setIcon(more, 'more')
+  more.title = '更多'
+  more.addEventListener('click', (event) => {
+    event.stopPropagation()
+    openProjectMenu(project, event)
+  })
+  row.appendChild(folder)
+  row.appendChild(name)
+  row.appendChild(add)
+  row.appendChild(more)
+  row.addEventListener('click', () => {
+    if (state.expandedProjects[project.id] !== false) setProjectExpanded(project, false)
+    else selectProject(project)
+  })
+  node.appendChild(row)
+  if (expanded) node.appendChild(createProjectSessionList(project))
+  return node
+}
+
 function renderProjectList() {
   const list = byId('projectList')
   if (not(list)) return
-  list.textContent = ''
   const settings = state.settings || {}
   const projects = Array.isArray(settings.projects) ? settings.projects : []
+  list.textContent = ''
   if (projects.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'flat-empty'
-    empty.textContent = '\u6682\u65e0\u9879\u76ee'
+    empty.textContent = '暂无项目'
     list.appendChild(empty)
     return
   }
-  for (const project of projects) {
-    const expanded = state.expandedProjects[project.id] !== false
-    const node = document.createElement('div')
-    node.className = 'project-node'
-    const row = document.createElement('div')
-    row.className = 'flat-item project-item'
-    const folder = document.createElement('button')
-    folder.className = 'project-folder-toggle'
-    folder.innerHTML = window.renderIcon(expanded ? 'folder-open' : 'folder')
-    folder.title = expanded ? '\u6536\u8d77\u4f1a\u8bdd' : '\u5c55\u5f00\u4f1a\u8bdd'
-    folder.setAttribute('aria-label', folder.title)
-    folder.setAttribute('aria-expanded', String(expanded))
-    folder.addEventListener('click', (event) => {
-      event.stopPropagation()
-      state.expandedProjects[project.id] = not(expanded)
-      renderWorkspaceList()
-    })
-    const name = document.createElement('span')
-    name.className = 'flat-name'
-    name.textContent = project.name || workspaceLabel((project.folders || [])[0])
-    name.title = name.textContent + '\n' + (project.folders || []).join('\n')
-    const add = document.createElement('button')
-    add.className = 'project-add'
-    add.innerHTML = window.renderIcon('plus')
-    add.title = '\u65b0\u5efa\u4f1a\u8bdd'
-    add.addEventListener('click', (event) => {
-      event.stopPropagation()
-      const session = createSession(project.id, '\u65b0\u4f1a\u8bdd', 'project')
-      state.expandedProjects[project.id] = true
-      selectSession(session.id)
-    })
-    const more = document.createElement('button')
-    more.className = 'project-more'
-    more.innerHTML = window.renderIcon('more')
-    more.title = '\u66f4\u591a'
-    more.addEventListener('click', (event) => {
-      event.stopPropagation()
-      openProjectMenu(project, event)
-    })
-    row.appendChild(folder)
-    row.appendChild(name)
-    row.appendChild(add)
-    row.appendChild(more)
-    row.addEventListener('click', () => {
-      if (state.expandedProjects[project.id] !== false) {
-        state.expandedProjects[project.id] = false
-        renderWorkspaceList()
-      } else {
-        selectProject(project)
-      }
-    })
-    node.appendChild(row)
-    if (expanded) {
-      const sessions = getProjectSessions(project.id)
-      const sessionList = document.createElement('div')
-      sessionList.className = 'project-session-list'
-      if (sessions.length === 0) {
-        const empty = document.createElement('div')
-        empty.className = 'flat-empty session-empty'
-        empty.textContent = '\u6682\u65e0\u4f1a\u8bdd'
-        sessionList.appendChild(empty)
-      }
-      for (const session of sessions) {
-        const item = document.createElement('div')
-        item.className = 'flat-item chat-item' + (session.id === state.currentSessionId ? ' active' : '')
-        const title = document.createElement('span')
-        title.className = 'flat-name'
-        title.textContent = session.title || '\u65b0\u4f1a\u8bdd'
-        title.title = title.textContent
-        const more = document.createElement('button')
-        more.className = 'chat-more'
-        more.innerHTML = window.renderIcon('more')
-        more.title = '\u66f4\u591a'
-        more.addEventListener('click', (event) => {
-          event.stopPropagation()
-          openSessionMenu(session, event)
-        })
-        if (window.agentUI) item.appendChild(window.agentUI.sessionBadge(session, isSessionRunning(session.id)))
-        item.appendChild(title)
-        item.appendChild(more)
-        item.setAttribute('role', 'button'); item.tabIndex = 0; item.classList.toggle('pinned', Boolean(session.pinned))
-        item.addEventListener('keydown', (event) => { if (event.target === item && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(session.id) } })
-        item.addEventListener('click', () => selectSession(session.id))
-        sessionList.appendChild(item)
-      }
-      node.appendChild(sessionList)
-    }
-    list.appendChild(node)
-  }
+  const frag = document.createDocumentFragment()
+  for (const project of projects) frag.appendChild(createProjectNode(project))
+  list.appendChild(frag)
 }
 
 function renderChatList() {
   const list = byId('chatList')
   if (not(list)) return
-  list.textContent = ''
   const sessions = getRecentSessions()
+  list.textContent = ''
   if (sessions.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'flat-empty'
-    empty.textContent = '\u6682\u65e0\u4f1a\u8bdd'
+    empty.textContent = '暂无会话'
     list.appendChild(empty)
     return
   }
-  for (const session of sessions) {
-    const row = document.createElement('div')
-    row.className = 'flat-item chat-item' + (session.id === state.currentSessionId ? ' active' : '')
-    const title = document.createElement('span')
-    title.className = 'flat-name'
-    title.textContent = session.title || '\u65b0\u4f1a\u8bdd'
-    title.title = title.textContent
-    const more = document.createElement('button')
-    more.className = 'chat-more'
-    more.innerHTML = window.renderIcon('more')
-    more.title = '\u66f4\u591a'
-    more.addEventListener('click', (event) => {
-      event.stopPropagation()
-      openSessionMenu(session, event)
-    })
-    if (window.agentUI) row.appendChild(window.agentUI.sessionBadge(session, isSessionRunning(session.id)))
-    row.appendChild(title)
-    row.appendChild(more)
-    row.setAttribute('role', 'button'); row.tabIndex = 0; row.classList.toggle('pinned', Boolean(session.pinned))
-    row.addEventListener('keydown', (event) => { if (event.target === row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(session.id) } })
-    row.addEventListener('click', () => selectSession(session.id))
-    list.appendChild(row)
-  }
+  const frag = document.createDocumentFragment()
+  for (const session of sessions) frag.appendChild(createSessionRow(session))
+  list.appendChild(frag)
 }
 
 function syncFilePanelContext() {
@@ -3268,7 +3325,7 @@ async function syncRunningState() {
     if (byId('statusLine') && byId('statusLine').getAttribute('data-connection') === 'error') setStatus('ready')
     const previousRuns = JSON.stringify(state.runs)
     applyRuns(next.runningSessions, next.running)
-    if (JSON.stringify(state.runs) !== previousRuns) renderWorkspaceList()
+    if (JSON.stringify(state.runs) !== previousRuns) syncSessionBadges()
     applyRunState()
     return currentRunning()
   } catch (error) {

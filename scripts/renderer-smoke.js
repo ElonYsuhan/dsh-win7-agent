@@ -167,7 +167,27 @@ function makeEl(tag) {
         else this.remove(name)
       }
     },
-    appendChild(child) { this.children.push(child); this.childNodes.push(child); child.parentNode = this; return child },
+    appendChild(child) {
+      /* DocumentFragment 在这里是带 _fragment 标记的容器：append 时把它的孩子搬过来。
+         侧边栏列表改成 fragment 批量插入后，不补这条会报「节点数翻倍」的假红。 */
+      if (child && child._fragment) {
+        const kids = child.children.slice()
+        child.children = []
+        child.childNodes = []
+        for (const kid of kids) { this.children.push(kid); this.childNodes.push(kid); kid.parentNode = this }
+        return child
+      }
+      this.children.push(child); this.childNodes.push(child); child.parentNode = this; return child
+    },
+    replaceChild(next, old) {
+      const index = this.children.indexOf(old)
+      if (index === -1) { this.appendChild(next); return old }
+      this.children[index] = next
+      const nodeIndex = this.childNodes.indexOf(old)
+      if (nodeIndex !== -1) this.childNodes[nodeIndex] = next
+      next.parentNode = this
+      return old
+    },
     removeChild(child) {
       this.children = this.children.filter((c) => c !== child)
       this.childNodes = this.childNodes.filter((c) => c !== child)
@@ -274,6 +294,7 @@ const documentStub = {
   body: makeEl('body'),
   getElementById: (id) => getEl(id),
   createElement: (tag) => makeEl(tag),
+  createDocumentFragment: () => { const frag = makeEl('#fragment'); frag._fragment = true; return frag },
   createTextNode: (t) => ({ nodeValue: t }),
   _listeners: {},
   addEventListener(type, handler) {
@@ -3053,6 +3074,25 @@ const checks = `
       && navBlock.indexOf('background: rgba(91, 139, 255, .24)') > 0)
 })().then(() => { harnessDone() }).catch((e) => { harnessError(e) })
 `
+
+/* 2026-11-04 用户反馈：项目展开/关门有性能问题、卡顿。
+   根因一：点一次文件夹图标就 renderWorkspaceList() 整列重建（项目 + 会话 + 聊天全删重插）；
+   根因二：每个图标都 innerHTML = SVG 字符串，重建一次解析上千个 svg；
+   根因三：syncRunningState() 每 500ms 比对运行状态，变了就整列重建（运行中一直重建）。 */
+ok('项目展开/收起只重绘被点的那一个节点（不再整列重建）',
+  appSrc.indexOf('function setProjectExpanded') > 0
+    && appSrc.indexOf('function syncProjectNode') > 0
+    && appSrc.indexOf('setProjectExpanded(project, state.expandedProjects[project.id] === false)') > 0
+    && appSrc.indexOf('state.expandedProjects[project.id] = false') === -1)
+ok('侧边栏图标走缓存节点 clone（不再每次 innerHTML 解析 SVG）',
+  iconsSrc.indexOf('window.iconNode') > 0
+    && /cloneNode[(]true[)]/.test(iconsSrc)
+    && appSrc.indexOf('function setIcon') > 0
+    && /setIcon[(]folder, expanded [?] 'folder-open' : 'folder'[)]/.test(appSrc))
+ok('运行状态变化只换会话徽标（不再整列重建侧边栏）',
+  appSrc.indexOf('function syncSessionBadges') > 0
+    && /if [(]JSON[.]stringify[(]state[.]runs[)] !== previousRuns[)] syncSessionBadges[(][)]/.test(appSrc)
+    && /if [(]JSON[.]stringify[(]state[.]runs[)] !== previousRuns[)] renderWorkspaceList[(][)]/.test(appSrc) === false)
 
 sandbox.harnessDone = () => {
   let failed = 0
