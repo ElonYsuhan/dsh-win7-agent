@@ -2996,6 +2996,16 @@ const checks = `
   ok('三页内容区左右留白对各段一致（页头与列表同宽，不错位）',
     /#capabilityCenter > [*],[^}]*width: 100%/.test(cssSrc)
       && !/max-width: 960px; margin-left: auto/.test(cssSrc))
+  /* 2026-11-04 用户反馈：能力中心页头删掉副标题，「安装离线扩展包」整条挪到标题后面。 */
+  const capHeadAt = htmlSrc.indexOf('id="capabilityTitle"')
+  const capHeadHtml = capHeadAt < 0 ? '' : htmlSrc.slice(capHeadAt, capHeadAt + 260)
+  ok('能力中心页头删掉副标题（管理系统技能库… 不再出现）',
+    capHeadHtml !== '' && htmlSrc.indexOf('管理系统技能库') === -1)
+  ok('安装离线扩展包整条挂在页头里、紧跟标题，返回聊天仍在同一行最右',
+    capHeadHtml.indexOf('id="extensionInstallBar"') > 0
+      && /#capabilityCenter [.]capability-heading [{][^}]*flex-wrap: nowrap/.test(cssSrc)
+      && /#capabilityCenter [.]capability-heading #extensionInstallBar [{][^}]*flex: 1 1 auto/.test(cssSrc)
+      && /#capabilityCenter [.]capability-heading #extensionInstallBar [.]muted [{][^}]*text-overflow: ellipsis/.test(cssSrc))
 })().then(() => { harnessDone() }).catch((e) => { harnessError(e) })
 `
 

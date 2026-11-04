@@ -58,8 +58,13 @@
 
 ## 已知既有红（复现过，别重复查）
 - `check:drag` 675/677；`workflow-canvas-e2e-smoke` 本机必红（wrap 路由 / serpentine 那几条，HEAD 基线同红）。
-- update-takeover（macOS 探针失败）、document-mcp（reading 'result' of undefined）、theme-smoke 74/75
+- `knowledge-e2e-smoke` 既有红：`内存验收` 循环 `.knowledge-project-folder summary` click null
+  （2026-11-03 用 stash 基线复跑确认，死点前的断言都能跑过）；update-takeover（macOS 探针失败）、
+  document-mcp（reading 'result' of undefined）、theme-smoke 74/75
   （renderer 报 unsafe-eval，CSP 只有 script-src self）。
+- 知识库文档行**不再显示解析提示**：parser-worker 的 notice 会被 service 写进 jobs.error（成功也写），
+  渲染层只对 `phase!=='ready'` 的文档画 error；改提示文案要去 `parser-worker.js`，别在渲染层找。
+  文档行标题单行省略（nowrap+ellipsis），解析中 phase 标签保留。
 - 会话存储服务端优先（`/api/ui-store`），造种子必须写服务端；浏览器 e2e 的 `driver.launch` 必须带 noSandbox。
 
 ## 工作流
@@ -118,6 +123,15 @@
   验收 `typography-smoke` + `npm run check:typography:browser`，细节见 `docs/TYPOGRAPHY.md`。
 
 ## 样式纪律（都踩过）
+- **三个内容页（知识库 / 能力中心 / 工作流）共用一套外壳变量**：style.css 末尾「统一版心」块里的
+  `--page-gutter`(clamp(20,4vw,56)) / `--page-max`(**none = 铺满**，2026-11-04 用户要求，别再封 1200) /
+  `--card-bg` / `--card-border` / `--card-radius`(10) / `--card-pad`(14 16)；
+  新增此类页面一律用这套变量，别再单独写 padding/卡片样式。
+  浅色卡片必须走 `[data-theme=light] …{--card-bg:#f5f5f4;--card-border:#e1e1df}` 特判（`--panel` 在浅色
+  等于纯白，会和白底融掉）；工作流卡要 `#workflowPage .workflow-card` 才压得过 `[data-theme=light] .workflow-card`。
+  版心规则会给直接子块加 `width:100%`，行内小按钮（如 `#knowledgeOverview`）要单独复位 `width:auto`。
+  **页头的 `margin: 0 0 16px` 会冲掉版心的 `margin:auto`** → 一旦给内容设了 max-width，页头贴左、
+  列表居中，错位一截；所以宽度必须靠 `width:100%` 铺满，别用居中封顶。
 - 同一批选择器被写进多处时**最后写入的赢** → 在文件末尾放明确归属的收口块并写注释。
 - 末尾收口块会反过来压掉前面的 `@media`（同特异性）；隐藏类规则用 `#app` 前缀提特异性，别靠顺序。
 - 图标尺寸真源是 style.css 的全局表（`button .icon svg` = 20px，特异性 0,2,1）；单独改要带前缀。
@@ -142,6 +156,17 @@
   不透明（同色不透明≠色块，但仍要同步 `[data-theme=light]` 那条 0,2,0 规则）。
 - 流程 Ribbon（`workflow-ribbon.css`）：顶部条高度锁 69px + 隐藏 `#workflowNodeTypes` 横向滚动条
   （溢出时原生滚动条占 17px，会把条从 69 撑到 86、画布跟着下跳）；分组竖线用 `--divider`。
+- 知识库面板「面板内按钮」（返回聊天 `#knowledgeClose`、添加资料/文件夹 `#knowledgeImport`/
+  `#knowledgeImportFolder`）一律 `background:var(--panel-2)` + `border:1px solid var(--divider)` +
+  显式 `color:var(--text)`；别用 `--panel`/`--border`（浅色档 `--panel=#fff`/`--border=#eee`
+  会融成白底裸字近隐形，深色档 `--border=#303030` 画在同值 `--panel-2` 上也等于无边界）。
+  详情网格左栏 `grid-template-columns` 用 `300px`（窄屏 `210px`），别低于 260px。
+- 知识库左栏宽度可拖拽：`#knowledgeListResize`（8px 竖条，`left:calc(var(--knowledge-list-width,300px) - 4px)`）
+  改写 CSS 变量驱动 grid 首列，拖拽夹 220~520、松手写 `localStorage['dsh-knowledge-list-width']`、
+  双击回 300；rAF 节流照 panel.js `bindColResize`（那个 helper 是 IIFE 私有不导出，跨模块要自己抄小份）。
+  测它用合成 MouseEvent 必须**拆三步**（down+move → sleep 等 rAF → up），同步连发读不到 flush 后宽度；
+  真窗口探针等 `openLibrary` 出现后还要 `sleep(500)` 再点（监听器挂 init 后半段，立刻点= no-op，
+  现象是停在聊天页、pane 宽 0）。
 
 ## 其他
 - md-skills（65 个）在 `src/main/agent/md-skills/`，系统提示只放 id + 90 字简介。

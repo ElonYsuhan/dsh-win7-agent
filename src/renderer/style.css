@@ -7580,6 +7580,27 @@ body.resizing-knowledge-list #knowledgeListResize::after {
 #capabilityCenter .capability-heading p,
 .knowledge-page .knowledge-heading p,
 .workflow-page .workflow-header p { margin: 6px 0 0; color: var(--muted); font-size: var(--font-size-small); line-height: 1.5; }
+/* 2026-11-04 能力中心页头：去掉副标题，把「安装离线扩展包」整条从标题下方挪到标题后面一行
+   （返回聊天仍在最右）。整条含说明文字，窄窗口由 flex-wrap 自动折行。 */
+#capabilityCenter .capability-heading { flex-wrap: nowrap; }
+#capabilityCenter .capability-heading > h1 { flex: 0 0 auto; }
+#capabilityCenter .capability-heading #extensionInstallBar {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  flex-wrap: nowrap;
+}
+#capabilityCenter .capability-heading #extensionInstallBar .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 极窄窗口才允许折行（否则会把说明文字压得过短） */
+@media (max-width: 760px) {
+  #capabilityCenter .capability-heading { flex-wrap: wrap; }
+}
 #knowledgeClose,
 #closeCapabilities,
 #workflowClose {
