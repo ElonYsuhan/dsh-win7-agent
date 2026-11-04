@@ -2103,6 +2103,7 @@ function messagesContent() {
 
 function clearMessages() {
   renderedConversation = null
+  emptyClearedFor = null
   const container = messagesContent()
   const plan = byId('taskPlan')
   if (plan && plan.parentNode === container) byId('messages').insertBefore(plan, byId('runStatus'))
@@ -2247,9 +2248,17 @@ function syncAssistantImages(body) {
   }
 }
 
+/* 空态占位只需要在「本次渲染的第一条气泡」时清一次。原先每条气泡都 querySelector 一遍，
+   几百条消息的会话是 O(n²) 地扫同一棵越来越大的子树（切老会话时肉眼可见的顿一下）。
+   用 var 而不是 let：clearMessages() 定义在上面，首屏渲染可能在声明语句执行前就调到它。 */
+var emptyClearedFor = null
 function addBubble(role, text, options) {
   const messages = messagesContent()
-  const empty = messages.querySelector('.chat-empty'); if (empty) empty.remove()
+  if (emptyClearedFor !== messages) {
+    const empty = messages.querySelector('.chat-empty')
+    if (empty) empty.remove()
+    emptyClearedFor = messages
+  }
   const wrapper = document.createElement('div')
   wrapper.className = 'bubble ' + role
   const label = document.createElement('div')
