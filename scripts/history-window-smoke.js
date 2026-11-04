@@ -185,6 +185,7 @@ async function main() {
     const shot1 = await driver.screenshot().catch(() => '')
     if (shot1) fs.writeFileSync(path.join(OUT, 'history-window-first.png'), Buffer.from(shot1, 'base64'))
 
+
     /* 当前会话总消息数：直接从页面里的状态读，用来核对最后是否补完 */
     const total = (target.messages || []).length
 
