@@ -1533,8 +1533,25 @@ function syncSessionBadges() {
     if (not(session)) continue
     const next = window.agentUI.sessionBadge(session, isSessionRunning(id))
     const current = item.querySelector('.session-state')
-    if (current) item.replaceChild(next, current)
-    else item.insertBefore(next, item.firstChild)
+    if (current) {
+      /* 状态没变就别换节点：syncRunningState 每 500ms 一轮，无条件 replaceChild 会让
+         侧边栏持续做样式重算，滚动或点开列表时看着就是"一直有点卡"。 */
+      if (current.className === next.className && current.textContent === next.textContent) continue
+      item.replaceChild(next, current)
+    } else item.insertBefore(next, item.firstChild)
+  }
+}
+
+/* 会话行的内容签名：只有「有哪些会话 / 标题 / 置顶」变了才需要重建 DOM。
+   收起时不再销毁列表（见 syncProjectNode），所以展开要先比一下数据有没有过期。 */
+function projectSessionsKey(sessions) {
+  return (sessions || []).map((session) => session.id + ':' + (session.title || '') + (session.pinned ? '*' : '')).join('|')
+}
+
+function syncActiveSessionRow() {
+  for (const item of document.querySelectorAll('.sidebar .chat-item')) {
+    if (not(item.dataset) || not(item.dataset.sessionId)) continue
+    item.classList.toggle('active', item.dataset.sessionId === state.currentSessionId)
   }
 }
 
@@ -1542,6 +1559,7 @@ function createProjectSessionList(project) {
   const sessions = getProjectSessions(project.id)
   const list = document.createElement('div')
   list.className = 'project-session-list'
+  list.dataset.sessionsKey = projectSessionsKey(sessions)
   if (sessions.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'flat-empty session-empty'
@@ -1564,7 +1582,9 @@ function findProjectNode(id) {
   return null
 }
 
-/* 只改一个项目节点的展开态：重建它的会话列表，其它项目、聊天列表都不动。 */
+/* 只改一个项目节点的展开态：重建它的会话列表，其它项目、聊天列表都不动。
+   收起不销毁列表，只把 .is-collapsed 挂上（display:none）—— 再次展开时如果会话数据没变
+   就直接显示，省掉整列重新创建 + 图标重新克隆；顺带保住滚动位置。 */
 function syncProjectNode(node, project, expanded) {
   if (not(node)) return
   const folder = node.querySelector('.project-folder-toggle')
@@ -1576,11 +1596,16 @@ function syncProjectNode(node, project, expanded) {
   }
   const current = node.querySelector('.project-session-list')
   if (expanded) {
-    const next = createProjectSessionList(project)
-    if (current) node.replaceChild(next, current)
-    else node.appendChild(next)
+    if (current && current.dataset && current.dataset.sessionsKey === projectSessionsKey(getProjectSessions(project.id))) {
+      current.classList.remove('is-collapsed')
+    } else {
+      const next = createProjectSessionList(project)
+      if (current) node.replaceChild(next, current)
+      else node.appendChild(next)
+    }
+    syncActiveSessionRow()
   } else if (current) {
-    current.remove()
+    current.classList.add('is-collapsed')
   }
 }
 
@@ -1637,8 +1662,13 @@ function createProjectNode(project) {
   row.appendChild(add)
   row.appendChild(more)
   row.addEventListener('click', () => {
-    if (state.expandedProjects[project.id] !== false) setProjectExpanded(project, false)
-    else selectProject(project)
+    /* 点行只当「展开 / 收起」开关，不再顺手切工作区。
+       原来收起态点行走 selectProject：saveSettings + refreshState + 切到该项目最近会话 +
+       重画整段历史。真机实测一次 197ms，其中 186ms 是单条长任务（渲染 294 条消息的
+       Markdown），点一下项目就肉眼可见地顿住 —— 用户反馈的「展开关闭卡顿」就是它。
+       要切到某个项目，点它下面的会话就行（selectSession 会连带切项目），
+       或者点「+」新建该项目的会话。 */
+    setProjectExpanded(project, state.expandedProjects[project.id] === false)
   })
   node.appendChild(row)
   if (expanded) node.appendChild(createProjectSessionList(project))
@@ -4185,12 +4215,23 @@ function renderDirBrowser(data) {
 
 async function selectProject(project) {
   if (not(project) || not(Array.isArray(project.folders)) || project.folders.length === 0) return
+  /* 先把「展开 + 当前项目」落到本地并把列表画出来，再走 IPC。
+     原来这一段排在 saveSettings / refreshState 之后：点一下要等一次 HTTP 往返 + 状态回读
+     才看到会话列表展开（实测 200ms 上下，网络或主进程忙时更久），手一按就像卡住了。
+     saveSettings 的返回值仍然覆盖 state.settings，状态最终以服务端为准。 */
+  state.expandedProjects[project.id] = true
+  state.activeProjectId = project.id
+  const node = findProjectNode(project.id)
+  if (node) {
+    if (not(node.querySelector('.project-session-list'))) syncProjectNode(node, project, true)
+  } else {
+    renderProjectList()
+  }
+  renderWindowTitle()
   state.settings = await window.dsh.saveSettings({
     currentProjectId: project.id,
     workspacePath: project.folders[0]
   })
-  state.expandedProjects[project.id] = true
-  state.activeProjectId = project.id
   const session = ensureProjectSession(project.id)
   await refreshState()
   if (session) {

@@ -7691,3 +7691,8 @@ body.resizing-knowledge-list #knowledgeListResize::after {
 @media (max-width: 900px) {
   #capabilityCenter, .knowledge-page, .workflow-page { --page-gutter: 16px; padding-top: 20px; }
 }
+
+/* 侧边栏项目会话列表：收起时只隐藏、不销毁 DOM（展开复用时免去重建整列 + 图标克隆）。
+   放在文件末尾用 `.project-session-list.is-collapsed`（0,2,0）压过前面的
+   `.sidebar .project-session-list { display: flex }`（同为 0,2,0，后写赢）。 */
+.project-session-list.is-collapsed { display: none; }

@@ -114,10 +114,14 @@ class PluginHost {
   configure() {
     return this.enqueue(async () => {
       const disabled = this.disabledPlugins()
+      /* 没有插件的启停状态变化就不做 settle：settle 会 await 整棵 fiber 树，
+         实测空转一次约 200ms（原来每次 POST /api/settings 都白付这笔钱）。 */
+      let changed = false
       for (const [name, record] of this.plugins) {
         if (record.core) continue
         const next = disabled.includes(name)
         if (next === record.disabled) continue
+        changed = true
         if (next) {
           record.tools = this.tools.list().filter((tool) => tool.plugin === name)
           await record.fiber.dispose()
@@ -127,7 +131,7 @@ class PluginHost {
           record.disabled = false
         }
       }
-      await this.settle()
+      if (changed) await this.settle()
     })
   }
 

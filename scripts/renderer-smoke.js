@@ -3094,6 +3094,29 @@ ok('运行状态变化只换会话徽标（不再整列重建侧边栏）',
     && /if [(]JSON[.]stringify[(]state[.]runs[)] !== previousRuns[)] syncSessionBadges[(][)]/.test(appSrc)
     && /if [(]JSON[.]stringify[(]state[.]runs[)] !== previousRuns[)] renderWorkspaceList[(][)]/.test(appSrc) === false)
 
+/* 2026-11-04 第二轮：用户说「还是有点卡」。profile 出来三笔账：
+   ① 点项目行（收起态）会走 selectProject，切到该项目最近会话并重画整段历史 —— 197ms 里
+      186ms 是单条长任务（294 条消息的 Markdown）；② 收起项目会 remove 整列会话 DOM，
+      再展开全部重建；③ 服务端每次保存设置都 pluginHost.configure() + settle 整棵 fiber 树（~200ms）。
+   下面四条守住这三处。 */
+const rowClickAt = appSrc.indexOf("row.addEventListener('click'")
+const rowClickBlock = rowClickAt >= 0 ? appSrc.slice(rowClickAt, rowClickAt + 900) : ''
+ok('点项目行只切换展开态，不再顺手切项目（切项目会重画整段历史）',
+  rowClickBlock.indexOf('setProjectExpanded(project, state.expandedProjects[project.id] === false)') > 0
+    && appSrc.indexOf('else selectProject(project)') === -1)
+ok('项目收起只隐藏会话列表（.is-collapsed），展开时数据没变就复用原节点',
+  appSrc.indexOf("current.classList.add('is-collapsed')") > 0
+    && appSrc.indexOf("current.classList.remove('is-collapsed')") > 0
+    && appSrc.indexOf('current.dataset.sessionsKey === projectSessionsKey') > 0
+    && /[.]project-session-list[.]is-collapsed [{] display: none; [}]/.test(cssSrc))
+ok('徽标刷新先比内容，状态没变不替换节点（500ms 一轮不再白换 DOM）',
+  /if [(]current[.]className === next[.]className && current[.]textContent === next[.]textContent[)] continue/.test(appSrc))
+const pluginHostSrc = fs.readFileSync(path.join(ROOT, 'src', 'main', 'plugins', 'plugin-host.js'), 'utf8')
+ok('保存设置只在插件字段变化时才重配插件（POST /api/settings 237ms → 3ms）',
+  /if [(]has[(]'disabledPlugins'[)][)] await pluginHost[.]configure[(][)]/.test(serverSrc)
+    && /if [(]has[(]'workspacePath'[)] && next[.]workspacePath[)]/.test(serverSrc)
+    && /if [(]changed[)] await this[.]settle[(][)]/.test(pluginHostSrc))
+
 sandbox.harnessDone = () => {
   let failed = 0
   for (const r of results) {

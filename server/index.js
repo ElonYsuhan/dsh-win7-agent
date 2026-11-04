@@ -349,12 +349,18 @@ async function handleApi(request, response, url) {
   }
   if (url.pathname === '/api/settings' && request.method === 'POST') {
     const body = await readBody(request)
+    const has = (key) => Object.prototype.hasOwnProperty.call(body || {}, key)
     const next = settingsStore.update(body)
-    await pluginHost.configure()
-    if (Object.prototype.hasOwnProperty.call(body || {}, 'mcpServers') || Object.prototype.hasOwnProperty.call(body || {}, 'disabledBuiltinMcp')) {
+    /* 只有插件启停相关字段才需要重配插件。原来每次保存（包括只改 currentProjectId / theme /
+       模型参数）都会 await pluginHost.configure()，而它内部还要 settle 整棵 fiber 树，
+       实测一次 POST 从 ~10ms 涨到 ~200ms；侧边栏点项目展开走的就是这条链路，手一按就等两百毫秒。 */
+    if (has('disabledPlugins')) await pluginHost.configure()
+    if (has('mcpServers') || has('disabledBuiltinMcp')) {
+      if (!has('disabledPlugins')) await pluginHost.configure()
       try { await pluginHost.get('mcp').reload() } catch (error) { console.error('[mcp] reload failed:', error.message) }
     }
-    if (next.workspacePath) {
+    /* setWorkspace 内部还会再 settings.update 一次（多写一遍盘），所以只在真改了工作区时调。 */
+    if (has('workspacePath') && next.workspacePath) {
       pool.setWorkspace(next.workspacePath)
     }
     json(response, 200, next)
