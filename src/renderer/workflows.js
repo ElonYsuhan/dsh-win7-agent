@@ -26,6 +26,8 @@
   output:'将上游汇聚的文本保存为本次执行的产物文件（可留空节点内容）。'
  }
  let data={workflows:[],runs:[],nodes:FALLBACK_NODES.slice()},mode='flows',filter='',activeRun='',editing=null,graph=null,canvas=null,selectedNode=null,refreshing=false,refreshAgain=false,detailSignature='',disposed=false,dirty=false,runSelection='',runDetail=null,pinnedSelection=false,canvasMode='select'
+ /* 列表重绘签名：定时刷新只有数据变化时才重建 DOM，否则会打断 hover/focus 并造成闪烁 */
+ let flowsRenderKey='',runsRenderKey=''
  const taskForms=new Map()
  const humanModes=n=>Array.isArray(n.humanModes)?n.humanModes:[n.humanKind||'review']
  // 旧节点没有 interaction 时，按已有处理方式归纳成三种预设之一，不再保留「保留原有组合配置」。
@@ -220,9 +222,17 @@ function drawNodeCard(n,ctx,size,selected,hovered){
    return {flow,instances,latest,waiting,rank,at:latest&&latest.createdAt||0}
   }).sort((a,b)=>a.rank-b.rank||b.at-a.at||a.flow.name.localeCompare(b.flow.name,'zh'))
  }
- function renderFlows(){
-  const list=$('workflowCards');list.textContent=''
+ function renderFlows(force){
+  const list=$('workflowCards')
   const query=$('workflowSearch').value.trim().toLowerCase()
+  /* 2026-11-04 用户反馈「鼠标悬停在删除按钮上一直闪烁」：refresh 每 1.5s 跑一次，
+     原来无条件重建整列卡片 → 新 DOM 没有 :hover，删除按钮的 opacity 掉回 0，
+     鼠标不动也一秒闪一次。只有数据真的变了才重绘（force 用于宽度/视图切换）。 */
+  const key=query+'\u0000'+data.workflows.map(f=>[f.id,f.name,f.revision].join(':')).join(',')
+   +'\u0000'+data.runs.map(r=>[r.id,r.workflowId,r.status,r.completed,r.stepCount,r.currentStep||''].join(':')).join(',')
+  if(!force&&key===flowsRenderKey&&list.children.length)return
+  flowsRenderKey=key
+  list.textContent=''
   for(const {flow,instances,latest,waiting} of flowCardEntries(query)){
    const active=instances.some(run=>['pending','queued','running','waiting','paused'].includes(run.status))
    const card=node('article',undefined,'workflow-card')
@@ -247,7 +257,7 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   }
   if(!list.children.length)list.append(node('p',query?'没有匹配的流程':'还没有流程，点击右上角“＋ 新建流程”开始。','muted'))
  }
- function renderRuns(){
+ function renderRuns(force){
   stopAll.disabled=stoppingAll||!data.runs.some(run=>(!filter||run.workflowId===filter)&&stoppable(run))
   const list=$('workflowInstances'),categories=new Map(),category=$('workflowRunCategory'),status=$('workflowRunStatus').value
   for(const run of data.runs){const group=categories.get(run.workflowId)||{name:(data.workflows.find(w=>w.id===run.workflowId)||run).name,runs:[]};group.runs.push(run);categories.set(run.workflowId,group)}
@@ -255,6 +265,10 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   if(category.dataset.options!==options){category.textContent='';category.append(new Option('全部流程 · '+data.runs.length,''));for(const [id,group] of categories)category.append(new Option(group.name+' · '+group.runs.length,id));category.dataset.options=options}
   category.value=filter
   const query=$('workflowSearch').value.trim().toLowerCase()
+  /* 同上：实例列表同样按签名重绘，避免每 1.5s 重建行、打断 hover 与按钮状态 */
+  const runKey=filter+'\u0000'+status+'\u0000'+query+'\u0000'+data.runs.map(r=>[r.id,r.status,r.completed,r.stepCount,r.currentStep||'',r.artifactCount||0,r.deliveryCount||0].join(':')).join(',')
+  if(!force&&runKey===runsRenderKey&&list.children.length)return
+  runsRenderKey=runKey
   let shown=0,groups=0
   list.textContent=''
   for(const [id,group] of categories){
@@ -1322,7 +1336,7 @@ function edit(flow){
  if(typeof ResizeObserver==='function'){
   const scroll=$('workflowCards').closest('.workflow-scroll')
   let cardWidth=scroll?scroll.clientWidth:0
-  const observer=new ResizeObserver(()=>{const width=scroll?scroll.clientWidth:0;if(!width||Math.abs(width-cardWidth)<8)return;cardWidth=width;if(mode==='flows'&&!disposed)requestAnimationFrame(()=>{if(mode==='flows'&&!disposed)renderFlows()})})
+  const observer=new ResizeObserver(()=>{const width=scroll?scroll.clientWidth:0;if(!width||Math.abs(width-cardWidth)<8)return;cardWidth=width;if(mode==='flows'&&!disposed)requestAnimationFrame(()=>{if(mode==='flows'&&!disposed)renderFlows(true)})})
   if(scroll)observer.observe(scroll)
  }
  window.addEventListener('beforeunload',()=>{executionMapCleanup();disposed=true;clearInterval(timer);if(canvasSizeObserver)canvasSizeObserver.disconnect();if(canvasResizeFrame)cancelAnimationFrame(canvasResizeFrame);if(canvas)canvas.dispose()})

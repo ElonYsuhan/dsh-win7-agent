@@ -100,6 +100,13 @@
     })
     return b
   }
+  /* 卡片操作按钮：与工作流卡片同一套扁平按钮（32px、圆角 8、1px 描边、图标 + 文字） */
+  function cardAction(text, iconName, fn, key) {
+    const b = action(text, fn, key); b.className = 'knowledge-card-action'
+    const glyph = el('span', undefined, 'icon'); glyph.setAttribute('aria-hidden', 'true'); glyph.innerHTML = window.renderIcon(iconName)
+    b.prepend(glyph)
+    return b
+  }
   function clearResults() { sourceToken++; searchToken++; $('knowledgeResults').textContent = ''; $('knowledgeSource').classList.remove('hidden'); $('knowledgeSource').textContent = ''; $('knowledgeSource').append(emptyState('选择左侧文件以预览资料')); $('knowledgeSearch').disabled = false }
   function choose(id) { detail = true; selected = id; previewId = ''; fileMatches = null; $('knowledgeFileQuery').value = ''; fileSearchToken++; clearResults(); render(); if ($('knowledgeQuery').value.trim()) search() }
   function hide() {  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=null}; sourceToken++; searchToken++; page.classList.add('hidden'); $('app').classList.remove('knowledge-open'); $('openLibrary').removeAttribute('aria-current') }
@@ -149,9 +156,9 @@
       card.addEventListener('click', event => { if (!event.target.closest('button')) choose(base.id) })
       const controls = el('div', undefined, 'knowledge-card-actions')
       const count = (base.scopes || []).length
-      const toggle = action(count ? '关联项目 · ' + count : '关联项目', () => openBinding(base), base.id + ':bind')
+      const toggle = cardAction(count ? '关联项目 · ' + count : '关联项目', 'folder-tree', () => openBinding(base), base.id + ':bind')
       toggle.title = count ? (base.scopes || []).join('\n') : '选择可以检索此知识库的项目，可多选'
-      controls.append(toggle, action('重命名', () => openCreate(base), base.id + ':rename'), action('删除', async () => {
+      controls.append(toggle, cardAction('重命名', 'edit', () => openCreate(base), base.id + ':rename'), cardAction('删除', 'trash', async () => {
         if (!await window.appDialogs.confirm('删除知识库“' + base.name + '”及其资料？它们将停止参与检索。')) return
         await api('remove-base', { id: base.id }); await refresh()
       }, base.id + ':delete'))

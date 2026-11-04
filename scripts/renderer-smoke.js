@@ -493,6 +493,8 @@ sandbox.mainSrc = mainSrc
 sandbox.preloadSrc = preloadSrc
 sandbox.bridgeSrc = bridgeSrc
 sandbox.settingsSrc = settingsSrc
+sandbox.workflowsSrc = readRenderer('workflows.js')
+sandbox.knowledgeSrc = readRenderer('knowledge.js')
 
 /* ---------------------------------------------------------------- 右侧文件面板
    ⚠️ 静态断言（正则 / 子串）一律在这边（宿主脚本）算好再传进去。
@@ -3006,6 +3008,22 @@ const checks = `
       && /#capabilityCenter [.]capability-heading [{][^}]*flex-wrap: nowrap/.test(cssSrc)
       && /#capabilityCenter [.]capability-heading #extensionInstallBar [{][^}]*flex: 1 1 auto/.test(cssSrc)
       && /#capabilityCenter [.]capability-heading #extensionInstallBar [.]muted [{][^}]*text-overflow: ellipsis/.test(cssSrc))
+  /* 2026-11-04 用户反馈：工作流卡片删除按钮 hover 一直闪 —— 定时 refresh 无条件重建列表，
+     新 DOM 没有 :hover，opacity 反复掉回 0。改成按数据签名重绘 + 删除按钮常显弱化。 */
+  ok('工作流列表按数据签名重绘（定时刷新不再重建卡片，hover 不被打断）',
+    /let flowsRenderKey='',runsRenderKey=''/.test(workflowsSrc)
+      && /if[(]!force&&key===flowsRenderKey&&list[.]children[.]length[)]return/.test(workflowsSrc)
+      && /if[(]!force&&runKey===runsRenderKey&&list[.]children[.]length[)]return/.test(workflowsSrc))
+  const deleteRuleAt = cssSrc.indexOf('[data-workflow-action=delete]')
+  const deleteRule = deleteRuleAt < 0 ? '' : cssSrc.slice(deleteRuleAt, cssSrc.indexOf('}', deleteRuleAt))
+  ok('工作流删除按钮常显弱化色（不再靠卡片 hover 淡入，避免闪烁）',
+    deleteRule.indexOf('color:var(--muted)') > 0 && deleteRule.indexOf('opacity:1') > 0)
+  /* 2026-11-04 用户要求：知识库卡片按钮与工作流统一成扁平按钮（图标 + 文字）。 */
+  ok('知识库卡片按钮统一为图标 + 文字的扁平按钮（与工作流同款）',
+    /function cardAction[(]text, iconName/.test(knowledgeSrc)
+      && /cardAction[(].重命名., .edit./.test(knowledgeSrc)
+      && /cardAction[(].删除., .trash./.test(knowledgeSrc)
+      && /[.]knowledge-card-action [{][^}]*height:32px[^}]*border-radius:8px/.test(cssSrc))
 })().then(() => { harnessDone() }).catch((e) => { harnessError(e) })
 `
 

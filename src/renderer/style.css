@@ -6303,8 +6303,23 @@ select.agent-native-select { position:absolute !important; width:1px !important;
 .knowledge-detail-open .knowledge-card { flex-shrink:0; padding:12px; }
 .knowledge-detail-open .knowledge-card-actions { gap:4px; }
 .knowledge-detail-open .knowledge-card-actions button { padding:4px 7px; font-size: var(--font-size-base); }
-#knowledgeDetail { min-width:0; overflow:auto; padding-right:8px; }
-#knowledgeDetail.hidden { display:none; }
+/* 2026-11-04 用户要求：知识库卡片按钮与工作流卡片统一 —— 扁平描边、32px 高、圆角 8、图标 + 文字。
+   详情页左栏只有 240px，三颗按钮可能折成两行，这是有意接受的代价（一致性优先）。 */
+.knowledge-page .knowledge-card-actions { gap:8px; }
+.knowledge-page .knowledge-card-actions .knowledge-card-action {
+  box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  height:32px; min-height:32px; padding:0 12px; border:1px solid var(--border); border-radius:8px;
+  background:var(--panel); color:var(--text);
+  font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold);
+}
+.knowledge-page .knowledge-card-actions .knowledge-card-action .icon { display:flex; align-items:center; }
+.knowledge-page .knowledge-card-actions .knowledge-card-action .icon,
+.knowledge-page .knowledge-card-actions .knowledge-card-action .icon svg { width:15px; height:15px; }
+.knowledge-page .knowledge-card-actions .knowledge-card-action:hover:not(:disabled) { border-color:var(--hover-border); background:var(--selection-bg); }
+.knowledge-page .knowledge-card-actions .knowledge-card-action:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+.knowledge-page .knowledge-card-actions [data-knowledge-control$=":delete"] { color:var(--muted); }
+.knowledge-page .knowledge-card-actions [data-knowledge-control$=":delete"]:hover:not(:disabled) { color:var(--error-text); border-color:var(--error-text); background:var(--error); }
+#knowledgeDetail { min-width:0; overflow:auto; padding-right:8px; }#knowledgeDetail.hidden { display:none; }
 #knowledgeOverview { align-self:flex-start; margin:0 0 12px; background:transparent; border:0; padding:6px 10px 6px 6px; color:var(--muted); display:inline-flex; align-items:center; gap:6px; border-radius:7px; }
 #knowledgeOverview:hover:not(:disabled) { background:var(--sidebar-row-hover); color:var(--text); }
 #knowledgeOverview .icon { display:flex; }
@@ -6556,12 +6571,15 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-card-actions .workflow-instance-action.is-active{border-color:var(--workflow-node-selected);background:var(--selection-bg);color:var(--workflow-node-selected);}
 .workflow-instance-action.is-active::after{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;}
 .workflow-card-actions .workflow-instance-action:focus-visible{outline:2px solid var(--workflow-node-selected);outline-offset:2px;}
-.workflow-card-actions [data-workflow-action=delete]{margin-left:auto;color:var(--muted);opacity:0;transition:opacity 120ms ease;}
-.workflow-card:hover [data-workflow-action=delete],.workflow-card:focus-within [data-workflow-action=delete],[data-workflow-action=delete]:focus-visible{opacity:1;}
+/* 2026-11-04：删除按钮不再「卡片 hover 才淡入」——列表刷新打断 :hover 时按钮会反复消失/出现，
+   看着就是一直闪。改成常显弱化色，hover 才转成危险色。 */
+.workflow-card-actions [data-workflow-action=delete]{margin-left:auto;color:var(--muted);opacity:1;transition:color 120ms ease,background-color 120ms ease,border-color 120ms ease;}
 .workflow-card-actions .workflow-icon-action .icon,.workflow-card-actions .workflow-icon-action svg{width:18px;height:18px;}
 .workflow-card-actions .workflow-run-action .icon,.workflow-card-actions .workflow-run-action svg{width:15px;height:15px;}
 .workflow-card-actions .workflow-icon-action:focus-visible{outline:2px solid var(--workflow-node-selected);outline-offset:2px;}
-.workflow-card-actions [data-workflow-action=delete]:is(:hover,:focus-visible){color:var(--error-text);border-color:var(--error-text);background:var(--error);}
+/* 危险色要压过上面 .workflow-icon-action:hover 的 (0,3,1)，所以把类名和属性选择器都带上 */
+.workflow-card-actions .workflow-icon-action[data-workflow-action=delete]:hover:not(:disabled),
+.workflow-card-actions .workflow-icon-action[data-workflow-action=delete]:focus-visible{color:var(--error-text);border-color:var(--error-text);background:var(--error);}
 .workflow-step{border:1px solid var(--border);border-radius:8px;padding:12px;margin:10px 0;background:var(--panel-2);}.workflow-step summary{cursor:pointer;font-weight: var(--font-weight-medium);}.workflow-step pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size: var(--font-size-small);margin:10px 0 0;padding:10px;border-radius:6px;border:1px solid var(--border);background:var(--panel);}.workflow-error{color:var(--error-text);}
 .workflow-step-actions{margin-top:8px;flex-wrap:wrap;}.workflow-step-actions button{min-height:28px;padding:4px 10px;font-size: var(--font-size-base);}
 .workflow-name-label {display:flex;align-items:center;gap:10px;margin-bottom:10px;}.workflow-name-label input{flex:1;}.workflow-node-types{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
