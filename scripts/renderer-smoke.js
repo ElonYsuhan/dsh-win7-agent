@@ -3024,6 +3024,15 @@ const checks = `
       && /cardAction[(].重命名., .edit./.test(knowledgeSrc)
       && /cardAction[(].删除., .trash./.test(knowledgeSrc)
       && /[.]knowledge-card-action [{][^}]*height:32px[^}]*border-radius:8px/.test(cssSrc))
+  /* 2026-11-04 用户要求：侧边栏「工作流」选中态与能力中心/知识库完全一样（原来是自己一套 --selection-bg + 加粗）。 */
+  const navAt = cssSrc.indexOf('#app.workflows-open #openWorkflows {')
+  const navBlock = navAt < 0 ? '' : cssSrc.slice(navAt, navAt + 900)
+  ok('侧边栏工作流选中态与能力中心/知识库同一套（蓝底 + 蓝图标，深/浅各一条）',
+    navBlock.indexOf('background: rgba(91, 139, 255, .18)') > 0
+      && navBlock.indexOf('color: #91b4ff') > 0
+      && navBlock.indexOf('background: #e1e7f2') > 0
+      && navBlock.indexOf('color: #315efb') > 0
+      && navBlock.indexOf('background: rgba(91, 139, 255, .24)') > 0)
 })().then(() => { harnessDone() }).catch((e) => { harnessError(e) })
 `
 

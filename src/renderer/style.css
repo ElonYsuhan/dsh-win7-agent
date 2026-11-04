@@ -6505,7 +6505,15 @@ html.chat-hidden #app.knowledge-open.panel-open .main,html.chat-hidden #app.know
 #app.workflows-open { grid-template-columns:260px minmax(0,1fr) !important; }
 #app.workflows-open #filePanel,
 #app.workflows-open #contentFrame { display:none !important; }
-#app.workflows-open #openWorkflows { background:var(--selection-bg); font-weight: var(--font-weight-semibold); }
+/* 2026-11-04 用户要求：工作流选中态与能力中心/知识库完全一致（原来是自己一套 --selection-bg + 加粗） */
+#app.workflows-open #openWorkflows { background: rgba(91, 139, 255, .18); }
+#app.workflows-open #openWorkflows .icon,
+#app.workflows-open #openWorkflows .sidebar-shortcut-meta { color: #91b4ff; }
+#app.workflows-open #openWorkflows:hover { background: rgba(91, 139, 255, .24); }
+[data-theme="light"] #app.workflows-open #openWorkflows { background: #e1e7f2; }
+[data-theme="light"] #app.workflows-open #openWorkflows .icon,
+[data-theme="light"] #app.workflows-open #openWorkflows .sidebar-shortcut-meta { color: #315efb; }
+[data-theme="light"] #app.workflows-open #openWorkflows:hover { background: #d7e1f3; }
 html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open .sidebar { display:flex; }
 #workflowPage {
   --workflow-node-width:280px;
