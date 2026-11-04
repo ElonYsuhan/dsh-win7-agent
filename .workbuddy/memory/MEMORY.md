@@ -129,7 +129,13 @@
   - 伪元素箭头：`summary::before` 塞 ▸/▾ 会缺字形变「方框套三角」，且被
     `.thinking-block.thinking-active summary::before`（0,2,1）换成转圈；现在用 `span.timeline-summary-chevron`
     （icons.js 的 chevron，`[open]` 转 90°），`::before` 用 `#app` 前缀 `content:none` 压死。
-- **列表类 UI 别在定时刷新里无条件重建 DOM**：`workflows.js` 每 1.5s `refresh()`，`renderFlows()` 原来每次
+- **列表类 UI 别在定时刷新/交互里无条件重建 DOM**：侧边栏项目展开收起原来走 `renderWorkspaceList()`
+  整列重建（1080 行 = 59–81ms 卡顿），现改为 `setProjectExpanded`/`syncProjectNode` 只动被点的节点
+  （3ms）；`syncRunningState` 每 500ms 一轮，只调 `syncSessionBadges()` 换 `.session-state` 徽标。
+  图标用 `window.iconNode(name)`（`icons.js` 缓存模板 + `cloneNode`）而不是每次 `innerHTML` 解析 SVG ——
+  所以别再在侧边栏里写 `xxx.innerHTML = window.renderIcon(...)`，用 `setIcon()`。
+  「hover 才淡入」这类依赖 hover 的样式同理会被重建打掉。
+- 工作流列表同一类问题：`workflows.js` 每 1.5s `refresh()`，`renderFlows()` 原来每次
   `textContent=''` 重建卡片 → 新 DOM 没有 `:hover`，「hover 才淡入」的删除按钮一秒闪一次。现在
   `renderFlows(force)`/`renderRuns(force)` 先比数据签名（`flowsRenderKey`/`runsRenderKey`），没变就 return，
   `ResizeObserver` 用 `force` 穿透；删除按钮改常显 muted（hover 转危险色）。
