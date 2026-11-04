@@ -28,9 +28,10 @@ async function main(){
   await driver.cdp.send('Runtime.enable');driver.cdp.on('Runtime.exceptionThrown',e=>console.error('UI_ERROR '+JSON.stringify(e)));await driver.click('#openCustomize');await driver.click('#capTabConnectors');await wait(()=>driver.evaluate('document.getElementById("mcpList").textContent.includes("文档工具")'),'builtin card')
   ok('连接器默认显示内置中英文文档服务及六个工具',await driver.evaluate('document.getElementById("mcpList").textContent.includes("Document Tools")&&document.getElementById("mcpList").textContent.includes("6 个工具")'))
   ok('内置服务按需启动且不能编辑删除',await driver.evaluate('document.getElementById("mcpList").textContent.includes("离线可用")&&document.querySelectorAll("#mcpList .mcp-icon-button.danger").length===0&&!document.getElementById("mcpList").textContent.includes("编辑")'))
-  /* 2026-11-04：列表内联展开会把固定高度的卡片撑破，工具清单改到弹窗里看。 */
-  ok('卡片不内联展开工具，点击详情用弹窗显示',await driver.evaluate('!document.querySelector("#mcpList details")&&document.querySelector(".mcp-server").getBoundingClientRect().height<115'))
-  await driver.click('#mcpList .mcp-icon-button')
+  /* 2026-11-04：列表内联展开会把固定高度的卡片撑破，工具清单改到弹窗里看；后来去掉「详情」按钮，
+     整张卡片就是入口（点卡内开关不能顺带弹窗）。 */
+  ok('卡片不内联展开工具，点整张卡片用弹窗显示',await driver.evaluate('!document.querySelector("#mcpList details")&&document.querySelector(".mcp-server").getBoundingClientRect().height<115&&!document.querySelector("#mcpList").textContent.includes("详情")'))
+  await driver.click('#mcpList .mcp-server .mcp-server-info')
   ok('详情弹窗列出全部工具且不溢出卡片',await driver.evaluate('(()=>{const modal=document.getElementById("mcpDetailModal");if(modal.classList.contains("hidden"))return false;const body=document.getElementById("mcpDetailBody"),card=document.getElementById("mcpDetailModal");return body.textContent.includes("docx_read")&&body.textContent.includes("xlsx_edit")&&card.scrollHeight<=innerHeight&&document.activeElement.id==="mcpDetailOk"})()'))
   await driver.keypress('Escape')
   ok('详情弹窗可按 Escape 关闭',await driver.evaluate('document.getElementById("mcpDetailModal").classList.contains("hidden")'))

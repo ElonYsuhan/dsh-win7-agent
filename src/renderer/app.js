@@ -4869,12 +4869,23 @@ function renderMcp(data) {
     })
     head.append(dot, info, spacer)
     if (!server.builtin) head.append(edit, remove)
-    const detail = document.createElement('button')
-    detail.type = 'button'; detail.className = 'mcp-icon-button'; detail.textContent = '详情'
-    detail.setAttribute('aria-label', '查看连接器详情 ' + (server.name || server.id))
-    detail.addEventListener('click', () => openMcpDetail(server))
-    head.append(detail, toggle)
+    head.appendChild(toggle)
     card.appendChild(head)
+    /* 整张卡片就是详情入口：点卡片任意空白处打开弹窗；卡内的编辑/删除/开关各管各的点击。 */
+    card.tabIndex = 0
+    card.setAttribute('role', 'button')
+    card.setAttribute('aria-haspopup', 'dialog')
+    card.setAttribute('aria-label', '查看连接器详情 ' + (server.name || server.id))
+    card.addEventListener('click', (event) => {
+      const target = event.target
+      if (target && typeof target.closest === 'function' && target.closest('button, a, input, select, textarea')) return
+      openMcpDetail(server, card)
+    })
+    card.addEventListener('keydown', (event) => {
+      if (event.target !== card || (event.key !== 'Enter' && event.key !== ' ')) return
+      event.preventDefault()
+      openMcpDetail(server, card)
+    })
     if (server.error) {
       const error = document.createElement('p'); error.className = 'mcp-error'; error.textContent = formatError(server.error); card.appendChild(error)
     }
@@ -4887,7 +4898,7 @@ function renderMcp(data) {
 const MCP_BUILTIN_TOOL_TITLES = { docx_read: '读取 Word', docx_create: '新建 Word', docx_edit: '编辑 Word', xlsx_read: '读取 Excel', xlsx_create: '新建 Excel', xlsx_edit: '编辑 Excel' }
 let mcpDetailPriorFocus = null
 
-function openMcpDetail(server) {
+function openMcpDetail(server, trigger) {
   const modal = byId('mcpDetailModal'), body = byId('mcpDetailBody')
   if (not(modal) || not(body) || not(server)) return
   const tools = Array.isArray(server.tools) ? server.tools : []
@@ -4944,7 +4955,7 @@ function openMcpDetail(server) {
     }
     body.appendChild(grid)
   }
-  mcpDetailPriorFocus = document.activeElement
+  mcpDetailPriorFocus = trigger || document.activeElement
   modal.classList.remove('hidden')
   body.scrollTop = 0
   const ok = byId('mcpDetailOk'); if (ok && typeof ok.focus === 'function') ok.focus()

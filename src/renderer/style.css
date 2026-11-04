@@ -6502,6 +6502,10 @@ html.chat-hidden #app.knowledge-open.panel-open .main,html.chat-hidden #app.know
 /* 连接器卡片不再内联展开工具清单（点「详情」看弹窗），因此不需要为折叠条预留高度：
    高度跟随内容，出错时卡片自己长高，不裁掉错误信息。 */
 #capabilityCenter #mcpList > .mcp-server { height:auto; }
+/* 整张卡片是详情入口（不再单放「详情」按钮）：给出可点击光标与键盘焦点环。 */
+#capabilityCenter #mcpList > .mcp-server { cursor:pointer; transition:border-color 120ms ease, background 120ms ease; }
+#capabilityCenter #mcpList > .mcp-server:hover { border-color:var(--hover-border); background:var(--panel-2); }
+#capabilityCenter #mcpList > .mcp-server:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
 #capabilityCenter .mcp-error { max-height:36px; overflow:auto; }
 #capabilityCenter #taskList > .scheduled-task.task-selected { border-color:#5b8bff; box-shadow:0 0 0 1px #5b8bff; }
 /* Equal heights within each category, sized for that category's content. */

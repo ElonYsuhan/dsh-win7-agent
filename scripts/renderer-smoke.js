@@ -3009,16 +3009,20 @@ const checks = `
       && /#capabilityCenter [.]capability-heading #extensionInstallBar [{][^}]*flex: 1 1 auto/.test(cssSrc)
       && /#capabilityCenter [.]capability-heading #extensionInstallBar [.]muted [{][^}]*text-overflow: ellipsis/.test(cssSrc))
   /* 2026-11-04 用户反馈：连接器卡片下方「查看 N 个工具」内联展开会把固定高度的卡片撑破
-     （工具标签溢出到卡片外），改成点「详情」用弹窗看。 */
-  ok('连接器卡片不再内联展开工具清单（改点「详情」开弹窗）',
+     （工具标签溢出到卡片外），改成弹窗看；再后来去掉「详情」按钮，直接点整张卡片打开。 */
+  ok('连接器卡片不再内联展开工具清单（点整张卡片开弹窗，不再单放「详情」按钮）',
     appSrc.indexOf('mcp-tool-details') === -1
       && appSrc.indexOf('mcpExpandedTools') === -1
-      && /detail[.]textContent = '详情'/.test(appSrc)
+      && appSrc.indexOf("textContent = '详情'") === -1
+      && /card[.]tabIndex = 0/.test(appSrc)
+      && /openMcpDetail[(]server, card[)]/.test(appSrc)
+      && /closest[(]'button, a, input, select, textarea'[)]/.test(appSrc)
       && appSrc.indexOf('function openMcpDetail') > 0
       && htmlSrc.indexOf('id="mcpDetailModal"') > 0
       && htmlSrc.indexOf('id="mcpDetailBody"') > 0)
   ok('连接器详情弹窗：卡片高度跟随内容 + 弹窗中间区域自滚动（不整卡滚）',
     /#capabilityCenter #mcpList > [.]mcp-server [{] height:auto;/.test(cssSrc)
+      && /#capabilityCenter #mcpList > [.]mcp-server [{][^}]*cursor:pointer/.test(cssSrc)
       && /#mcpDetailModal [.]modal-card [{][^}]*max-height:min[(]720px, calc[(]100vh - 80px[)][)][^}]*overflow:hidden/.test(cssSrc)
       && /[.]mcp-detail-body [{][^}]*overflow-y:auto/.test(cssSrc)
       && /[.]mcp-detail-tool [{][^}]*border:1px solid var[(]--divider[)]/.test(cssSrc))
