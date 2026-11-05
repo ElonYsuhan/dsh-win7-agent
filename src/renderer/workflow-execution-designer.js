@@ -84,7 +84,7 @@
     const configured=interaction.returnTo&&interaction.returnTo!=='previous-human'?interaction.returnTo:''
     const detected=rejectTargets.detected
     rejectSelect.textContent=''
-    const auto=el('option',detected?'自动 · '+detected.title+'（按连线识别）':'自动 · 没有上游人工节点')
+    const auto=el('option',detected?'自动 · 退回 '+detected.title+'（不画退回线）':'自动 · 没有上游人工节点')
     auto.value='';rejectSelect.append(auto)
     for(const candidate of rejectTargets.candidates){const option=el('option',candidate.title);option.value=candidate.id;rejectSelect.append(option)}
     const known=rejectTargets.candidates.some(candidate=>candidate.id===configured)

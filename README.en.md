@@ -114,4 +114,4 @@ Shared borders and separators use subtler neutral colors in both light and dark 
 
 Workflow links transition from blue outputs to green inputs, with ports aligned to card edges and consistent direction colors in editor and execution graphs.
 
-Workflow graphs distinguish forward branches using solid arrows and named exits, and actual rejection paths using dashed arrows labeled with their return targets. Rejection overlays do not add cycles to executable graphs.
+Workflow graphs distinguish forward branches using solid arrows with named exits, so a skipped approval is never mistaken for a rejection. A dashed reverse arrow labeled with its return target is drawn only when a human node explicitly configures that rejection target; the runtime still falls back to the nearest upstream handling step, but no automatic cable is derived, so a plain sequential edge is never read as a rejection. Rejection overlays do not add cycles to executable graphs.

@@ -14,17 +14,20 @@
   for(const side of ['left','right','up','down']){const group=planned.filter(p=>p.side===side);group.forEach((port,index)=>{const t=(index+1)/(group.length+1),vertical=side==='left'||side==='right';result.set(port.key,{direction:side,point:vertical?[side==='left'?card.left:card.right,card.top+h*t]:[card.left+w*t,side==='up'?card.top:card.bottom],color:port.input?PORT_COLORS.input:PORT_COLORS.output})})}
   return result
  }
- // Display-only return paths derived from the same explicit target/default policy as the runtime.
+ // 只画人工显式指定的退回目标。previous-human 是运行时的兜底策略，
+ // 不在这里为每个审阅/审批节点自动派生一条反向虚线，避免把正常顺序连线
+ // 全部读成“驳回”。
  function rejectionEdges(graph){
-  const nodes=graph.nodes||[],edges=graph.edges||[],pending=new Map(nodes.map(n=>[n.id,0])),order=[],ready=[]
-  for(const edge of edges)if(pending.has(edge.to))pending.set(edge.to,pending.get(edge.to)+1)
-  for(const [id,count]of pending)if(!count)ready.push(id)
-  while(ready.length){const id=ready.shift();order.push(id);for(const edge of edges)if(edge.from===id){pending.set(edge.to,pending.get(edge.to)-1);if(!pending.get(edge.to))ready.push(edge.to)}}
-  const result=[]
-  for(const source of nodes){if(source.type!=='human'||!source.interaction||!['approve','review'].includes(source.interaction.type))continue
+  const nodes=graph.nodes||[],edges=graph.edges||[],result=[]
+  for(const source of nodes){
+   if(source.type!=='human'||!source.interaction||!['approve','review'].includes(source.interaction.type))continue
+   const configured=String(source.interaction.returnTo||'')
+   if(!configured||configured==='previous-human')continue
+   const target=nodes.find(n=>n.id===configured)
+   if(!target||target.type!=='human'||target.id===source.id)continue
    const ancestors=new Set(),queue=[source.id];while(queue.length){const id=queue.shift();for(const edge of edges)if(edge.to===id&&!ancestors.has(edge.from)){ancestors.add(edge.from);queue.push(edge.from)}}
-   const human=order.filter(id=>ancestors.has(id)).map(id=>nodes.find(n=>n.id===id)).filter(n=>n&&n.type==='human'),handling=human.filter(n=>n.interaction?n.interaction.type==='handle':(n.humanModes||[n.humanKind||'review']).some(mode=>['review','upload'].includes(mode))),configured=source.interaction.returnTo||'previous-human',target=configured==='previous-human'?(handling.length?handling:human).slice(-1)[0]:human.find(n=>n.id===configured)
-   if(target)result.push({from:source.id,to:target.id,label:'驳回 → '+(target.title||target.id)})
+   if(!ancestors.has(target.id))continue
+   result.push({from:source.id,to:target.id,label:'驳回 → '+(target.title||target.id)})
   }
   return result
  }

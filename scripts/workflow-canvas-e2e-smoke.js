@@ -46,7 +46,7 @@ const graph = {
   nodes: [
     { id: 's', type: 'start', text: '原始需求' },
     { id: 'h', type: 'human', title: '登记需求', text: '登记需求要点后继续。', interaction: { version: 1, type: 'handle', returnTo: 'previous-human' } },
-    { id: 'a', type: 'human', title: '审批方案', text: '确认方案是否可以执行。', inputSchema:{type:'object',properties:Object.fromEntries(Array.from({length:14},(_,i)=>['check_'+i,{type:'string',title:'审阅依据 '+(i+1),maxLength:2000}]))}, interaction: { version: 1, type: 'approve', returnTo: 'previous-human' } },
+    { id: 'a', type: 'human', title: '审批方案', text: '确认方案是否可以执行。', inputSchema:{type:'object',properties:Object.fromEntries(Array.from({length:14},(_,i)=>['check_'+i,{type:'string',title:'审阅依据 '+(i+1),maxLength:2000}]))}, interaction: { version: 1, type: 'approve', returnTo: 'h' } },
     { id: 'e', type: 'end', title: '结果' }
   ],
   edges: [{ from: 's', to: 'h' }, { from: 'h', to: 'a' }, { from: 'a', to: 'e' }]
@@ -280,7 +280,7 @@ async function main() {
     await wait(async()=>(await req('POST',base+'/api/workflows/detail',{id:run.id})).status==='waiting','execution waiting')
     await driver.evaluate('workflowUI.openReference('+JSON.stringify({runId:run.id,workflowId:flow.id,nodeId:'h'})+')',{awaitPromise:true})
     await wait(()=>driver.evaluate(`!!document.querySelector('.workflow-map-scroll')`),'execution diagram')
-    assert(await driver.evaluate(`!!document.querySelector('path[data-rejection-from="a"][data-rejection-to="h"]')&&Array.from(document.querySelectorAll('.workflow-map-stage svg text')).some(n=>n.textContent.includes('驳回'))`),'Execution diagram shows real rejection target as a labeled reverse overlay')
+    assert(await driver.evaluate(`(()=>{const paths=Array.from(document.querySelectorAll('.workflow-map-stage path[data-rejection-from]'));return paths.length===1&&paths[0].getAttribute('data-rejection-from')==='a'&&paths[0].getAttribute('data-rejection-to')==='h'&&Array.from(document.querySelectorAll('.workflow-map-stage svg text')).some(n=>n.textContent.indexOf('驳回 → 登记需求')>=0)})()`),'Execution diagram shows only the explicitly configured rejection target as a labeled reverse overlay')
 
     await sleep(100)
     const mapPoint=async onNode=>driver.evaluate(`(()=>{const viewport=document.querySelector('.workflow-map-scroll'),bounds=viewport.getBoundingClientRect();if(${onNode}){const visible=Array.from(viewport.querySelectorAll('.workflow-map-node')).map(card=>card.getBoundingClientRect()).find(r=>r.top>=bounds.top+4&&r.bottom<=bounds.bottom-4&&r.left>=bounds.left+4&&r.right<=bounds.right-4);if(visible)return{x:visible.left+visible.width/2,y:visible.top+visible.height/2}}for(const dx of [12,28,bounds.width-12])for(const dy of [18,bounds.height/2,bounds.height-18]){const x=bounds.left+dx,y=bounds.top+dy,hit=document.elementFromPoint(x,y);if(hit&&hit.closest('.workflow-map-scroll')===viewport&&!hit.closest('.workflow-map-node'))return{x,y}}throw Error('No execution map target')})()`)

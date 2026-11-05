@@ -83,7 +83,14 @@ const straight=Routing.create([hub,rect('f',760,200)]).route({start:[520,240],en
 assert.deepStrictEqual(straight,[[520,240],[750,240]],'A single cable stays a straight line without lane offsets')
 
 const returns={nodes:[{id:'apply',type:'human',title:'申请人',interaction:{version:1,type:'handle'}},{id:'manager',type:'human',interaction:{version:1,type:'approve',returnTo:'apply'}},{id:'finance',type:'human',interaction:{version:1,type:'approve',returnTo:'apply'}}],edges:[{from:'apply',to:'manager'},{from:'manager',to:'finance'}]}
-assert.deepStrictEqual(Routing.rejectionEdges(returns).map(e=>[e.from,e.to]),[['manager','apply'],['finance','apply']],'Every rejection returns to the configured applicant, never merely the previous approver')
-returns.nodes[2].interaction.returnTo='previous-human';assert.strictEqual(Routing.rejectionEdges(returns)[1].to,'apply','Default target prefers the upstream handling node just like the runtime')
+assert.deepStrictEqual(Routing.rejectionEdges(returns).map(e=>[e.from,e.to]),[['manager','apply'],['finance','apply']],'Configured rejection targets are drawn as reverse cables')
+returns.nodes[2].interaction.returnTo='previous-human'
+assert.deepStrictEqual(Routing.rejectionEdges(returns).map(e=>[e.from,e.to]),[['manager','apply']],'The previous-human runtime fallback draws no automatic return cable')
+delete returns.nodes[2].interaction.returnTo
+assert.deepStrictEqual(Routing.rejectionEdges(returns).map(e=>[e.from,e.to]),[['manager','apply']],'An interaction without returnTo draws no return cable')
+returns.nodes[2].interaction.returnTo='finance'
+assert.deepStrictEqual(Routing.rejectionEdges(returns).map(e=>[e.from,e.to]),[['manager','apply']],'A self reference draws no return cable')
+returns.nodes[2].interaction.returnTo='apply-removed'
+assert.deepStrictEqual(Routing.rejectionEdges(returns).map(e=>[e.from,e.to]),[['manager','apply']],'An unknown or non-upstream target draws no return cable')
 returns.nodes[2].interaction.returnTo='manager';assert.strictEqual(Routing.rejectionEdges(returns)[1].to,'manager','An explicit upstream approver is honored')
 assert.strictEqual(returns.edges.length,2,'Display returns do not mutate executable DAG edges')
