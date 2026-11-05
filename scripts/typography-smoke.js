@@ -64,8 +64,12 @@ ok('静态服务给 woff2 正确 MIME', /\.woff2':\s*'font\/woff2'/.test(server)
 /* ---------- style.css 不再有散落字面量 ---------- */
 const css = style.replace(/\/\*[\s\S]*?\*\//g, '')
 ok('base 字体走令牌，不再写 font: 简写', !/font:\s*\d/.test(css))
-ok('没有裸 font-family（除 var）', (css.match(/font-family:(?!\s*var\()/g) || []).length === 0,
-  (css.match(/font-family:(?!\s*var\()[^;]+/g) || []).slice(0, 3).join(' | '))
+/* 关键词继承不是字面量：按钮、输入框用 inherit 重置 UA 字体是正确的，
+   这里只拦截会写死具体字体名的声明。 */
+const bareFont = /font-family:(?!\s*var\(|\s*(?:inherit|initial|unset|revert)\b)/g
+const bareFontList = /font-family:(?!\s*var\(|\s*(?:inherit|initial|unset|revert)\b)[^;]+/g
+ok('没有裸 font-family（除 var 与继承关键词）', (css.match(bareFont) || []).length === 0,
+  (css.match(bareFontList) || []).slice(0, 3).join(' | '))
 /* 裸 px 字号只允许出现在图标字形上：图标不是文案，跟着图形尺寸走才对。
    判据看选择器身份，不看数量，避免以后有人加一个「12px 小字」蒙过去。 */
 const ICON_ONLY = /icon|arrow|-close|remove|::before|::after/
