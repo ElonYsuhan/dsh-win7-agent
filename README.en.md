@@ -104,6 +104,8 @@ Workflow canvases redraw when sidebar or properties-panel dimensions change whil
 
 The bundled `workflow-process-designer` Skill adapts a pinned official Camunda BPMN Skill and OMG BPMN 2.0.2 modeling principles to local approvals, rejection/correction, and resubmission. The workflow catalog provides the enabled guide on demand; it can be disabled in the capability center. A standard offline `.skill.pgk` is available. See [design Skill provenance and limits](docs/WORKFLOW-DESIGN-SKILL.md).
 
+The bundled `workflow-suggestion` Skill matches a conversation against saved workflows on goal, steps, human checkpoints and deliverable. Only a genuine fit triggers `workflow_suggest`, which renders an open-workflow card in the message and states what is covered and what is missing. Suggesting is read-only: it never edits definitions or creates instances. Clicking opens the run and lands directly on that workflow instance page.
+
 Conditional nodes select the first matching rule or the default exit; merge nodes accept the active path. Resubmission reevaluates routing while preserving history. Unselected paths do not execute. Parallel approvals and role-based approval permissions remain unsupported.
 
 The license authority displays clickable LAN URLs with individual copy buttons for sharing with intranet administrators.

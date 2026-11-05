@@ -6681,6 +6681,13 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-chat-context{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;margin-bottom:8px;border:0;border-radius:10px;background:var(--workflow-context-bg);font-size: var(--font-size-caption);}
 .workflow-chat-context.hidden{display:none;}.workflow-chat-context>span{flex:1;}.workflow-chat-context button,.workflow-open-draft{font-size: var(--font-size-base);padding:6px 10px;}
 .workflow-open-draft{margin-top:8px;}
+/* 流程匹配推荐卡：会话里只给一个开启入口，真正执行仍由用户点击触发。 */
+.workflow-suggestion{display:flex;flex-direction:column;gap:6px;margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--text);border-radius:8px;background:var(--panel-2);}
+.workflow-suggestion strong{font-size: var(--font-size-base);font-weight: var(--font-weight-semibold);}
+.workflow-suggestion p{margin:0;font-size: var(--font-size-caption);line-height:1.6;color:var(--muted);}
+.workflow-suggestion .workflow-suggestion-start{align-self:flex-start;margin-top:2px;min-height:30px;padding:0 12px;border:1px solid var(--text);border-radius:8px;background:var(--text);color:var(--bg);font-size: var(--font-size-caption);font-weight: var(--font-weight-semibold);cursor:pointer;}
+.workflow-suggestion .workflow-suggestion-start:hover:not(:disabled){opacity:.86;}
+.workflow-suggestion .workflow-suggestion-start:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
 #workflowChatContext .workflow-open-draft{margin-top:0;background:#2563eb;border-color:#2563eb;color:#fff;}
 #workflowChatContext .workflow-open-draft:hover:not(:disabled){background:#1d4ed8;border-color:#1d4ed8;}
 @media(max-width:900px){.workflow-execution-layout{grid-template-columns:minmax(0,1fr) 220px;}}

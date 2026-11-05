@@ -526,6 +526,10 @@ Agent state semantics. See SOFTWARE-LICENSING.md for offline limits and validati
 
 既有 core/workflow-tools 声明 inject skillLibrary，从统一服务按需读取内置 workflow-process-designer，经 workflow_catalog 的 designGuide 返回模型；普通聊天只带索引，正文和场景引用不全局常驻。能力中心停用后目录不再返回正文。整流程设计入口提示按该指南分析审批/退回与能力缺口；实际创建/修改仍走同一 workflows 服务和校验，既不新增执行器也不将 Skill 当权限。上游Camunda固定提交、Apache-2.0及本地JSON适配/离线包/真实驳回回归说明见 WORKFLOW-DESIGN-SKILL.md。继续固定Node16/Chromium108，无新增生产依赖或目标机联网下载。
 
+### 会话内流程匹配推荐（2026-11-05）
+
+内置 workflow-suggestion 技能给出目标、步骤、人工环节、交付产物四道匹配关，只在会话里判断是否推荐。core/workflow-tools 的 catalog 增加只读 workflows 摘要（id、名称、说明、步骤标题、人工环节数、产物，最多 50 条），新增只读工具 workflow_suggest：校验流程存在与推荐理由，matches 限定四类，返回 suggestion 由渲染层复用既有发起链路呈现「开启工作流」入口。推荐不写流程定义、不建实例、不触发执行，用户点击后才走 workflows.run 并进入执行实例页；无人值守任务无权调用。未新增服务容器、事件总线或执行器，执行与持久化契约不变；固定 Node16/Chromium108，无新增生产依赖。验证入口为 workflow-suggestion-smoke 与 workflow-suggestion-e2e-smoke，Win7 真机验证单独进行。
+
 ### 条件分支与排他汇合（2026-10-29）
 
 为替代固定顺序审批，contracts/workflow-branch 定义有界规则及选路事实，flow 负责纯匹配和激活判断，reducer 校验选路、跳过与重试迁移；现有 Cordis workflows 插件执行并持久化，不增加容器或执行器。未选路径跳过，merge 只接受一条有效路径；驳回清除当前选路并保留尝试历史，外部副作用仍需确认。使用 Node16 内置能力，无新增依赖或平台判断；未来替换运行时不改变规则与事件契约。验证入口为 workflow-branch-smoke、workflow-canvas-e2e-smoke 及真实保护包回归；Win7 真机验证单独进行。

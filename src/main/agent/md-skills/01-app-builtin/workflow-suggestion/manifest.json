@@ -1,0 +1,20 @@
+{
+  "formatVersion": 1,
+  "publisher": "agent",
+  "name": "workflow-suggestion",
+  "displayName": "流程匹配推荐",
+  "description": "判断当前讨论的功能能否由已保存流程完成，只做推荐并给出会话内「开启工作流」入口，不擅自执行。",
+  "version": "1.0.0",
+  "type": "skill",
+  "engines": {
+    "extensionApi": 1,
+    "node": "16",
+    "electron": "22",
+    "chromium": "108"
+  },
+  "targets": [
+    "any"
+  ],
+  "entry": "SKILL.md",
+  "files": {}
+}
