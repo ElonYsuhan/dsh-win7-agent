@@ -61,6 +61,17 @@ async function main(){
   submit(fixedRun,'approve',{decision:'reject',conclusion:'请再次审阅依据'});await waiting(fixedRun,'review');assert.strictEqual(step(fixedRun,'h').attempt,1,'Unrelated successful ancestors are reused')
   submit(fixedRun,'review');await waiting(fixedRun,'approve');submit(fixedRun,'approve',{decision:'approve'});await wait(()=>detail(fixedRun.id).status==='succeeded','approval completed')
 
+  // 连线上的驳回目标优先于节点自身的退回目标：线上指定谁就退回谁。
+  const rejectNodes=[{id:'s',type:'start',text:'原始资料'},{id:'h1',type:'human',title:'登记材料',interaction:interaction()},{id:'h2',type:'human',title:'补充材料',interaction:interaction()},{id:'review',type:'human',title:'审阅资料',interaction:interaction('review','h1')},{id:'e',type:'end',title:'最终结果',deliverable:{format:'text',name:'结果'}}]
+  assert.throws(()=>service.save({name:'非法驳回目标',version:2,nodes:rejectNodes,edges:[{from:'s',to:'h1',rejectTo:'missing'}]}),/驳回目标/)
+  assert.throws(()=>service.save({name:'非人工驳回目标',version:2,nodes:rejectNodes,edges:[{from:'s',to:'h1',rejectTo:'e'}]}),/人工/)
+  assert.throws(()=>service.save({name:'重复驳回目标',version:2,nodes:rejectNodes,edges:[{from:'s',to:'h2',rejectTo:'h1'},{from:'h1',to:'h2',rejectTo:'h1'}]}),/只能有一条/)
+  const linked=service.save({name:'连线驳回',version:2,nodes:rejectNodes,edges:[{from:'s',to:'h1'},{from:'h1',to:'h2'},{from:'h2',to:'review',rejectTo:'h2'},{from:'review',to:'e'}]}),linkedRun=service.run({id:linked.id})
+  await waiting(linkedRun,'h1');submit(linkedRun,'h1');await waiting(linkedRun,'h2');submit(linkedRun,'h2');await waiting(linkedRun,'review')
+  assert.strictEqual(detail(linkedRun.id).interactionViews.review.returnTargetId,'h2','A cable-level reject target wins over the node default')
+  assert.strictEqual(submit(linkedRun,'review',{decision:'reject',conclusion:'材料仍需补充'}).returnedTo,'h2')
+  await waiting(linkedRun,'h2')
+
   // Existing definitions keep their configured compulsory conclusion and read checks.
   const legacy=service.save(chain([{id:'h',type:'human',humanModes:['approval','read']}],'旧人工配置')),legacyRun=service.run({id:legacy.id})
   await waiting(legacyRun,'h');assert.throws(()=>submit(legacyRun,'h',{decision:'approve',reviewed:true}),/结论/);assert.throws(()=>submit(legacyRun,'h',{decision:'approve',conclusion:'确认'}),/审阅/)

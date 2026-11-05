@@ -7310,6 +7310,18 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 /* 未选中节点时属性面板只留一句提示，不显示空表单。 */
 .workflow-parameters.is-empty .workflow-property-content,
 .workflow-parameters.is-empty .workflow-property-footer {display:none;}
+/* 选中连线时属性面板切换为连线设置，其余区块让位。 */
+.workflow-parameters.is-link #workflowFlowProperties,
+.workflow-parameters.is-link .workflow-property-header,
+.workflow-parameters.is-link .workflow-property-content,
+.workflow-parameters.is-link .workflow-property-footer{display:none;}
+.workflow-link-panel{display:flex;flex-direction:column;gap:10px;}
+.workflow-link-panel[hidden]{display:none;}
+.workflow-link-panel header h2{font-size:var(--font-size-base);font-weight:var(--font-weight-semibold);}
+.workflow-link-field{display:flex;flex-direction:column;gap:4px;font-size:var(--font-size-caption);color:var(--muted);}
+.workflow-link-field select{min-height:32px;padding:0 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:var(--font-size-caption);}
+.workflow-link-panel button{min-height:32px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text);font-size:var(--font-size-caption);cursor:pointer;}
+.workflow-link-panel button:hover:not(:disabled){background:var(--selection-bg);}
 
 .workflow-canvas-tools button[hidden]{display:none;}
 

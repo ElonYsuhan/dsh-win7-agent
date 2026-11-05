@@ -680,6 +680,7 @@ function nextNodeId(type){
  }
  function parameter(n){
   selectedNode=n
+  clearLinkSelection()
   const panel=page.querySelector('.workflow-parameters');if(panel){panel.classList.toggle('is-empty',!n);panel.classList.toggle('is-flow',!n)}$('workflowFlowProperties').hidden=!!n
   const human=!!n&&n.type==='workflow/human'
   $('workflowNodeTitle').value=n?n.title:''
@@ -898,7 +899,7 @@ function edit(flow){
     if(!cached.points){blocked++;if(link._pos){link._pos[0]=-1e9;link._pos[1]=-1e9}continue}
     this.renderLink(ctx,a,b,link,false,0,null,startDir,endDir)
    }
-   const nodeIds=new Map(graph._nodes.map(n=>[n.id,n.properties.workflowId||String(n.id)])),definition={nodes:graph._nodes.map(n=>({id:nodeIds.get(n.id),type:n.type.split('/')[1],title:n.title,interaction:n.properties.interaction,humanModes:n.properties.humanModes,humanKind:n.properties.humanKind})),edges:Object.values(graph.links).filter(Boolean).map(l=>({from:nodeIds.get(l.origin_id),to:nodeIds.get(l.target_id)}))},returns=window.workflowLinkRouting.rejectionEdges(definition),returnEdges=[]
+   const nodeIds=new Map(graph._nodes.map(n=>[n.id,n.properties.workflowId||String(n.id)])),definition={nodes:graph._nodes.map(n=>({id:nodeIds.get(n.id),type:n.type.split('/')[1],title:n.title,interaction:n.properties.interaction,humanModes:n.properties.humanModes,humanKind:n.properties.humanKind})),edges:Object.values(graph.links).filter(Boolean).map(l=>({from:nodeIds.get(l.origin_id),to:nodeIds.get(l.target_id),...(l.properties&&l.properties.rejectTo?{rejectTo:l.properties.rejectTo}:{})}))},returns=window.workflowLinkRouting.rejectionEdges(definition),returnEdges=[]
    for(const [index,edge]of returns.entries()){const from=graph._nodes.find(n=>n.properties.workflowId===edge.from),to=graph._nodes.find(n=>n.properties.workflowId===edge.to);if(!from||!to)continue;const source=rectangles.find(r=>r.id===from.id),target=rectangles.find(r=>r.id===to.id);returnEdges.push({id:'return:'+edge.from,source:from.id,target:to.id,start:[source.left,source.top+(source.bottom-source.top)*.35],end:[target.left,target.top+(target.bottom-target.top)*.7],startDirection:'left',endDirection:'left',label:edge.label})}
    const returnSignature=geometry+'|'+JSON.stringify(returnEdges)
    if(this._workflowReturnSignature!==returnSignature){this._workflowReturnSignature=returnSignature;this._workflowReturnRoutes=router.routeAll(returnEdges)}
@@ -926,6 +927,9 @@ function edit(flow){
   canvas.onSelectionChange=selectionChanged
   canvas.onDrawForeground=drawEditorGuides
   canvas.onMouse=function(event){if(canvasMode==='select'&&event.which===1&&event.shiftKey){const hit=graph.getNodeOnPos(event.canvasX,event.canvasY,canvas.visible_nodes);if(hit){this.selectNode(hit,true);this.node_dragged=null;this.setDirty(true,true);event.preventDefault();event.stopPropagation();return true}}if(canvasMode!=='box'||event.which!==1)return false;if(!event.shiftKey)this.deselectAllNodes();this.dragging_rectangle=new Float32Array([event.canvasX,event.canvasY,1,1]);this.dragging_canvas=false;this.last_mouse[0]=event.clientX;this.last_mouse[1]=event.clientY;event.preventDefault();event.stopPropagation();this.setDirty(true,true);return true}
+  // 点击连线即选中它，右侧面板据此提供驳回目标设置。
+  const canvasMouse=canvas.onMouse
+  canvas.onMouse=function(event){if(mode==='editor'&&event.which===1){const hit=canvasLinkAt(event);if(hit){this.deselectAllNodes();parameter(null);linkParameter(hit);event.preventDefault();event.stopPropagation();return true}}return canvasMouse.call(this,event)}
   syncCanvasTheme()
   const map=new Map()
   for(const entry of flow.nodes){
@@ -950,7 +954,7 @@ function edit(flow){
   }
   for(const edge of flow.edges){
    const fromNode=map.get(edge.from),toNode=map.get(edge.to)
-   if(fromNode&&toNode)fromNode.connect(edge.outputSlot||0,toNode,edge.slot||0)
+   if(fromNode&&toNode){const link=fromNode.connect(edge.outputSlot||0,toNode,edge.slot||0);if(link&&edge.rejectTo)link.properties={...(link.properties||{}),rejectTo:edge.rejectTo}}
   }
   syncAllPorts()
   // 新图（所有节点坐标相同）等画布尺寸确定后再排布，否则窗口自适应的判断会失真。
@@ -1101,12 +1105,62 @@ function edit(flow){
   ])
  }
  function showNodeMenu(target,x,y){openCanvasMenu(x,y,'节点操作',[{label:'删除节点',danger:true,title:'删除该节点及其全部连线',run:()=>removeNode(target)}])}
- function showLinkMenu(link,x,y){openCanvasMenu(x,y,'连线操作',[{label:'删除连线',danger:true,title:'断开这两张卡片之间的连接',run:()=>removeLink(link)}])}
+ function showLinkMenu(link,x,y){openCanvasMenu(x,y,'连线操作',[{label:'设置驳回目标',title:'在右侧设置这条连线的驳回目标',run:()=>{linkParameter(link);const select=$('workflowLinkReject');if(select&&!select.disabled)select.focus()}},{label:'删除连线',danger:true,title:'断开这两张卡片之间的连接',run:()=>removeLink(link)}])}
  function removeNode(target){
   if(!target||!graph)return
+  const removed=workflowNodeId(target)
   graph.remove(target)
+  // 删掉人工环节后，相关连线的驳回目标也要一起清掉，否则保存会被契约拒绝。
+  if(removed)for(const link of Object.values(graph.links||{}))if(link&&link.properties&&link.properties.rejectTo===removed)delete link.properties.rejectTo
   if(selectedNode===target)parameter(null)
   dirty=true;graph.setDirtyCanvas(true,true)
+ }
+ let selectedLink=null
+ // 连线的上游人工环节：驳回目标只能从这里选，保证退回的是真正走过的上游。
+ function upstreamHumanNodes(targetId){
+  const seen=new Set([targetId]),queue=[targetId],out=[]
+  while(queue.length){
+   const id=queue.shift()
+   for(const link of Object.values(graph.links||{})){
+    if(!link||link.target_id!==id||seen.has(link.origin_id))continue
+    seen.add(link.origin_id);queue.push(link.origin_id)
+    const item=graph.getNodeById(link.origin_id)
+    if(item&&item.type==='workflow/human')out.push(item)
+   }
+  }
+  return out
+ }
+ // 驳回目标一律用流程节点 id 记录：画布内部 id 会随重开变化，不能作为持久化依据。
+ function workflowNodeId(item){return item?(item.properties.workflowId||String(item.id)):''}
+ function clearLinkSelection(){
+  if(selectedLink&&canvas&&canvas.highlighted_links)delete canvas.highlighted_links[selectedLink.id]
+  selectedLink=null
+  const panel=$('workflowLinkPanel');if(panel)panel.hidden=true
+  const params=page.querySelector('.workflow-parameters');if(params)params.classList.remove('is-link')
+  if(canvas)canvas.setDirty(true,true)
+ }
+ // 选中连线后在右侧设置驳回目标：驳回属于这条连线，而不是笼统地属于节点。
+ function linkParameter(link){
+  if(!link||!graph)return
+  clearLinkSelection()
+  selectedLink=link
+  const panel=$('workflowLinkPanel'),params=page.querySelector('.workflow-parameters')
+  if(params)params.classList.add('is-link')
+  const from=graph.getNodeById(link.origin_id),to=graph.getNodeById(link.target_id)
+  if(panel){
+   panel.hidden=false
+   $('workflowLinkPath').textContent=(from&&(from.title||from.type)||'起点')+' → '+(to&&(to.title||to.type)||'终点')
+   const select=$('workflowLinkReject'),options=upstreamHumanNodes(link.target_id)
+   select.textContent=''
+   const none=node('option','不设置驳回目标');none.value='';select.append(none)
+   for(const item of options){const option=node('option',item.title||item.type);option.value=workflowNodeId(item);select.append(option)}
+   const current=link.properties&&link.properties.rejectTo
+   select.value=current?String(current):''
+   select.disabled=!options.length
+   $('workflowLinkHint').textContent=options.length?'沿这条线走到终点节点被驳回时，退回所选人工环节。':'这条连线上游没有人工环节，暂时无法设置驳回目标。'
+  }
+  if(canvas&&canvas.highlighted_links)canvas.highlighted_links[link.id]=1
+  if(canvas)canvas.setDirty(true,true)
  }
  function removeLink(target){
   if(!target||!graph)return
@@ -1254,16 +1308,12 @@ function edit(flow){
    canvas.draw(true,true)
   }
  }
- async function create(){
+ async function create(withSkeleton){
   const name=await window.appDialogs.prompt('新建流程','资料整理流程')
   if(!name)return
   if(Array.from(name.trim()).length>15){notice('流程名称不能超过15个字，详细说明请填写到流程描述');return}
-  edit({
-   version:1,
-   name,
-   nodes:[],
-   edges:[]
-  })
+  // 新流程默认带上开始与结束：空画布无法通过流程校验，用户必须自己补齐起止才能保存。
+  edit(withSkeleton?{version:1,name,nodes:[{id:'start',type:'start',title:'开始',text:'',outputs:[{name:'文本',type:'text'}],pos:[80,140]},{id:'end',type:'end',title:'结束',inputs:[{name:'输入1',type:'text'}],deliverable:{format:'text',name:'流程产出'},pos:[520,140]}],edges:[{from:'start',to:'end',slot:0,outputSlot:0}]}:{version:1,name,nodes:[],edges:[]})
   dirty=true
  }
  function removeSelectedNode(){if(selectedNode)removeNode(selectedNode)}
@@ -1300,8 +1350,8 @@ function edit(flow){
  })
  document.addEventListener('pointerdown',event=>{if(createMenuShown()&&!createEntry.host.contains(event.target))closeCreateMenu(false)})
  $('workflowAI').addEventListener('click',chooseCreate(()=>window.workflowChat.open({mode:'create'})))
- $('workflowNewBlank').addEventListener('click',chooseCreate(()=>create()))
- $('workflowNew').addEventListener('click',chooseCreate(()=>create()))
+ $('workflowNewBlank').addEventListener('click',chooseCreate(()=>create(false)))
+ $('workflowNew').addEventListener('click',chooseCreate(()=>create(true)))
  controls.back.addEventListener('click',async()=>{
   if(mode==='editor'&&!await confirmLeaveEditor())return
   dirty=false
@@ -1328,8 +1378,8 @@ function edit(flow){
  function editorDefinition(){
    const ports=(n,input)=>{const list=n[input?'inputs':'outputs']||[];let count=0;for(let i=0;i<list.length;i++)if(portConnected(list[i],input))count=i+1;return list.slice(0,count).map(p=>({name:p.name,type:'text'}))}
    const nodes=graph._nodes.map(n=>({...Object.fromEntries(['interaction','inputSchema','outputSchema','bindings','skills','agent','tool','deliverable','processing','branch'].filter(k=>n.properties[k]!==undefined&&!(k==='interaction'&&n.type!=='workflow/human')).map(k=>[k,n.properties[k]])),id:n.properties.workflowId||nextNodeId(n.type.split('/')[1]),type:n.type.split('/')[1],title:n.title,text:n.properties.text||'',description:n.properties.description||'',humanKind:n.properties.humanKind||'review',humanModes:humanModes(n.properties),rest:n.properties.rest||{url:'',method:'GET'},inputs:ports(n,true),outputs:ports(n,false),size:Array.from(n.size||[]),pos:Array.from(n.pos)}))
-   const byGraph=new Map(graph._nodes.map((n,i)=>[n.id,nodes[i].id]))
-   const edges=Object.values(graph.links).filter(Boolean).map(l=>({from:byGraph.get(l.origin_id),to:byGraph.get(l.target_id),slot:l.target_slot||0,outputSlot:l.origin_slot||0}))
+   const byGraph=new Map(graph._nodes.map((n,i)=>[n.id,nodes[i].id])),known=new Set(nodes.map(n=>n.id))
+   const edges=Object.values(graph.links).filter(Boolean).map(l=>{const rejectTo=l.properties&&l.properties.rejectTo;return {from:byGraph.get(l.origin_id),to:byGraph.get(l.target_id),slot:l.target_slot||0,outputSlot:l.origin_slot||0,...(rejectTo&&known.has(rejectTo)?{rejectTo}:{})}})
    return {...editing,editor:'canvas',name:$('workflowName').value,description:$('workflowDescription').value,materials:materialEditor.get(),nodes,edges}
  }
  controls.save.addEventListener('click',async()=>{
@@ -1348,7 +1398,9 @@ function edit(flow){
   }catch(e){notice(e.message)}
   finally{b.disabled=b.id==='workflowStopAll'&&(stoppingAll||!data.runs.some(run=>(!filter||run.workflowId===filter)&&stoppable(run)))}
  })
- $('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNode.title=$('workflowNodeTitle').value;dirty=true;graph.setDirtyCanvas(true,true)}})
+ $('workflowLinkReject').addEventListener('change',event=>{const link=selectedLink;if(!link)return;const value=event.target.value;if(value)link.properties={...(link.properties||{}),rejectTo:value};else if(link.properties)delete link.properties.rejectTo;dirty=true;if(canvas)canvas.setDirty(true,true)})
+$('workflowLinkRemove').addEventListener('click',()=>{const link=selectedLink;if(!link)return;removeLink(link);clearLinkSelection();parameter(null)})
+$('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNode.title=$('workflowNodeTitle').value;dirty=true;graph.setDirtyCanvas(true,true)}})
  $('workflowNodeText').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.text=$('workflowNodeText').value;dirty=true;graph.setDirtyCanvas(true,true)}})
  $('workflowNodeDescription').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.description=$('workflowNodeDescription').value;dirty=true}})
  $('workflowRestUrl').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.rest={...(selectedNode.properties.rest||{method:'GET'}),url:$('workflowRestUrl').value};dirty=true}})

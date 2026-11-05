@@ -93,4 +93,9 @@ assert.deepStrictEqual(Routing.rejectionEdges(returns).map(e=>[e.from,e.to]),[['
 returns.nodes[2].interaction.returnTo='apply-removed'
 assert.deepStrictEqual(Routing.rejectionEdges(returns).map(e=>[e.from,e.to]),[['manager','apply']],'An unknown or non-upstream target draws no return cable')
 returns.nodes[2].interaction.returnTo='manager';assert.strictEqual(Routing.rejectionEdges(returns)[1].to,'manager','An explicit upstream approver is honored')
+// 连线上的驳回目标：从该连线的终点节点画回退虚线，节点默认兜底不参与。
+const linked={nodes:[{id:'h1',type:'human',title:'登记材料',interaction:{version:1,type:'handle',returnTo:'previous-human'}},{id:'h2',type:'human',title:'补充材料',interaction:{version:1,type:'review',returnTo:'previous-human'}},{id:'end',type:'end',title:'结束'}],edges:[{from:'h1',to:'h2',rejectTo:'h1'},{from:'h2',to:'end'}]}
+assert.deepStrictEqual(Routing.rejectionEdges(linked).map(e=>[e.from,e.to]),[['h2','h1']],'A cable-level reject target draws the return cable from the reached node')
+const duplicated={nodes:[{id:'h1',type:'human',title:'登记材料',interaction:{version:1,type:'review',returnTo:'h1'}},{id:'h2',type:'human',title:'补充材料',interaction:{version:1,type:'review',returnTo:'previous-human'}},{id:'end',type:'end',title:'结束'}],edges:[{from:'h1',to:'h2',rejectTo:'h1'}]}
+assert.deepStrictEqual(Routing.rejectionEdges(duplicated).map(e=>[e.from,e.to]),[['h2','h1']],'The same return path is drawn once even when both sources agree')
 assert.strictEqual(returns.edges.length,2,'Display returns do not mutate executable DAG edges')

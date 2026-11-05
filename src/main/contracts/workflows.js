@@ -60,8 +60,17 @@ function validate(raw,types=TYPES){
   const from=nodes.find(n=>n.id===e.from),to=nodes.find(n=>n.id===e.to),slot=e.slot===undefined?0:e.slot,outputSlot=e.outputSlot===undefined?0:e.outputSlot
   if(!from||!to||from===to)throw Error('连线引用无效节点')
   if(!Number.isInteger(slot)||slot<0||slot>=to.inputs.length||!Number.isInteger(outputSlot)||outputSlot<0||outputSlot>=from.outputs.length)throw Error('连线端口无效')
-  return {from:e.from,to:e.to,slot,outputSlot}
+  // 驳回目标挂在连线上：沿这条线走到目标节点被驳回时，退回该人工环节。
+  const rejectTo=e.rejectTo===undefined||e.rejectTo===null||e.rejectTo===''?undefined:id(e.rejectTo)
+  if(rejectTo){
+   const target=nodes.find(n=>n.id===rejectTo)
+   if(!target)throw Error('驳回目标节点不存在')
+   if(target.type!=='human')throw Error('驳回目标必须是人工环节')
+   if(rejectTo===e.to)throw Error('驳回目标不能是当前节点')
+  }
+  return {from:e.from,to:e.to,slot,outputSlot,...(rejectTo?{rejectTo}:{})}
  })
+ for(const node of nodes)if(edges.filter(e=>e.to===node.id&&e.rejectTo).length>1)throw Error('同一节点只能有一条连线配置驳回目标')
  for(const n of nodes)if(n.type==='condition')for(const route of Branch.routes(n))if(edges.filter(e=>e.from===n.id&&e.outputSlot===route.outputSlot).length!==1)throw Error('每条条件及默认分支必须各连接一个后续节点：'+route.name)
  for(const n of nodes)if(n.type==='merge'&&edges.filter(e=>e.to===n.id).length<2)throw Error('分支汇合需要至少两条不同输入路径')
  for(const n of nodes)if(['output','end'].includes(n.type)&&!edges.some(e=>e.to===n.id))throw Error('保存结果节点需要上游输入')

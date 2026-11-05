@@ -537,3 +537,9 @@ Agent state semantics. See SOFTWARE-LICENSING.md for offline limits and validati
 ### 驳回路径可视化（2026-10-29，2026-11-05 收敛）
 
 为区分正向条件分支与业务退回，显示层只对显式配置了 interaction.returnTo 的审阅/审批节点画出带目标标注的反向虚线，条件出口增加名称和方向箭头。`previous-human` 只是运行时的兜底策略，不再由它自动派生虚线：否则每个审批节点都会对上游人工环节生成一条反向连线，导致正常顺序连线被读成驳回。显式目标必须位于上游且为人工节点，否则不画。渲染辅助只处理纯图与几何，既不写入workflow.edges，也不改变DAG执行、状态事件及外部重放策略。继续使用Chromium108 Canvas/SVG，无新增依赖；可替换渲染器不改变业务契约。路由及真实编辑/执行图回归覆盖显式目标、兜底不画线、方向和无持久化环路。
+
+### 连线级驳回目标（2026-11-05）
+
+驳回属于“走到某个节点的那条线”，不再只属于节点本身。contracts/workflows 的边定义新增可选 `rejectTo`：目标必须是人工环节、不能是边的终点、同一终点只能有一条边配置；flow/workflow-policy 的 `returnTarget` 优先取入边上的 `rejectTo`，缺省时才回落到节点级 `interaction.returnTo` 与 `previous-human` 兜底。渲染层只做纯图派生：workflow-link-routing 的 `rejectionEdges` 同时读取边级与节点级目标并去重，用于画标注目标的反向虚线；编辑画布把该字段随流程定义一起保存与还原，删除被引用的人工环节时同步清理引用，避免留下无法保存的草稿。
+
+边级目标只描述“退回到哪个人工环节”，不引入新的事件类型、状态迁移或外部重放策略；`node-returned` 事实与外部确认点保持原样。contracts 与 flow 不含 IO、平台判断或运行时实现，reducer 仍只依赖契约。继续固定 Node16/Chromium108，无新增生产依赖或目标机下载。验证入口为 workflow-interaction-smoke（边级优先于节点级）、workflow-routing-smoke（边级虚线去重）与 workflows-e2e-smoke（点击连线→右侧面板→保存→重开还原）；Win7 真机验证单独进行。
