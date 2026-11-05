@@ -115,3 +115,5 @@ Shared borders and separators use subtler neutral colors in both light and dark 
 Workflow links transition from blue outputs to green inputs, with ports aligned to card edges and consistent direction colors in editor and execution graphs.
 
 Workflow graphs distinguish forward branches using solid arrows with named exits, so a skipped approval is never mistaken for a rejection. A dashed reverse arrow labeled with its return target is drawn only when a human node explicitly configures that rejection target; the runtime still falls back to the nearest upstream handling step, but no automatic cable is derived, so a plain sequential edge is never read as a rejection. Rejection overlays do not add cycles to executable graphs.
+
+The canvas context menu is target-aware: on empty space it restores 100% zoom or fits the whole graph, on a card it deletes that node together with its cables, and on a cable it deletes just that connection. Deletions only change the current draft and take effect after saving.

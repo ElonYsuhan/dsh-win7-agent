@@ -7237,9 +7237,10 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-processing-editor-actions button {min-height:28px;padding:4px 8px;font-size: var(--font-size-base);}
 .workflow-draft-note {padding:10px 12px;margin:0 0 16px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);color:var(--muted);font-size: var(--font-size-caption);}
 
-.workflow-canvas-menu {position:fixed;z-index:300;min-width:160px;padding:5px;border:1px solid var(--border);border-radius:8px;background:var(--panel);box-shadow:var(--shadow);}
+.workflow-canvas-menu {position:fixed;z-index:300;width:max-content;min-width:160px;max-width:280px;padding:5px;border:1px solid var(--border);border-radius:8px;background:var(--panel);box-shadow:var(--shadow);}
 .workflow-canvas-menu button {display:block;width:100%;min-height:32px;padding:6px 10px;border:0;background:transparent;text-align:left;}
 .workflow-canvas-menu button:hover {background:var(--selection-bg);}
+.workflow-canvas-menu button.is-danger {color:var(--error-text);}
 
 /* 人工节点编辑收口：默认只有名称、处理描述、交互类型；补充内容折叠。 */
 /* 「高级设置」已取消：步骤说明 / 结构化参数收进「节点执行设计」，端口按连线自动生成。 */

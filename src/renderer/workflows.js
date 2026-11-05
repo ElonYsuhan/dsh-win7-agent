@@ -916,7 +916,7 @@ function edit(flow){
   canvas.drawNodeShape=function(n,ctx,size,color,background,selected,hovered){drawNodeCard(n,ctx,size,selected,hovered)}
   canvas.drawNode=function(n,ctx){adaptivePorts(n);ctx.save();ctx.beginPath();ctx.rect(-8,-LiteGraph.NODE_TITLE_HEIGHT-8,n.size[0]+16,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+16);ctx.clip();ctx.font=this.inner_text_font;const names=[];for(const ports of [n.inputs||[],n.outputs||[]])for(const port of ports){if(port._workflowTemporary){names.push([port,port.name]);port.name=''}port.label=''}try{const result=drawNode.call(this,n,ctx);for(const input of [true,false])for(const [index,port]of(n[input?'inputs':'outputs']||[]).entries())if(port._workflowTemporary){const p=n.getConnectionPos(input,index),x=p[0]-n.pos[0],y=p[1]-n.pos[1];ctx.fillStyle=window.workflowLinkRouting.PORT_COLORS[input?'input':'output'];ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();ctx.strokeStyle=cardTheme.background;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x-3,y);ctx.lineTo(x+3,y);ctx.moveTo(x,y-3);ctx.lineTo(x,y+3);ctx.stroke()}return result}finally{for(const[port,name]of names)port.name=name;ctx.restore()}}
   canvas.allow_searchbox=false
-  canvas.processContextMenu=(n,e)=>{if(e&&typeof e.preventDefault==='function')e.preventDefault();if(n){canvas.selectNode(n);parameter(n)}else if(e)showCanvasMenu(e.clientX,e.clientY);return false}
+  canvas.processContextMenu=(n,e)=>{if(e&&typeof e.preventDefault==='function')e.preventDefault();if(!e)return false;if(n){canvas.selectNode(n);parameter(n);showNodeMenu(n,e.clientX,e.clientY);return false}const link=canvasLinkAt(e);if(link){showLinkMenu(link,e.clientX,e.clientY);return false}showCanvasMenu(e.clientX,e.clientY);return false}
   canvas.onShowNodePanel=n=>{if(n.is_selected&&Object.keys(canvas.selected_nodes).length>1)return false;canvas.selectNode(n);parameter(n);if(!$('workflowNodeText').disabled)$('workflowNodeText').focus();return false}
   canvas.prompt=()=>false
   canvas.onNodeMoved=()=>{dirty=true}
@@ -1012,7 +1012,7 @@ function edit(flow){
   menu.append(node('div',undefined,'workflow-layout-divider'),fit)
   menu.style.left=Math.max(8,Math.min(bounds.left,innerWidth-268))+'px'
   menu.style.top=Math.max(8,Math.min(bounds.bottom+6,innerHeight-280))+'px'
-  canvasMenu=menu;canvasMenuReturn=control;control.setAttribute('aria-expanded','true');page.append(menu)
+  canvasMenu=menu;canvasMenuReturn=control;control.setAttribute('aria-expanded','true');document.body.append(menu)
   const first=menu.querySelector('.workflow-layout-item')
   if(first)first.focus()
   menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeCanvasMenu(true)}else if(event.key==='Tab')closeCanvasMenu(true)})
@@ -1079,10 +1079,62 @@ function edit(flow){
  }
  let canvasMenu=null,canvasMenuReturn=null
  function closeCanvasMenu(restore){if(!canvasMenu)return;const focus=canvasMenuReturn||$('workflowCanvas');canvasMenu.remove();canvasMenu=null;canvasMenuReturn=null;for(const id of ['workflowCanvasZoomButton','workflowArrange']){const control=$(id);if(control)control.setAttribute('aria-expanded','false')}if(restore&&focus.isConnected)focus.focus()}
- function showCanvasMenu(x,y){
-  closeCanvasMenu(false);const menu=node('div',undefined,'workflow-canvas-menu');canvasMenu=menu;menu.setAttribute('role','menu');menu.setAttribute('aria-label','画布视图');menu.style.left=Math.max(8,Math.min(x,innerWidth-180))+'px';menu.style.top=Math.max(8,Math.min(y,innerHeight-60))+'px'
-  const reset=button('恢复100%',()=>{canvas.ds.changeScale(1);canvas.setDirty(true,true);updateZoom();closeCanvasMenu(true)});reset.setAttribute('role','menuitem');menu.append(reset);page.append(menu);reset.focus()
+ // 菜单统一挂到 body：`.workflow-page > *` 的 width:100% 会把 fixed 菜单撑成整屏宽。
+ function openCanvasMenu(x,y,label,entries){
+  closeCanvasMenu(false)
+  const menu=node('div',undefined,'workflow-canvas-menu')
+  canvasMenu=menu;menu.setAttribute('role','menu');menu.setAttribute('aria-label',label)
+  menu.style.left=Math.max(8,Math.min(x,innerWidth-180))+'px'
+  menu.style.top=Math.max(8,Math.min(y,innerHeight-40-entries.length*34))+'px'
+  for(const entry of entries){
+   const item=button(entry.label,()=>{closeCanvasMenu(true);entry.run()},entry.title||entry.label)
+   item.setAttribute('role','menuitem');if(entry.danger)item.classList.add('is-danger');menu.append(item)
+  }
+  document.body.append(menu)
   menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeCanvasMenu(true)}else if(event.key==='Tab')closeCanvasMenu(true)})
+  const first=menu.querySelector('button');if(first)first.focus()
+ }
+ function showCanvasMenu(x,y){
+  openCanvasMenu(x,y,'画布视图',[
+   {label:'恢复100%',title:'把画布缩放恢复为 100%',run:()=>{canvas.ds.changeScale(1);canvas.setDirty(true,true);updateZoom()}},
+   {label:'适应全部',title:'缩放到能看全整张图',run:()=>{fitGraph();canvas.setDirty(true,true);updateZoom()}}
+  ])
+ }
+ function showNodeMenu(target,x,y){openCanvasMenu(x,y,'节点操作',[{label:'删除节点',danger:true,title:'删除该节点及其全部连线',run:()=>removeNode(target)}])}
+ function showLinkMenu(link,x,y){openCanvasMenu(x,y,'连线操作',[{label:'删除连线',danger:true,title:'断开这两张卡片之间的连接',run:()=>removeLink(link)}])}
+ function removeNode(target){
+  if(!target||!graph)return
+  graph.remove(target)
+  if(selectedNode===target)parameter(null)
+  dirty=true;graph.setDirtyCanvas(true,true)
+ }
+ function removeLink(target){
+  if(!target||!graph)return
+  graph.removeLink(target.id)
+  dirty=true;graph.setDirtyCanvas(true,true)
+ }
+ function segmentDistance(points,x,y){
+  let best=Infinity
+  for(let i=1;i<points.length;i++){
+   const a=points[i-1],b=points[i],dx=b[0]-a[0],dy=b[1]-a[1],length=dx*dx+dy*dy
+   const t=length?Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/length)):0
+   const distance=Math.hypot(a[0]+dx*t-x,a[1]+dy*t-y)
+   if(distance<best)best=distance
+  }
+  return best
+ }
+ // 只命中画出来的那条线：几何取 link._workflowRoute，与渲染同源。
+ function canvasLinkAt(event){
+  if(!graph||typeof canvas.convertEventToCanvasOffset!=='function')return null
+  const point=canvas.convertEventToCanvasOffset(event)
+  let limit=Math.max(6,8/canvas.ds.scale),best=null
+  for(const key of Object.keys(graph.links||{})){
+   const link=graph.links[key],points=link&&link._workflowRoute
+   if(!points||points.length<2)continue
+   const distance=segmentDistance(points,point[0],point[1])
+   if(distance<limit){limit=distance;best=link}
+  }
+  return best
  }
  function fitGraph(minScale){
   if(!canvas)return
@@ -1157,7 +1209,7 @@ function edit(flow){
   menu.id='workflowZoomMenu';menu.setAttribute('role','group');menu.setAttribute('aria-label','画布缩放');range.type='range';range.min='10';range.max='1000';range.step='5';range.value=String(Math.round(canvas.ds.scale*100));range.setAttribute('aria-label','缩放比例');label.append(range)
   const change=factor=>{canvas.ds.changeScale(canvas.ds.scale*factor,[canvas.canvas.width/2,canvas.canvas.height/2]);canvas.setDirty(true,true);updateZoom();range.value=String(Math.round(canvas.ds.scale*100))}
   const minus=button('−',()=>change(1/1.1),'缩小画布'),plus=button('+',()=>change(1.1),'放大画布'),reset=button('100%',()=>{canvas.ds.changeScale(1);canvas.setDirty(true,true);updateZoom();range.value='100'},'恢复100%'),fit=button('适应全部',()=>{fitGraph();range.value=String(Math.round(canvas.ds.scale*100))})
-  row.append(minus,reset,plus,fit);menu.append(label,row);range.addEventListener('input',()=>{canvas.ds.changeScale(Number(range.value)/100);canvas.setDirty(true,true);updateZoom()});menu.style.left=Math.max(8,Math.min(bounds.right+8,innerWidth-270))+'px';menu.style.top=Math.max(8,Math.min(bounds.top,innerHeight-130))+'px';canvasMenu=menu;canvasMenuReturn=control;control.setAttribute('aria-expanded','true');page.append(menu);range.focus()
+  row.append(minus,reset,plus,fit);menu.append(label,row);range.addEventListener('input',()=>{canvas.ds.changeScale(Number(range.value)/100);canvas.setDirty(true,true);updateZoom()});menu.style.left=Math.max(8,Math.min(bounds.right+8,innerWidth-270))+'px';menu.style.top=Math.max(8,Math.min(bounds.top,innerHeight-130))+'px';canvasMenu=menu;canvasMenuReturn=control;control.setAttribute('aria-expanded','true');document.body.append(menu);range.focus()
   menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeCanvasMenu(true)}else if(event.key==='Tab')closeCanvasMenu(true)})
  }
  document.addEventListener('keydown',event=>{if(canvasMenu&&event.key==='Escape'&&!event.isComposing){event.preventDefault();event.stopImmediatePropagation();closeCanvasMenu(true)}},true)
@@ -1214,13 +1266,7 @@ function edit(flow){
   })
   dirty=true
  }
- function removeSelectedNode(){
-  if(!selectedNode||!graph)return
-  graph.remove(selectedNode)
-  parameter(null)
-  dirty=true
-  graph.setDirtyCanvas(true,true)
- }
+ function removeSelectedNode(){if(selectedNode)removeNode(selectedNode)}
  $('openWorkflows').addEventListener('click',open)
  $('workflowClose').addEventListener('click',async()=>{
   if(!await confirmLeaveEditor())return
