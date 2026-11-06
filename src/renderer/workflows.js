@@ -25,7 +25,7 @@
   template:'使用 {{input}} 引用全部上游内容，或用 {{input1}}、{{input2}} 分别引用输入1、输入2端口。',
   output:'将上游汇聚的文本保存为本次执行的产物文件（可留空节点内容）。'
  }
- let data={workflows:[],runs:[],nodes:FALLBACK_NODES.slice()},mode='flows',filter='',activeRun='',editing=null,graph=null,canvas=null,selectedNode=null,refreshing=false,refreshAgain=false,detailSignature='',disposed=false,dirty=false,runSelection='',runDetail=null,pinnedSelection=false,canvasMode='select',rejectPickLink=null
+ let data={workflows:[],runs:[],nodes:FALLBACK_NODES.slice()},mode='flows',filter='',activeRun='',editing=null,graph=null,canvas=null,selectedNode=null,refreshing=false,refreshAgain=false,detailSignature='',disposed=false,dirty=false,runSelection='',runDetail=null,pinnedSelection=false,canvasMode='select',rejectPickLink=null,rejectDrag=null
  /* 列表重绘签名：定时刷新只有数据变化时才重建 DOM，否则会打断 hover/focus 并造成闪烁 */
  let flowsRenderKey='',runsRenderKey=''
  const taskForms=new Map()
@@ -1043,12 +1043,12 @@ function edit(flow){
  let splitGesture=null,splitGuide=null
  function canvasModeSet(mode){
   clearPortHints(true)
-  finishSplit(true);finishCardResize(true);canvasMode=mode;splitGuide=null;rejectPickLink=null
+  finishSplit(true);finishCardResize(true);canvasMode=mode;splitGuide=null;rejectPickLink=null;rejectDrag=null
   if(canvas){canvas.allow_dragnodes=mode==='select';canvas.allow_interaction=!['box','split','resize','reject'].includes(mode);canvas.dragging_canvas=false;canvas.connecting_node=null;canvas.setDirty(true,true)}
   $('workflowCanvas').style.cursor=['split','box','connect','reject'].includes(mode)?'crosshair':'default'
   for(const b of document.querySelectorAll('[data-canvas-mode]'))b.setAttribute('aria-pressed',String(b.dataset.canvasMode===mode))
   const hint=$('workflowCanvasHint')
-  hint.textContent=mode==='reject'?'驳回线：点击一条连线，再点击它上游的人工环节 · Esc 返回选择':mode==='resize'?'拖动卡片边缘或边角调整大小 · 选中后方向键微调，Shift 加速 · Esc 返回选择':mode==='split'?'十字分割：拖动时按主方向自动判断左右或上下，另一条线随即消失 · Esc 取消本次移动':mode==='box'?'拖动框选多个节点 · 松开后拖动任一卡片整体移动':mode==='connect'?'连接线：从输出圆点拖到输入圆点 · Esc 返回选择':'拖动节点移动 · 拖动空白平移 · 滚轮缩放 · Shift 点选多个'
+  hint.textContent=mode==='reject'?'驳回线：从节点或连线拖到上游人工环节，松开添加 · Esc 返回选择':mode==='resize'?'拖动卡片边缘或边角调整大小 · 选中后方向键微调，Shift 加速 · Esc 返回选择':mode==='split'?'十字分割：拖动时按主方向自动判断左右或上下，另一条线随即消失 · Esc 取消本次移动':mode==='box'?'拖动框选多个节点 · 松开后拖动任一卡片整体移动':mode==='connect'?'连接线：从输出圆点拖到输入圆点 · Esc 返回选择':'拖动节点移动 · 拖动空白平移 · 滚轮缩放 · Shift 点选多个'
  }
  function splitPoint(event){const rect=$('workflowCanvas').getBoundingClientRect();return[(event.clientX-rect.left)/canvas.ds.scale-canvas.ds.offset[0],(event.clientY-rect.top)/canvas.ds.scale-canvas.ds.offset[1]]}
  function marqueeBounds(){const rect=canvas&&canvas.dragging_rectangle;if(!rect)return null;return[Math.min(rect[0],rect[0]+rect[2]),Math.min(rect[1],rect[1]+rect[3]),Math.abs(rect[2]),Math.abs(rect[3])]}
@@ -1061,11 +1061,16 @@ function edit(flow){
   return false
  }
  function drawRejectGuides(ctx,scale){
-  if(canvasMode!=='reject'||!rejectPickLink||!graph)return
-  const candidates=upstreamHumanNodes(rejectPickLink.target_id),target=graph.getNodeById(rejectPickLink.target_id)
+  if(canvasMode!=='reject'||!graph)return
+  // 拖拽中优先用本次手势缓存的候选节点与端点，避免每帧重新遍历图。
+  const source=rejectDrag?rejectDrag.link:rejectPickLink
+  if(!source)return
+  const candidates=rejectDrag?rejectDrag.candidates:upstreamHumanNodes(source.target_id).map(n=>n.id)
+  const from=graph.getNodeById(source.target_id)
+  if(!from)return
   ctx.save();ctx.strokeStyle=cardTheme.selected;ctx.lineWidth=2/scale;ctx.setLineDash([5/scale,4/scale])
-  for(const n of candidates)ctx.strokeRect(n.pos[0]-5,n.pos[1]-LiteGraph.NODE_TITLE_HEIGHT-5,n.size[0]+10,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+10)
-  if(target&&canvas.graph_mouse){ctx.beginPath();ctx.moveTo(target.pos[0],target.pos[1]+target.size[1]/2);ctx.lineTo(canvas.graph_mouse[0],canvas.graph_mouse[1]);ctx.stroke()}
+  for(const id of candidates){const n=graph.getNodeById(id);if(n)ctx.strokeRect(n.pos[0]-5,n.pos[1]-LiteGraph.NODE_TITLE_HEIGHT-5,n.size[0]+10,n.size[1]+LiteGraph.NODE_TITLE_HEIGHT+10)}
+  if(rejectDrag){ctx.beginPath();ctx.moveTo(from.pos[0],from.pos[1]+from.size[1]/2);ctx.lineTo(rejectDrag.point[0],rejectDrag.point[1]);ctx.stroke()}
   ctx.restore()
  }
  function drawEditorGuides(ctx){
@@ -1153,43 +1158,50 @@ function edit(flow){
  function workflowNodeId(item){return item?(item.properties.workflowId||String(item.id)):''}
  function clearLinkSelection(){
   if(selectedLink&&canvas&&canvas.highlighted_links)delete canvas.highlighted_links[selectedLink.id]
-  selectedLink=null;rejectPickLink=null
+  selectedLink=null;rejectPickLink=null;rejectDrag=null
   const panel=$('workflowLinkPanel');if(panel)panel.hidden=true
   const params=page.querySelector('.workflow-parameters');if(params)params.classList.remove('is-link')
   if(canvas)canvas.setDirty(true,true)
  }
  function rejectHint(){
   if(canvasMode!=='reject')return
-  $('workflowCanvasHint').textContent=rejectPickLink?'点击高亮的上游人工环节，设为这条连线的驳回目标 · Esc 返回选择':'驳回线：点击一条连线，再点击它上游的人工环节 · Esc 返回选择'
+  $('workflowCanvasHint').textContent=rejectDrag?'拖到高亮的上游人工环节，松开即添加驳回线 · Esc 返回选择':'驳回线：从节点或连线拖到上游人工环节，松开添加 · Esc 返回选择'
  }
- function clearRejectPick(){rejectPickLink=null;rejectHint();if(canvas)canvas.setDirty(true,true)}
- // 只有这条连线上游真正走过的人工环节才能作为退回点，避免画出不可执行的驳回线。
- function pickRejectTarget(item){
-  const link=rejectPickLink
-  if(!link||!item||!upstreamHumanNodes(link.target_id).some(n=>n.id===item.id))return false
-  const value=workflowNodeId(item)
-  link.properties={...(link.properties||{}),rejectTo:value}
-  dirty=true
-  const select=$('workflowLinkReject');if(select)select.value=value
-  notice('已把「'+(item.title||value)+'」设为这条连线的驳回目标')
-  canvasModeSet('select')
-  if(canvas)canvas.setDirty(true,true)
+ function clearRejectPick(){rejectPickLink=null;rejectDrag=null;rejectHint();if(canvas)canvas.setDirty(true,true)}
+ function inboundLink(node){return Object.values(graph.links||{}).find(l=>l&&l.target_id===node.id)||null}
+ // 和连接线一样靠拖拽添加：按住被驳回的节点（或它的入线），拖到上游人工环节松开。
+ function rejectMouse(event){
+  const point=event.canvasX===undefined?splitPoint(event):[event.canvasX,event.canvasY]
+  const hit=canvasLinkAt(event),node=hit?graph.getNodeById(hit.target_id):graph.getNodeOnPos(point[0],point[1],graph._nodes)
+  const link=hit||(node?inboundLink(node):null)
+  if(!link){clearLinkSelection();rejectHint();event.preventDefault();event.stopPropagation();return true}
+  canvas.deselectAllNodes();parameter(null);linkParameter(link)
+  rejectPickLink=link
+  const candidates=upstreamHumanNodes(link.target_id).map(n=>n.id)
+  rejectDrag={link,candidates,startClient:[event.clientX,event.clientY],point,moved:false}
+  rejectHint()
+  notice(candidates.length?'拖到高亮的上游人工环节，松开即添加驳回线':'这条连线上游没有人工环节，暂时无法添加驳回线')
+  event.preventDefault();event.stopPropagation();canvas.setDirty(true,true)
   return true
  }
- function rejectMouse(event){
-  const hit=canvasLinkAt(event)
-  if(hit){
-   canvas.deselectAllNodes();parameter(null);linkParameter(hit)
-   rejectPickLink=hit;rejectHint()
-   notice(upstreamHumanNodes(hit.target_id).length?'点击高亮的上游人工环节作为驳回目标':'这条连线上游没有人工环节，暂时无法设置驳回目标')
-   event.preventDefault();event.stopPropagation()
-   return true
+ function rejectDragMove(event){
+  const point=splitPoint(event)
+  if(Math.hypot(event.clientX-rejectDrag.startClient[0],event.clientY-rejectDrag.startClient[1])>4)rejectDrag.moved=true
+  rejectDrag.point=point
+  if(canvas)canvas.setDirty(true,true)
   }
-  const point=event.canvasX===undefined?splitPoint(event):[event.canvasX,event.canvasY]
-  const item=graph.getNodeOnPos(point[0],point[1],graph._nodes)
-  if(rejectPickLink&&item&&pickRejectTarget(item)){event.preventDefault();event.stopPropagation();return true}
-  clearLinkSelection();rejectHint()
-  event.preventDefault();event.stopPropagation()
+ function rejectDragEnd(event){
+  const drag=rejectDrag;rejectDrag=null
+  if(!drag.moved){rejectHint();return false}
+  const point=splitPoint(event),node=graph.getNodeOnPos(point[0],point[1],graph._nodes)
+  if(node&&drag.candidates.includes(node.id)){
+   const value=workflowNodeId(node)
+   drag.link.properties={...(drag.link.properties||{}),rejectTo:value}
+   dirty=true
+   const select=$('workflowLinkReject');if(select)select.value=value
+   notice('已添加驳回线：退回「'+(node.title||value)+'」')
+  }else notice('请拖到高亮的上游人工环节再松开')
+  rejectHint();if(canvas)canvas.setDirty(true,true)
   return true
  }
  // 选中连线后在右侧设置驳回目标：驳回属于这条连线，而不是笼统地属于节点。
@@ -1269,7 +1281,7 @@ function edit(flow){
  }
  function setupCanvasTools(){
   const host=$('workflowCanvasTools');host.textContent=''
-  const entries=[['select','wf-select','选择与移动节点',()=>canvasModeSet('select')],['connect','wf-link','连接线：从输出圆点拖到输入圆点',()=>canvasModeSet('connect')],['reject','wf-reject','驳回线：先点连线，再点它上游的人工环节',()=>canvasModeSet('reject')],['box','wf-marquee','框选多个节点',()=>canvasModeSet('box')],['split','wf-split','分割移动两侧所有节点',()=>canvasModeSet('split')],['resize','wf-card-resize','卡片缩放',()=>{canvasModeSet('resize');canvas.canvas.focus({preventScroll:true})}]]
+  const entries=[['select','wf-select','选择与移动节点',()=>canvasModeSet('select')],['connect','wf-link','连接线：从输出圆点拖到输入圆点',()=>canvasModeSet('connect')],['reject','wf-reject','驳回线：从节点或连线拖到上游人工环节，松开添加',()=>canvasModeSet('reject')],['box','wf-marquee','框选多个节点',()=>canvasModeSet('box')],['split','wf-split','分割移动两侧所有节点',()=>canvasModeSet('split')],['resize','wf-card-resize','卡片缩放',()=>{canvasModeSet('resize');canvas.canvas.focus({preventScroll:true})}]]
   for(const [key,iconName,title,action] of entries){const b=button('',action,title),icon=node('span',undefined,'icon');icon.setAttribute('data-icon',iconName);icon.setAttribute('aria-hidden','true');b.append(icon);b.dataset.canvasAction=key;b.dataset.canvasMode=key;b.setAttribute('aria-pressed','false');host.append(b)}
   const zoomButton=button('',()=>showZoomMenu(zoomButton),'画布缩放');zoomButton.id='workflowCanvasZoomButton';zoomButton.dataset.canvasAction='zoom';zoomButton.setAttribute('aria-expanded','false');zoomButton.setAttribute('aria-controls','workflowZoomMenu');zoomButton.append(glyph('wf-zoom-in'));host.append(zoomButton)
   let warning=$('workflowRoutingWarning');if(!warning){warning=node('div',undefined,'workflow-routing-warning');warning.id='workflowRoutingWarning';warning.hidden=true;warning.setAttribute('role','status');$('workflowCanvasHost').append(warning)}
@@ -1333,6 +1345,7 @@ function edit(flow){
   splitGuide=start;canvas.canvas.focus();canvas.setDirty(true,true);event.preventDefault();event.stopImmediatePropagation()
  },true)
  document.addEventListener(pointer+'move',event=>{
+  if(rejectDrag){rejectDragMove(event);event.preventDefault();event.stopImmediatePropagation();return}
   updatePortHints(event)
   if(cardResizeGesture){moveCardResize(event);event.preventDefault();event.stopImmediatePropagation();return}
   if(mode==='editor'&&['select','resize'].includes(canvasMode)&&canvas&&event.target===canvas.canvas){const hit=cardResizeHit(event);queueMicrotask(()=>{if(canvas&&event.target===canvas.canvas&&['select','resize'].includes(canvasMode))canvas.canvas.style.cursor=hit?hit.cursor:'default'})}
@@ -1341,16 +1354,17 @@ function edit(flow){
   moveSplit(event);if(splitGesture){event.preventDefault();event.stopImmediatePropagation()}
  },true)
  document.addEventListener(pointer+'up',event=>{
+  if(rejectDrag){rejectDragEnd(event);event.preventDefault();event.stopImmediatePropagation();return}
   if(mode==='editor')requestAnimationFrame(()=>{clearPortHints();syncAllPorts();if(canvas)canvas.setDirty(true,true)})
   if(cardResizeGesture){moveCardResize(event);finishCardResize(false);event.preventDefault();event.stopImmediatePropagation();return}
   if(splitGesture){moveSplit(event);finishSplit(false);event.preventDefault();event.stopImmediatePropagation();return}
   if(mode==='editor'&&canvasMode==='box')Promise.resolve().then(()=>{if(canvas&&canvasMode==='box')canvasModeSet('select')})
  },true)
- document.addEventListener('pointercancel',()=>{clearPortHints(true);finishSplit(true);finishCardResize(true)},true)
+ document.addEventListener('pointercancel',()=>{clearPortHints(true);finishSplit(true);finishCardResize(true);if(rejectDrag)clearRejectPick()},true)
  $('workflowCanvas').addEventListener('mouseleave',()=>{clearPortHints();if(!splitGesture){splitGuide=null;if(canvas)canvas.setDirty(true,true)}})
  $('workflowCanvas').addEventListener('keydown',event=>{if(resizeCardByKey(event))return;if(event.key==='Escape'){finishCardResize(true);finishSplit(true);closeCanvasMenu(false);canvasModeSet('select');if(canvas){canvas.deselectAllNodes();canvas.dragging_rectangle=null;canvas.setDirty(true,true)}event.preventDefault()}if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();const box=$('workflowCanvas').getBoundingClientRect();showCanvasMenu(box.left+40,box.top+40)}},true)
  $('workflowCanvasHost').addEventListener('wheel',event=>{if(!canvas||mode!=='editor')return;event.preventDefault();event.stopImmediatePropagation();if(splitGesture||cardResizeGesture||!event.deltaY)return;const rect=canvas.canvas.getBoundingClientRect();canvas.ds.changeScale(canvas.ds.scale*(event.deltaY<0?1.1:1/1.1),[event.clientX-rect.left,event.clientY-rect.top]);canvas.setDirty(true,true);updateZoom()},{passive:false,capture:true})
- window.addEventListener('blur',()=>{clearPortHints(true);finishSplit(true);finishCardResize(true);closeCanvasMenu(false)})
+ window.addEventListener('blur',()=>{clearPortHints(true);finishSplit(true);finishCardResize(true);closeCanvasMenu(false);if(rejectDrag)clearRejectPick()})
  function resize(){
   if(canvas&&mode==='editor'&&!page.classList.contains('hidden')){
    const host=$('workflowCanvasHost'),width=host.clientWidth,height=host.clientHeight
