@@ -153,8 +153,44 @@ async function createAgent() {
   pluginHost.get('tasks').attach({ pool, home: userData, emit: sendEvent })
 }
 
+/* 内置浏览器调试以 --dsh-browser <url> 复用本应用的 Electron 内核。
+   这时只开一个浏览器窗口，不启动整套 Agent UI —— 否则每开一次就是一个完整应用窗口，
+   页面里的链接还会被转交系统浏览器，用户会看到窗口越开越多。 */
+function browserOnlyTarget() {
+  const index = process.argv.indexOf('--dsh-browser')
+  if (index < 0) return null
+  return process.argv.slice(index + 1).find((arg) => /^https?:\/\//i.test(arg)) || 'about:blank'
+}
+
+function createBrowserOnlyWindow(targetUrl) {
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    title: 'Browser',
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  })
+  configureWindowMenu(win, { onQuit: () => app.quit(), onHide: () => app.hide() })
+  win.loadURL(targetUrl)
+  /* 调试页里的新窗口/跳转留在当前窗口，不再 shell.openExternal 一直弹系统浏览器。 */
+  win.webContents.setWindowOpenHandler(({ url: target }) => {
+    if (/^https?:\/\//i.test(String(target || ''))) win.loadURL(target)
+    return { action: 'deny' }
+  })
+}
+
 app.whenReady().then(async () => {
   hideApplicationMenu(Menu)
+  const browserOnlyUrl = browserOnlyTarget()
+  if (browserOnlyUrl) {
+    createBrowserOnlyWindow(browserOnlyUrl)
+    return
+  }
   await createAgent()
   applyWindowTheme([], settings.data.theme, nativeTheme)
   createWindow()

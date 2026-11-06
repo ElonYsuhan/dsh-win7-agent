@@ -827,7 +827,8 @@ function addThinkingBlock(html) {
     }
   }
   const details = document.createElement('details')
-  details.open = true
+  /* 历史块默认折叠，用户点开再看；运行中的块由 beginThinking 展开。 */
+  details.open = currentRunning()
   details.className = 'thinking-block process-timeline'
   const summary = document.createElement('summary')
   summary.textContent = '思考过程'
@@ -3283,6 +3284,8 @@ function endThinking(label) {
     const text = content ? timelineSummaryText(content, false) : ''
     /* 没有步骤的老块保持原标题，别把「思考过程」换成空的「已执行 0 步」。 */
     if (summary && text === '') summary.textContent = label || '思考过程'
+    /* 本轮结束就折起，只留「已执行 N 步」这一行；用户想细看再点开。 */
+    details.open = false
   }
   state.currentThinking = null
   state.currentThinkingDetails = null

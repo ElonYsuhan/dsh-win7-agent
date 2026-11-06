@@ -176,7 +176,7 @@ const toolDefinitions = [
     type: 'function',
     function: {
       name: 'test_run',
-      description: 'Run structured test cases in the launched browser and produce a TestReport. cases: [{name, description?, url?, steps: [{action: open|click|input|keypress|wait|eval|screenshot, ...}], assertions: [...], screenshot?}]. Assertion types: element_exists{selector,negate?}, text_matches{selector?,pattern,negate?}, element_state{selector,property,equals}, url_matches{pattern}, eval_expr{expression,equals?|contains?|truthy?}, console_clean{}, network_clean{allowStatus?}, cesium_viewer{initialized?,minEntities?,maxEntities?,cameraSet?,noSceneError?,webglClean?}, cesium_has_entity{name,negate?}. If browser is not open it is launched with the first case url. Self-validation loop: test_run → fix code → restart service → test_run again; STOP after 5 failed rounds and report instead of looping forever. Reports and screenshots are saved under test-artifacts/ in the workspace.',
+      description: 'Run structured test cases in the launched browser and produce a TestReport. cases: [{name, description?, url?, steps: [{action: open|click|input|keypress|wait|eval|screenshot, ...}], assertions: [...], screenshot?}]. Assertion types: element_exists{selector,negate?}, text_matches{selector?,pattern,negate?}, element_state{selector,property,equals}, url_matches{pattern}, eval_expr{expression,equals?|contains?|truthy?}, console_clean{}, network_clean{allowStatus?}, cesium_viewer{initialized?,minEntities?,maxEntities?,cameraSet?,noSceneError?,webglClean?}, cesium_has_entity{name,negate?}. Requires a browser already opened with browser_launch and reuses that same window; it never launches a new one. Self-validation loop: test_run → fix code → restart service → test_run again on the same window; STOP after 5 failed rounds and report instead of looping forever. Reports and screenshots are saved under test-artifacts/ in the workspace.',
       parameters: {
         type: 'object',
         properties: {
@@ -532,15 +532,9 @@ async function runTestCases(root, input, ctx) {
     throw new Error('NO_TEST_CASES: pass cases[] or path to a test JSON file')
   }
   const driver = agentDriver(ctx)
+  /* 不再自动开新窗口：反复 test_run 会一轮开一个，用户看到窗口无限增加。 */
   if (not(driver.isOpen)) {
-    const firstUrl = (cases.find((item) => item && item.url) || {}).url
-    if (not(firstUrl)) {
-      throw new Error('BROWSER_NOT_OPEN: no case has url and browser is not launched — call browser_launch or give cases a url')
-    }
-    await driver.launch(firstUrl, { noSandbox: process.env.SMOKE_NO_SANDBOX === '1' })
-    if (firstUrl !== cases[0].url) {
-      await driver.open(cases[0].url)
-    }
+    throw new Error('BROWSER_NOT_OPEN: call browser_launch first and reuse that window')
   }
   const outcome = await runSuite(driver, cases, {})
   /* 截图落盘 + 全量 JSON 报告（给用户看，模型只读紧凑版） */

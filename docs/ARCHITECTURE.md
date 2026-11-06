@@ -528,7 +528,7 @@ Agent state semantics. See SOFTWARE-LICENSING.md for offline limits and validati
 
 ### 会话内流程匹配推荐（2026-11-05）
 
-内置 workflow-suggestion 技能给出目标、步骤、人工环节、交付产物四道匹配关，只在会话里判断是否推荐。core/workflow-tools 的 catalog 增加只读 workflows 摘要（id、名称、说明、步骤标题、人工环节数、产物，最多 50 条），新增只读工具 workflow_suggest：校验流程存在与推荐理由，matches 限定四类，返回 suggestion 由渲染层复用既有发起链路呈现「开启工作流」入口。推荐不写流程定义、不建实例、不触发执行，用户点击后才走 workflows.run 并进入执行实例页；无人值守任务无权调用。未新增服务容器、事件总线或执行器，执行与持久化契约不变；固定 Node16/Chromium108，无新增生产依赖。验证入口为 workflow-suggestion-smoke 与 workflow-suggestion-e2e-smoke，Win7 真机验证单独进行。
+内置 workflow-suggestion 技能给出目标、步骤、人工环节、交付产物四道匹配关，只在会话里判断是否推荐。core/workflow-tools 的 catalog 增加只读 workflows 摘要（id、名称、说明、步骤标题、人工环节数、产物，最多 50 条），新增只读工具 workflow_suggest：校验流程存在与推荐理由，matches 限定四类，返回 suggestion 由渲染层复用既有发起链路呈现「开启工作流」入口。推荐不写流程定义、不建实例、不触发执行，用户点击后才走 workflows.run 并进入执行实例页；无人值守任务无权调用。未新增服务容器、事件总线或执行器，执行与持久化契约不变；固定 Node16/Chromium108，无新增生产依赖。验证入口为 workflow-suggestion-smoke 与 workflow-suggestion-e2e-smoke，Win7 真机验证单独进行。后续把判断范围扩展到开发软件功能与改代码：技能不再把「调代码」排除在匹配之外，系统提示要求动手写代码前先读 workflow_catalog，避免已有流程未被识别就直接开工。
 
 ### 条件分支与排他汇合（2026-10-29）
 

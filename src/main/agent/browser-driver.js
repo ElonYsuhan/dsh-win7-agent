@@ -92,6 +92,7 @@ class BrowserDriver {
     this.captureSequence = 0
     this.onExited = null /* 进程意外退出时通知宿主 */
     this.ws = null
+    this.launchPromise = null /* 并发 launch 共用同一次启动，避免重复 spawn */
   }
 
   get isOpen() {
@@ -100,6 +101,13 @@ class BrowserDriver {
 
   /* ---- 启动 ---- */
   async launch(targetUrl, launchOptions) {
+    /* 并发 launch 必须共用同一次启动：两次同时进来各 spawn 一个，就是用户看到的“一直开窗口”。 */
+    if (this.launchPromise) return this.launchPromise
+    this.launchPromise = this.doLaunch(targetUrl, launchOptions).finally(() => { this.launchPromise = null })
+    return this.launchPromise
+  }
+
+  async doLaunch(targetUrl, launchOptions) {
     if (this.closePromise) { await this.closePromise; this.closePromise = null }
     this.closedByUs = false
     if (this.isOpen) {
@@ -121,7 +129,8 @@ class BrowserDriver {
     if (options.disableGpu) args.push('--disable-gpu')
     const env = Object.assign({}, process.env)
     delete env.ELECTRON_RUN_AS_NODE /* 关键：删掉才起 Chromium */
-    this.child = spawn(electronPath, args.concat([targetUrl || 'about:blank']), {
+    /* --dsh-browser 让子进程只开一个浏览器窗口，不再启动整套应用 UI。 */
+    this.child = spawn(electronPath, args.concat(['--dsh-browser', targetUrl || 'about:blank']), {
       env: env,
       stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: false
@@ -139,6 +148,7 @@ class BrowserDriver {
       this.cdp = await this.attach(this.port, targetUrl || 'about:blank')
       this.wireCapture()
       this.launched = true
+      this.trimLiveDrivers()
       return { reused: false, port: this.port }
     } catch (error) {
       await this.close()
@@ -198,6 +208,8 @@ class BrowserDriver {
     this.ws = websocket
     websocket.on('close', () => {
       this.launched = false
+      /* 调试连接断了但进程还活着：不杀就会变成孤儿窗口，下次再 spawn 一个，窗口只增不减。 */
+      if (!this.closedByUs) this.killChild()
     })
     const session = new CdpSession(websocket)
     await session.send('Page.enable')
@@ -395,6 +407,22 @@ class BrowserDriver {
     return result.data /* base64 png */
   }
 
+  killChild() {
+    const child = this.child
+    if (child && child.pid && child.exitCode === null && child.signalCode === null) {
+      try { child.kill('SIGKILL') } catch (error) { /* 收摊不计较 */ }
+    }
+  }
+
+  /* 可见调试窗口全局最多两个：多会话/子 Agent 各开一个会让用户看到窗口无限增加。 */
+  trimLiveDrivers() {
+    const others = Array.from(liveDrivers).filter((driver) => driver !== this && driver.isOpen)
+    while (others.length >= 2) {
+      const oldest = others.shift()
+      try { oldest.close().catch(() => {}) } catch (error) { /* 收摊不计较 */ }
+    }
+  }
+
   close() {
     if (!this.closePromise) this.closePromise = this.finishClose()
     return this.closePromise
@@ -421,7 +449,7 @@ class BrowserDriver {
         const onClose = () => finish()
         child.once('close', onClose)
         forceTimer = setTimeout(() => { try { child.kill('SIGKILL') } catch (error) {} }, 3000)
-        deadline = setTimeout(() => finish(new Error('BROWSER_CLOSE_TIMEOUT')), 6000)
+        deadline = setTimeout(() => { try { if (child.pid) process.kill(child.pid, 'SIGKILL') } catch (error) { /* 已退出 */ } finish(new Error('BROWSER_CLOSE_TIMEOUT')) }, 6000)
         try { child.kill() } catch (error) { /* force timer still owns cleanup */ }
       })
     }

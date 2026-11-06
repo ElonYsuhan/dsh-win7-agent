@@ -36,9 +36,11 @@ for (const platform of ['win32', 'linux']) {
 
 for (const file of ['shell/main.js', 'src/main/main.js']) {
   const source = read(file)
-  const windowCount = (source.match(/new BrowserWindow\(/g) || []).length
-  check(file + ': uses shared chrome options for every window', (source.match(/\.\.\.\s*windowChromeOptions\(/g) || []).length === windowCount)
-  check(file + ': every window publishes state changes', (source.match(/attachWindowChrome\(/g) || []).length === windowCount)
+  /* 内置浏览器调试窗口是纯网页窗口，保留系统原生边框，不参与应用自定义标题栏。 */
+  const appWindows = source.split('function createBrowserOnlyWindow')[0]
+  const windowCount = (appWindows.match(/new BrowserWindow\(/g) || []).length
+  check(file + ': uses shared chrome options for every window', (appWindows.match(/\.\.\.\s*windowChromeOptions\(/g) || []).length === windowCount)
+  check(file + ': every window publishes state changes', (appWindows.match(/attachWindowChrome\(/g) || []).length === windowCount)
   check(file + ': handles window state requests', source.includes("'window:state'"))
   check(file + ': handles native window actions', source.includes("'window:action'"))
   check(file + ': handles titlebar double clicks', source.includes("'shell:titlebar-dblclick'"))
