@@ -7324,7 +7324,22 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 /* 字段沿用节点属性的共享表单基线：同样的标题、间距与控件尺寸。 */
 .workflow-link-panel .workflow-property-content label{display:block;font-size:var(--font-size-caption);margin:0 0 12px;}
 .workflow-link-panel .workflow-property-content label>span{display:block;margin-bottom:4px;color:var(--muted);}
-.workflow-link-panel .workflow-property-content select{width:100%;}
+/* 连线下拉框与节点输入框共用同一套表单控件样式，外观保持一致。 */
+.workflow-property-content input,
+.workflow-property-content select{
+ display:block;width:100%;margin-top:6px;
+ background:var(--panel-2);color:var(--text);
+ border:1px solid var(--border);border-radius:8px;
+ padding:8px 10px;font:inherit;
+ appearance:none;-webkit-appearance:none;
+}
+.workflow-property-content select{
+ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23777777' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+ background-repeat:no-repeat;background-position:right 10px center;background-size:14px;
+ padding-right:32px;
+}
+.workflow-property-content input:focus,
+.workflow-property-content select:focus{border-color:var(--focus);outline:none;}
 .workflow-link-panel .workflow-property-content p{font-size:var(--font-size-caption);line-height:1.6;margin:6px 0 14px;}
 
 .workflow-canvas-tools button[hidden]{display:none;}
