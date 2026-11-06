@@ -7310,21 +7310,22 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-execution-map.is-collapsed .workflow-map-scroll {display:none;}
 .workflow-execution-map.is-collapsed .workflow-map-header {border-bottom:0;}
 
-/* 未选中节点时属性面板只留一句提示，不显示空表单。 */
-.workflow-parameters.is-empty .workflow-property-content,
-.workflow-parameters.is-empty .workflow-property-footer {display:none;}
+/* 未选中节点时属性面板只留一句提示，不显示空表单。只作用于面板直属区块，
+   连线设置面板内部复用同名区块时不会被连带隐藏。 */
+.workflow-parameters.is-empty > .workflow-property-content,
+.workflow-parameters.is-empty > .workflow-property-footer {display:none;}
 /* 选中连线时属性面板切换为连线设置，其余区块让位。 */
-.workflow-parameters.is-link #workflowFlowProperties,
-.workflow-parameters.is-link .workflow-property-header,
-.workflow-parameters.is-link .workflow-property-content,
-.workflow-parameters.is-link .workflow-property-footer{display:none;}
-.workflow-link-panel{display:flex;flex-direction:column;gap:10px;}
+.workflow-parameters.is-link > #workflowFlowProperties,
+.workflow-parameters.is-link > .workflow-property-header,
+.workflow-parameters.is-link > .workflow-property-content,
+.workflow-parameters.is-link > .workflow-property-footer{display:none;}
+.workflow-link-panel{flex:1;min-height:0;display:flex;flex-direction:column;}
 .workflow-link-panel[hidden]{display:none;}
-.workflow-link-panel header h2{font-size:var(--font-size-base);font-weight:var(--font-weight-semibold);}
-.workflow-link-field{display:flex;flex-direction:column;gap:4px;font-size:var(--font-size-caption);color:var(--muted);}
-.workflow-link-field select{min-height:32px;padding:0 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:var(--font-size-caption);}
-.workflow-link-panel button{min-height:32px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text);font-size:var(--font-size-caption);cursor:pointer;}
-.workflow-link-panel button:hover:not(:disabled){background:var(--selection-bg);}
+/* 字段沿用节点属性的共享表单基线：同样的标题、间距与控件尺寸。 */
+.workflow-link-panel .workflow-property-content label{display:block;font-size:var(--font-size-caption);margin:0 0 12px;}
+.workflow-link-panel .workflow-property-content label>span{display:block;margin-bottom:4px;color:var(--muted);}
+.workflow-link-panel .workflow-property-content select{width:100%;}
+.workflow-link-panel .workflow-property-content p{font-size:var(--font-size-caption);line-height:1.6;margin:6px 0 14px;}
 
 .workflow-canvas-tools button[hidden]{display:none;}
 

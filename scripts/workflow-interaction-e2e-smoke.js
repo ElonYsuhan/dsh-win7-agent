@@ -85,7 +85,7 @@ async function main() {
       return {type:node&&node.properties.interaction?node.properties.interaction.type:null,
         interactionBlock:!!document.getElementById('workflowHumanInteractionOptions'),
         extrasCollapsed:extras.open===false,extrasHidden:extras.classList.contains('hidden')&&!extras.getClientRects().length,
-        advancedGone:!!advanced&&advanced.hidden===true,advancedLabelGone:!document.querySelector('.workflow-property-content').textContent.includes('高级设置'),
+        advancedGone:!!advanced&&advanced.hidden===true,advancedLabelGone:!document.querySelector('.workflow-parameters > .workflow-property-content').textContent.includes('高级设置'),
         attachmentEnabled:attachment.checked,mode:document.getElementById('workflowNodeMode').textContent,
         textLabel:document.getElementById('workflowNodeTextLabel').textContent}
     })()`)

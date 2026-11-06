@@ -625,6 +625,7 @@ function renderHumanForm(result,entry,step,task){
    N.prototype.onConnectionsChange=function(kind,slot,connected,link){
     dirty=true;queuePortSync(this)
     if(connected&&link&&!restoringFlow&&canvasMode==='reject')link.properties={...(link.properties||{}),kind:'reject'}
+    refreshLinkPanel()
    }
    LiteGraph.registerNodeType('workflow/'+def.type,N)
    LiteGraph.registered_node_types['workflow/'+def.type].title=def.name
@@ -863,6 +864,7 @@ function updatePortHints(event){
 }
 function edit(flow){
   register()
+  clearLinkSelection(false)
   editing=JSON.parse(JSON.stringify(flow))
   dirty=false
   $('workflowName').value=flow.name;loadFlowProperties(flow)
@@ -939,7 +941,7 @@ function edit(flow){
   canvas.onMouse=function(event){
    if(mode==='editor'&&event.which===1){
     const hit=canvasLinkAt(event)
-    if(hit){this.deselectAllNodes();parameter(null);linkParameter(hit);event.preventDefault();event.stopPropagation();return true}
+    if(hit&&!canvasPointerOnNode(event)&&!canvasPointerOnPort(event)){this.deselectAllNodes();parameter(null);linkParameter(hit);event.preventDefault();event.stopPropagation();return true}
    }
    return canvasMouse.call(this,event)
   }
@@ -1078,6 +1080,7 @@ function edit(flow){
  }
  function drawEditorGuides(ctx){
   if(!canvas)return
+  refreshLinkPanel()
   const scale=canvas.ds.scale,rect=marqueeBounds()
   if(rect){ctx.save();ctx.fillStyle=cardTheme.selected;ctx.globalAlpha=.1;ctx.fillRect(...rect);ctx.globalAlpha=1;ctx.strokeStyle=cardTheme.selected;ctx.lineWidth=2/scale;ctx.setLineDash([]);ctx.strokeRect(...rect);ctx.restore()}
   if(canvasMode!=='split'||!splitGuide)return
@@ -1131,6 +1134,7 @@ function edit(flow){
  }
  function showNodeMenu(target,x,y){openCanvasMenu(x,y,'节点操作',[{label:'删除节点',danger:true,title:'删除该节点及其全部连线',run:()=>removeNode(target)}])}
  function showLinkMenu(link,x,y){
+  linkParameter(link)
   const reject=link&&link.properties&&link.properties.kind==='reject'
   openCanvasMenu(x,y,'连线操作',[{label:reject?'设为连接线':'设为驳回线',title:'切换这条连线的线型',run:()=>setLinkKind(link,reject?null:'reject')},{label:'删除连线',danger:true,title:'断开这两张卡片之间的连接',run:()=>removeLink(link)}])
  }
@@ -1154,32 +1158,49 @@ function edit(flow){
  let selectedLink=null
  // 画布内部 id 会随重开变化，持久化一律用流程节点 id。
  function workflowNodeId(item){return item?(item.properties.workflowId||String(item.id)):''}
- function clearLinkSelection(){
+ function clearLinkSelection(redraw){
   if(selectedLink&&canvas&&canvas.highlighted_links)delete canvas.highlighted_links[selectedLink.id]
   selectedLink=null
   const panel=$('workflowLinkPanel');if(panel)panel.hidden=true
   const params=page.querySelector('.workflow-parameters');if(params)params.classList.remove('is-link')
-  if(canvas)canvas.setDirty(true,true)
+  if(redraw!==false&&canvas)canvas.setDirty(true,true)
  }
- // 右侧气泡只切换线型：连接线 / 驳回线。任意节点之间都能连，链路是否合理由自测验证判断。
- function linkParameter(link){
-  if(!link||!graph)return
-  clearLinkSelection()
-  selectedLink=link
-  const panel=$('workflowLinkPanel'),params=page.querySelector('.workflow-parameters')
-  if(params)params.classList.add('is-link')
-  const from=graph.getNodeById(link.origin_id),to=graph.getNodeById(link.target_id),reject=link.properties&&link.properties.kind==='reject'
-  if(panel){
-   panel.hidden=false
-   $('workflowLinkPath').textContent=(reject?'驳回线：':'连接线：')+(from&&(from.title||from.type)||'起点')+' → '+(to&&(to.title||to.type)||'终点')
-   const select=$('workflowLinkReject');select.textContent=''
-   for(const [value,label]of [['','连接线'],['reject','驳回线']]){const option=node('option',label);option.value=value;select.append(option)}
-   select.value=reject?'reject':''
-   select.disabled=false
-   const legacy=link.properties&&link.properties.rejectTo
-   $('workflowLinkHint').textContent=reject?'这条线是驳回线：起点节点被驳回时退回终点节点。链路是否合理请用「自测验证」检查。':legacy?'此连线带有旧版驳回目标（'+legacy+'），执行时仍会生效；也可切换为驳回线。':'切换为驳回线后，起点节点被驳回时会退回终点节点；链路合理性由「自测验证」判断。'
+ // 面板只读当前 graph 上的这条 link：节点改名、移动、线型切换后都立即跟着变。
+ function linkSnapshot(link){
+  if(!link||!graph||graph.links[link.id]!==link)return null
+  const from=graph.getNodeById(link.origin_id),to=graph.getNodeById(link.target_id)
+  const name=n=>n?(n.title||String(n.type||'').split('/').pop()||'节点'):'未连接'
+  const reject=!!(link.properties&&link.properties.kind==='reject'),legacy=link.properties&&link.properties.rejectTo
+  return{
+   path:(reject?'驳回线：':'连接线：')+name(from)+' → '+name(to),
+   value:reject?'reject':'',
+   hint:reject?'这条线是驳回线：起点节点被驳回时退回终点节点。链路是否合理请用「自测验证」检查。':legacy?'此连线带有旧版驳回目标（'+legacy+'），执行时仍会生效；也可切换为驳回线。':'切换为驳回线后，起点节点被驳回时会退回终点节点；链路合理性由「自测验证」判断。'
   }
-  if(canvas&&canvas.highlighted_links)canvas.highlighted_links[link.id]=1
+ }
+ function refreshLinkPanel(){
+  const panel=$('workflowLinkPanel');if(!panel||panel.hidden)return
+  const snap=linkSnapshot(selectedLink)
+  if(!snap){clearLinkSelection(false);return}
+  const path=$('workflowLinkPath'),hint=$('workflowLinkHint'),select=$('workflowLinkReject')
+  if(path&&path.textContent!==snap.path)path.textContent=snap.path
+  if(hint&&hint.textContent!==snap.hint)hint.textContent=snap.hint
+  if(select){
+   if(select.options.length!==2){select.textContent='';for(const [value,label]of [['','连接线'],['reject','驳回线']]){const option=node('option',label);option.value=value;select.append(option)}}
+   if(select.value!==snap.value)select.value=snap.value
+   if(select.disabled)select.disabled=false
+  }
+ }
+ // 点击哪条线就以哪条线为唯一数据源；重复点同一条线不重建控件，也不打断焦点。
+ function linkParameter(link){
+  if(!link||!graph||graph.links[link.id]!==link)return
+  if(selectedLink!==link){
+   clearLinkSelection(false)
+   selectedLink=link
+   const params=page.querySelector('.workflow-parameters');if(params)params.classList.add('is-link')
+   const panel=$('workflowLinkPanel');if(panel)panel.hidden=false
+   if(canvas&&canvas.highlighted_links)canvas.highlighted_links[link.id]=1
+  }
+  refreshLinkPanel()
   if(canvas)canvas.setDirty(true,true)
  }
  function removeLink(target){
@@ -1209,6 +1230,26 @@ function edit(flow){
    if(distance<limit){limit=distance;best=link}
   }
   return best
+ }
+ function canvasPointerPoint(event){
+  return canvas&&graph&&typeof canvas.convertEventToCanvasOffset==='function'?canvas.convertEventToCanvasOffset(event):null
+ }
+ function canvasPointerOnNode(event){
+  const point=canvasPointerPoint(event);if(!point)return false
+  return !!graph.getNodeOnPos(point[0],point[1],canvas.visible_nodes)
+ }
+ function canvasPointerOnPort(event){
+  const point=canvasPointerPoint(event);if(!point)return false
+  const tolerance=10/canvas.ds.scale
+  for(const n of graph._nodes)for(const input of [true,false]){
+   const list=n[input?'inputs':'outputs']||[]
+   for(let i=0;i<list.length;i++){
+    if(!portVisible(n,input,i))continue
+    const p=n.getConnectionPos(input,i)
+    if(p[0]>-1e5&&Math.hypot(p[0]-point[0],p[1]-point[1])<tolerance)return true
+   }
+  }
+  return false
  }
  function fitGraph(minScale){
   if(!canvas)return
@@ -1288,8 +1329,9 @@ function edit(flow){
  }
  document.addEventListener('keydown',event=>{if(canvasMenu&&event.key==='Escape'&&!event.isComposing){event.preventDefault();event.stopImmediatePropagation();closeCanvasMenu(true)}},true)
  const pointer=typeof LiteGraph!=='undefined'?LiteGraph.pointerevents_method:'pointer'
+ let linkPress=null
  document.addEventListener(pointer+'down',event=>{
-  if(mode==='editor'&&event.button===0)updatePortHints(event)
+  if(mode==='editor'&&event.button===0){linkPress={x:event.clientX,y:event.clientY};updatePortHints(event)}
   if(canvasMenu&&!canvasMenu.contains(event.target)&&!event.target.closest('[data-canvas-action=zoom]')&&!event.target.closest('#workflowArrange'))closeCanvasMenu(false)
   if(mode==='editor'&&event.button===0){const hit=cardResizeHit(event);if(hit){if(canvasMode==='resize')canvas.selectNode(hit.node);cardResizeGesture={...hit,start:splitPoint(event),pos:Array.from(hit.node.pos),size:Array.from(hit.node.size),custom:hit.node.properties.cardSize&&Array.from(hit.node.properties.cardSize)};canvas.canvas.focus();event.preventDefault();event.stopImmediatePropagation();return}}
   if(mode==='editor'&&canvasMode==='resize'&&canvas&&event.target===canvas.canvas&&event.button===0){const point=splitPoint(event),n=graph.getNodeOnPos(point[0],point[1],canvas.visible_nodes);if(n){canvas.selectNode(n);canvas.canvas.focus();event.preventDefault();event.stopImmediatePropagation();return}}
@@ -1307,6 +1349,13 @@ function edit(flow){
   moveSplit(event);if(splitGesture){event.preventDefault();event.stopImmediatePropagation()}
  },true)
  document.addEventListener(pointer+'up',event=>{
+  const press=linkPress;linkPress=null
+  // 抬手时按最终落点重新判定：点哪条线就把属性面板切到哪条线，拖拽过的不算点击。
+  if(mode==='editor'&&press&&event.button===0&&Math.hypot(event.clientX-press.x,event.clientY-press.y)<5&&canvas&&event.target===canvas.canvas&&!canvasPointerOnNode(event)&&!canvasPointerOnPort(event)){
+   const hit=canvasLinkAt(event)
+   if(hit)linkParameter(hit)
+   else if(selectedLink){clearLinkSelection();parameter(null)}
+  }
   if(mode==='editor')requestAnimationFrame(()=>{clearPortHints();syncAllPorts();if(canvas)canvas.setDirty(true,true)})
   if(cardResizeGesture){moveCardResize(event);finishCardResize(false);event.preventDefault();event.stopImmediatePropagation();return}
   if(splitGesture){moveSplit(event);finishSplit(false);event.preventDefault();event.stopImmediatePropagation();return}
@@ -1420,9 +1469,9 @@ function edit(flow){
   }catch(e){notice(e.message)}
   finally{b.disabled=b.id==='workflowStopAll'&&(stoppingAll||!data.runs.some(run=>(!filter||run.workflowId===filter)&&stoppable(run)))}
  })
- $('workflowLinkReject').addEventListener('change',event=>{setLinkKind(selectedLink,event.target.value==='reject'?'reject':null)})
+ $('workflowLinkReject').addEventListener('change',event=>{if(!selectedLink||!graph||graph.links[selectedLink.id]!==selectedLink){clearLinkSelection();event.target.value='';return}setLinkKind(selectedLink,event.target.value==='reject'?'reject':null)})
 $('workflowLinkRemove').addEventListener('click',()=>{const link=selectedLink;if(!link)return;removeLink(link);clearLinkSelection();parameter(null)})
-$('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNode.title=$('workflowNodeTitle').value;dirty=true;graph.setDirtyCanvas(true,true)}})
+$('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNode.title=$('workflowNodeTitle').value;dirty=true;graph.setDirtyCanvas(true,true);refreshLinkPanel()}})
  $('workflowNodeText').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.text=$('workflowNodeText').value;dirty=true;graph.setDirtyCanvas(true,true)}})
  $('workflowNodeDescription').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.description=$('workflowNodeDescription').value;dirty=true}})
  $('workflowRestUrl').addEventListener('input',()=>{if(selectedNode){selectedNode.properties.rest={...(selectedNode.properties.rest||{method:'GET'}),url:$('workflowRestUrl').value};dirty=true}})
