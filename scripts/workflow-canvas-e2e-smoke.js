@@ -125,7 +125,7 @@ async function main() {
     await sleep(100)
     assert(await driver.evaluate(`!document.getElementById('workflowStepsToggle')&&!document.getElementById('workflowStepList')&&getComputedStyle(document.getElementById('workflowCanvasHost')).display!=='none'`),'Legacy step preference opens the canvas without a view switch')
     await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;for(const [id,pos]of Object.entries({s:[150,110],h:[510,110],a:[150,360],e:[510,360]}))c.graph._nodes.find(n=>n.properties.workflowId===id).pos=pos;c.ds.scale=.65;c.ds.offset[0]=0;c.ds.offset[1]=0;c.setDirty(true,true);return true})()`)
-    assert.deepStrictEqual(await driver.evaluate(`Array.from(document.querySelectorAll('#workflowCanvasTools [data-canvas-action]')).map(b=>b.dataset.canvasAction)`), ['select','connect','box','split','resize','zoom'])
+    assert.deepStrictEqual(await driver.evaluate(`Array.from(document.querySelectorAll('#workflowCanvasTools [data-canvas-action]')).map(b=>b.dataset.canvasAction)`), ['select','connect','reject','box','split','resize','zoom'])
     const point=async(x,y)=>driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,r=c.canvas.getBoundingClientRect();return{x:r.left+(${x}+c.ds.offset[0])*c.ds.scale,y:r.top+(${y}+c.ds.offset[1])*c.ds.scale}})()`)
     const mouse=async(type,p,buttons=0,modifiers=0)=>driver.cdp.send('Input.dispatchMouseEvent',{type,button:'left',buttons,clickCount:1,modifiers,...p})
     const drag=async(from,to)=>{await mouse('mousePressed',from,1);await mouse('mouseMoved',to,1);await mouse('mouseReleased',to)}
@@ -213,7 +213,7 @@ async function main() {
     await driver.evaluate('document.getElementById("workflowCanvas").data.ds.scale='+zoomBefore+';document.getElementById("workflowCanvas").data.setDirty(true,true);true')
     // Vertical divider moves all left/right nodes by equal and opposite distances.
     await driver.click('[data-canvas-action=split]')
-    assert(await driver.evaluate(`!document.querySelector('#workflowSplitAxis')&&!document.querySelectorAll('[data-split-axis]').length&&document.querySelectorAll('#workflowCanvasTools [data-canvas-action]').length===6`),'Split no longer ships 左右/上下 buttons: the axis is decided while dragging')
+    assert(await driver.evaluate(`!document.querySelector('#workflowSplitAxis')&&!document.querySelectorAll('[data-split-axis]').length&&document.querySelectorAll('#workflowCanvasTools [data-canvas-action]').length===7`),'Split no longer ships 左右/上下 buttons: the axis is decided while dragging')
     before=await positions();await drag(await point(480,260),await point(560,260));after=await positions()
     for(const id of ['s','a'])assert(Math.abs(after[id][0]-before[id][0]+40)<2,'Left side moves together: '+id)
     for(const id of ['h','e'])assert(Math.abs(after[id][0]-before[id][0]-40)<2,'Right side moves together: '+id)

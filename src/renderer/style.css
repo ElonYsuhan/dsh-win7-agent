@@ -6649,6 +6649,9 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-canvas-tools button{width:32px;height:32px;padding:6px;display:flex;align-items:center;justify-content:center;background:transparent;}
 .workflow-canvas-tools button[aria-pressed=true]{background:var(--selection-bg);outline:1px solid var(--border);}
 .workflow-canvas-tools button[data-canvas-action=in]{margin-top:6px;border-top:1px solid var(--border);}
+/* 连接线与驳回线是一对线型工具，用细分隔线把它们与框选/分割等工具分开。 */
+.workflow-canvas-tools button[data-canvas-action=reject]{position:relative;margin-bottom:9px;}
+.workflow-canvas-tools button[data-canvas-action=reject]::after{content:"";position:absolute;left:3px;right:3px;bottom:-7px;height:1px;background:var(--border);}
 .workflow-zoom{font-size: var(--font-size-caption);color:var(--muted);padding:3px 0;}
 .workflow-canvas-hint{position:absolute;bottom:10px;left:12px;right:12px;pointer-events:none;font-size: var(--font-size-caption);color:var(--muted);text-shadow:0 1px var(--panel);}
 .workflow-editor-mode .workflow-parameters{padding:0;display:flex;flex-direction:column;overflow:hidden;min-height:0;}

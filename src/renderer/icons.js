@@ -22,6 +22,7 @@
     'wf-card-resize': '<svg ' + base + '><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 12V7h5M7 7l4 4m1 6h5v-5m0 5-4-4"/></svg>',
     'wf-pan': '<svg ' + base + '><path d="M8 12V6a2 2 0 0 1 4 0v5-7a2 2 0 0 1 4 0v7-5a2 2 0 0 1 4 0v9c0 5-3 7-7 7-3 0-5-2-7-5l-3-4a2 2 0 0 1 3-3l2 2"/></svg>',
     'wf-link': '<svg ' + base + '><circle cx="5" cy="6" r="3"/><circle cx="19" cy="18" r="3"/><path d="M8 6h4a3 3 0 0 1 3 3v6h1"/></svg>',
+    'wf-reject': '<svg ' + base + '><circle cx="19" cy="5" r="2.5"/><path d="M19 7.5v6a4 4 0 0 1-4 4H6" stroke-dasharray="3 2.5"/><path d="m9 14-3 3.5 3 3.5"/></svg>',
     'wf-zoom-in': '<svg ' + base + '><circle cx="10" cy="10" r="7"/><path d="m15 15 6 6M7 10h6M10 7v6"/></svg>',
     'wf-zoom-out': '<svg ' + base + '><circle cx="10" cy="10" r="7"/><path d="m15 15 6 6M7 10h6"/></svg>',
     'wf-fit': '<svg ' + base + '><path d="M9 3H3v6M15 3h6v6M3 15v6h6M21 15v6h-6"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>',
