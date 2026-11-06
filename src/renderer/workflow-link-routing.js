@@ -14,12 +14,14 @@
   for(const side of ['left','right','up','down']){const group=planned.filter(p=>p.side===side);group.forEach((port,index)=>{const t=(index+1)/(group.length+1),vertical=side==='left'||side==='right';result.set(port.key,{direction:side,point:vertical?[side==='left'?card.left:card.right,card.top+h*t]:[card.left+w*t,side==='up'?card.top:card.bottom],color:port.input?PORT_COLORS.input:PORT_COLORS.output})})}
   return result
  }
- // 只画人工显式指定的退回目标：连线上的驳回目标优先，其次节点自身的退回目标。
+ // 只画人工显式指定的退回目标：独立驳回线、连线上的旧版驳回目标，其次节点自身的退回目标。
  // previous-human 是运行时的兜底策略，不在这里派生反向虚线，
  // 避免把正常顺序连线全部读成“驳回”。
  function rejectionEdges(graph){
   const nodes=graph.nodes||[],edges=graph.edges||[],result=[],seen=new Set()
   const push=(from,to)=>{const key=from+'>'+to;if(seen.has(key))return;const target=nodes.find(n=>n.id===to);if(!target||target.id===from)return;seen.add(key);result.push({from,to,label:'驳回 → '+(target.title||target.id)})}
+  // 独立驳回线：from 是被驳回的节点，to 是退回目标，任意节点之间都能画。
+  for(const pair of graph.rejections||[])push(pair.from,pair.to)
   // 连线上配置的驳回目标：沿这条线走到终点节点被驳回时，退回该人工环节。
   for(const edge of edges){
    if(!edge||!edge.rejectTo)continue

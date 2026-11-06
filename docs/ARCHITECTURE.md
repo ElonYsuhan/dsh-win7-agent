@@ -538,8 +538,8 @@ Agent state semantics. See SOFTWARE-LICENSING.md for offline limits and validati
 
 为区分正向条件分支与业务退回，显示层只对显式配置了 interaction.returnTo 的审阅/审批节点画出带目标标注的反向虚线，条件出口增加名称和方向箭头。`previous-human` 只是运行时的兜底策略，不再由它自动派生虚线：否则每个审批节点都会对上游人工环节生成一条反向连线，导致正常顺序连线被读成驳回。显式目标必须位于上游且为人工节点，否则不画。渲染辅助只处理纯图与几何，既不写入workflow.edges，也不改变DAG执行、状态事件及外部重放策略。继续使用Chromium108 Canvas/SVG，无新增依赖；可替换渲染器不改变业务契约。路由及真实编辑/执行图回归覆盖显式目标、兜底不画线、方向和无持久化环路。
 
-### 连线级驳回目标（2026-11-05）
+### 独立驳回线（2026-11-06）
 
-驳回属于“走到某个节点的那条线”，不再只属于节点本身。contracts/workflows 的边定义新增可选 `rejectTo`：目标必须是人工环节、不能是边的终点、同一终点只能有一条边配置；flow/workflow-policy 的 `returnTarget` 优先取入边上的 `rejectTo`，缺省时才回落到节点级 `interaction.returnTo` 与 `previous-human` 兜底。渲染层只做纯图派生：workflow-link-routing 的 `rejectionEdges` 同时读取边级与节点级目标并去重，用于画标注目标的反向虚线；编辑画布把该字段随流程定义一起保存与还原，删除被引用的人工环节时同步清理引用，避免留下无法保存的草稿。
+驳回既可以来自节点配置，也可以是一条独立的画布连线。编辑器把驳回线序列化为 `edges[].kind='reject'`，contracts/workflows 的 `validate` 将这类边从正向 DAG 剥离并转换为 `workflow.rejections=[{from,to}]`；flow/workflow-policy 的 `returnTarget` 优先取目标为人工环节且反向可达的 `rejections`，再兼容旧版 `edge.rejectTo`、节点级 `interaction.returnTo` 与 `previous-human` 兜底。渲染层只做纯图派生：workflow-link-routing 的 `rejectionEdges` 同时读取 `graph.rejections`、边级与节点级目标并去重，用于画标注目标的反向虚线；编辑画布把驳回线作为真实 link 保存与还原。契约与 flow 不含 IO、平台判断或运行时实现，reducer 仍只依赖契约。
 
-边级目标只描述“退回到哪个人工环节”，不引入新的事件类型、状态迁移或外部重放策略；`node-returned` 事实与外部确认点保持原样。contracts 与 flow 不含 IO、平台判断或运行时实现，reducer 仍只依赖契约。画布工具条把「连接线」与「驳回线」拆成两个图标：两者共享按住拖动、松开落定的编辑期手势，后者从被驳回的节点（或它的入线）拖到上游人工环节，只复用 `canvasModeSet` 与现有链路写入 `link.properties.rejectTo`，不新建连线、不新增服务或事件；右键菜单与右侧面板写入同一份草稿，契约和状态机完全不变。继续固定 Node16/Chromium108，无新增生产依赖或目标机下载。验证入口为 workflow-interaction-smoke（边级优先于节点级）、workflow-routing-smoke（边级虚线去重）与 workflows-e2e-smoke（两个图标、真实鼠标拖拽添加驳回线、点击连线→右侧面板→保存→重开还原）；Win7 真机验证单独进行。
+不引入新的事件类型、状态迁移或外部重放策略；`node-returned` 事实与外部确认点保持原样。画布工具条把「连接线」与「驳回线」拆成两个图标，**两者共用 LiteGraph 端口拖线**：`canvasModeSet('reject')` 与 `connect` 同样保持 `allow_interaction`，`updatePortHints` 白名单包含二者，落下时由 `onConnectionsChange` 给 link 写 `properties.kind='reject'`，不新建服务或事件，不限制起点与终点类型。线型切换通过右侧面板与右键菜单写入同一份草稿，画布按 `kind` 画琥珀虚线与「驳回」标签。链路合理性不在保存时强拦截，由纯函数 `flow/workflow-simulation` 的 `checkRejectLinks` 在「自测验证」中报告错误与警告；不合理的驳回线运行时被忽略并回退到既有兜底。继续固定 Node16/Chromium108，无新增生产依赖或目标机下载。验证入口为 workflow-interaction-smoke（`rejections` 优先、运行时退回与仿真报告）、workflow-routing-smoke（独立驳回线虚线派生）、workflows-e2e-smoke（线型面板与保存还原）与 workflow-canvas-e2e-smoke（真实鼠标端口拖线创建驳回线）；Win7 真机验证单独进行。

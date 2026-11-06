@@ -56,9 +56,12 @@ function validate(raw,types=TYPES){
   return {...(branch?{branch}:{}),interaction:n.type==='human'?Interaction.configuration(n.interaction):undefined,processing:n.type==='human'&&n.processing!==undefined?Processing.view({...n,inputSchema}):undefined,deliverable:['end','output'].includes(n.type)?Artifacts.declaration(n.deliverable):undefined,tool:{name:String(tool.name||''),arguments:tool.arguments||{},permission:tool.permission||'readonly'},inputSchema,outputSchema,bindings:JSON.parse(JSON.stringify(bindings)),skills,agent,id:key,type:n.type,rest,title:String(n.title||((types||TYPES).find(t=>t.type===n.type)||{name:n.type}).name).slice(0,120),text,description:String(n.description||'').slice(0,2000),humanKind:modes[0],humanModes:modes,inputs,outputs,size:Array.isArray(n.size)?[Math.min(520,Math.max(200,Number(n.size[0])||280)),Math.min(360,Math.max(36,Number(n.size[1])||66))]:undefined,pos:Array.isArray(n.pos)?n.pos.slice(0,2).map(v=>Number.isFinite(v)?v:0):[0,0]}
  })
  if(nodes.reduce((sum,n)=>sum+n.text.length+(n.processing?JSON.stringify(n.processing).length:0),0)>128000)throw Error('流程参数总量超过128000字')
- const edges=raw.edges.map(e=>{
+ const allEdges=raw.edges.map(e=>{
   const from=nodes.find(n=>n.id===e.from),to=nodes.find(n=>n.id===e.to),slot=e.slot===undefined?0:e.slot,outputSlot=e.outputSlot===undefined?0:e.outputSlot
   if(!from||!to||from===to)throw Error('连线引用无效节点')
+  // 驳回线和连接线是同一种连线，只是线型不同：任意节点之间都能画，端口只是编辑期交互，
+  // 不承载数据流转，因此不参与正向 DAG，也不做端口位数校验。链路是否合理交给自测验证判断。
+  if(e.kind==='reject')return {from:e.from,to:e.to,kind:'reject'}
   if(!Number.isInteger(slot)||slot<0||slot>=to.inputs.length||!Number.isInteger(outputSlot)||outputSlot<0||outputSlot>=from.outputs.length)throw Error('连线端口无效')
   // 驳回目标挂在连线上：沿这条线走到目标节点被驳回时，退回该人工环节。
   const rejectTo=e.rejectTo===undefined||e.rejectTo===null||e.rejectTo===''?undefined:id(e.rejectTo)
@@ -70,6 +73,16 @@ function validate(raw,types=TYPES){
   }
   return {from:e.from,to:e.to,slot,outputSlot,...(rejectTo?{rejectTo}:{})}
  })
+ const edges=allEdges.filter(e=>e.kind!=='reject')
+ const extra=Array.isArray(raw.rejections)?raw.rejections:[]
+ if(extra.length>300)throw Error('驳回线最多300条')
+ const seenRejections=new Set(),rejections=[]
+ for(const pair of [...allEdges.filter(e=>e.kind==='reject'),...extra]){
+  const from=id(pair.from),to=id(pair.to)
+  if(from===to||!nodes.some(n=>n.id===from)||!nodes.some(n=>n.id===to))throw Error('驳回线引用无效节点')
+  const key=from+'>'+to;if(seenRejections.has(key))continue
+  seenRejections.add(key);rejections.push({from,to})
+ }
  for(const node of nodes)if(edges.filter(e=>e.to===node.id&&e.rejectTo).length>1)throw Error('同一节点只能有一条连线配置驳回目标')
  for(const n of nodes)if(n.type==='condition')for(const route of Branch.routes(n))if(edges.filter(e=>e.from===n.id&&e.outputSlot===route.outputSlot).length!==1)throw Error('每条条件及默认分支必须各连接一个后续节点：'+route.name)
  for(const n of nodes)if(n.type==='merge'&&edges.filter(e=>e.to===n.id).length<2)throw Error('分支汇合需要至少两条不同输入路径')
@@ -77,7 +90,7 @@ function validate(raw,types=TYPES){
  if(new Set(edges.map(e=>e.to+':'+e.slot)).size!==edges.length)throw Error('同一输入端口不能连接多条连线')
  for(const n of nodes)for(const file of n.deliverable&&n.deliverable.files||[]){const source=nodes.find(source=>source.id===file.nodeId&&source.id!==n.id);if(!source)throw Error('产物引用的来源节点不存在');if(TYPES.some(t=>t.type===source.type)&&!['agent','tool','human'].includes(source.type))throw Error('文件产物需来自 Agent、工具、人工附件或文件节点扩展；单次 AI 节点请使用文本交付')};
  for(const n of nodes)for(const binding of Object.values(n.bindings))if(!nodes.some(source=>source.id===binding.nodeId)||binding.nodeId===n.id)throw Error('输入映射引用无效节点');
- return {version:raw.version===2||nodes.some(n=>['agent','tool','condition','merge'].includes(n.type)||n.inputSchema||n.outputSchema||n.processing||n.interaction)?2:1,editor:raw.editor==='steps'?'steps':'canvas',id:raw.id?id(raw.id):'',name,description,materialVersion:Materials.VERSION,materials:Materials.list(raw.materials),nodes,edges}
+ return {version:raw.version===2||nodes.some(n=>['agent','tool','condition','merge'].includes(n.type)||n.inputSchema||n.outputSchema||n.processing||n.interaction)?2:1,editor:raw.editor==='steps'?'steps':'canvas',id:raw.id?id(raw.id):'',name,description,materialVersion:Materials.VERSION,materials:Materials.list(raw.materials),nodes,edges,rejections}
 }
 function submission(raw,requireConclusion=true){
  id(raw.id);id(raw.nodeId);id(raw.taskId)

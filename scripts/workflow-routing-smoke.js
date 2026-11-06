@@ -99,3 +99,8 @@ assert.deepStrictEqual(Routing.rejectionEdges(linked).map(e=>[e.from,e.to]),[['h
 const duplicated={nodes:[{id:'h1',type:'human',title:'登记材料',interaction:{version:1,type:'review',returnTo:'h1'}},{id:'h2',type:'human',title:'补充材料',interaction:{version:1,type:'review',returnTo:'previous-human'}},{id:'end',type:'end',title:'结束'}],edges:[{from:'h1',to:'h2',rejectTo:'h1'}]}
 assert.deepStrictEqual(Routing.rejectionEdges(duplicated).map(e=>[e.from,e.to]),[['h2','h1']],'The same return path is drawn once even when both sources agree')
 assert.strictEqual(returns.edges.length,2,'Display returns do not mutate executable DAG edges')
+// 独立驳回线：任意节点之间都能画，显示层直接按 from/to 派生反向虚线。
+const freeLines={nodes:[{id:'start',type:'start',title:'开始'},{id:'h1',type:'human',title:'登记材料'},{id:'review',type:'human',title:'审阅资料'},{id:'end',type:'end',title:'结束'}],edges:[{from:'start',to:'h1'},{from:'h1',to:'review'},{from:'review',to:'end'}],rejections:[{from:'review',to:'h1'},{from:'review',to:'end'}]}
+assert.deepStrictEqual(Routing.rejectionEdges(freeLines).map(e=>[e.from,e.to]),[['review','h1'],['review','end']],'Rejection links between any nodes are drawn as reverse cables')
+assert.strictEqual(Routing.rejectionEdges(freeLines)[0].label,'驳回 → 登记材料','A rejection link is labelled with the target title')
+assert.strictEqual(freeLines.edges.length,3,'Display rejection links never mutate executable DAG edges')

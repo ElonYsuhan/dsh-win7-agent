@@ -1,5 +1,5 @@
 'use strict'
-const assert=require('assert'),fs=require('fs'),os=require('os'),path=require('path'),http=require('http'),{PluginHost}=require('../src/main/plugins/plugin-host'),{Settings}=require('../src/main/agent/settings')
+const assert=require('assert'),fs=require('fs'),os=require('os'),path=require('path'),http=require('http'),{PluginHost}=require('../src/main/plugins/plugin-host'),{Settings}=require('../src/main/agent/settings'),Simulation=require('../src/main/flow/workflow-simulation')
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 async function wait(fn,label){for(let i=0;i<500;i++){if(await fn())return;await sleep(10)}throw Error('Interaction timeout: '+label)}
 const interaction=(type='handle',returnTo='previous-human')=>({version:1,type,returnTo})
@@ -71,6 +71,29 @@ async function main(){
   assert.strictEqual(detail(linkedRun.id).interactionViews.review.returnTargetId,'h2','A cable-level reject target wins over the node default')
   assert.strictEqual(submit(linkedRun,'review',{decision:'reject',conclusion:'材料仍需补充'}).returnedTo,'h2')
   await waiting(linkedRun,'h2')
+
+  // 驳回线与连接线同构：任意节点之间可画，独立存放且不进入正向 DAG；合理性交给自测验证。
+  const freeNodes=[{id:'s',type:'start',text:'原始资料'},{id:'h',type:'human',title:'登记材料',interaction:interaction()},{id:'review',type:'human',title:'审阅资料',interaction:interaction('review')},{id:'e',type:'end',title:'最终结果',deliverable:{format:'text',name:'结果'}}]
+  const freeEdges=[{from:'s',to:'h'},{from:'h',to:'review'},{from:'review',to:'e'}]
+  const definition=edges=>({name:'任意节点驳回线',version:2,nodes:freeNodes,edges})
+  const freeSaved=service.save(definition([...freeEdges,{from:'review',to:'h',kind:'reject'}]))
+  assert.deepStrictEqual(freeSaved.rejections,[{from:'review',to:'h'}],'A rejection line is stored apart from forward edges')
+  assert.strictEqual(freeSaved.edges.length,3,'A rejection line never becomes a forward DAG edge')
+  const freeRun=service.run({id:freeSaved.id})
+  await waiting(freeRun,'h');submit(freeRun,'h');await waiting(freeRun,'review')
+  assert.strictEqual(detail(freeRun.id).interactionViews.review.returnTargetId,'h','The rejection line supplies the return target')
+  assert.strictEqual(submit(freeRun,'review',{decision:'reject',conclusion:'退回登记'}).returnedTo,'h')
+  await waiting(freeRun,'h')
+  const loose=service.save(definition([...freeEdges,{from:'review',to:'e',kind:'reject'}]))
+  assert(loose.rejections.some(r=>r.to==='e'),'An unreasonable rejection line can still be saved; self-check judges it')
+  const looseRun=service.run({id:loose.id})
+  await waiting(looseRun,'h');submit(looseRun,'h');await waiting(looseRun,'review')
+  assert.strictEqual(detail(looseRun.id).interactionViews.review.returnTargetId,'h','An unreasonable rejection line is ignored at runtime, not fatal')
+  const badCheck=Simulation.simulate({workflow:definition([...freeEdges,{from:'review',to:'e',kind:'reject'}])})
+  assert.strictEqual(badCheck.passed,false,'Self-check fails an unreasonable rejection link')
+  assert(badCheck.issues.some(i=>/不是人工环节/.test(i.message)),'Self-check explains why the rejection link is unreasonable')
+  const goodCheck=Simulation.simulate({workflow:definition([...freeEdges,{from:'review',to:'h',kind:'reject'}])})
+  assert.strictEqual(goodCheck.passed,true,'Self-check passes a reasonable rejection link: '+JSON.stringify(goodCheck.issues.filter(i=>['error','needs_input'].includes(i.severity))))
 
   // Existing definitions keep their configured compulsory conclusion and read checks.
   const legacy=service.save(chain([{id:'h',type:'human',humanModes:['approval','read']}],'旧人工配置')),legacyRun=service.run({id:legacy.id})

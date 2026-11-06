@@ -142,7 +142,7 @@ async function main() {
     }
     // Scrolling must work before the canvas has received a click or keyboard focus.
     await editorWheelBothDirections(await point(480,260),'editor before first click')
-    for(const mode of ['select','connect','box','split','resize','zoom']){
+    for(const mode of ['select','connect','reject','box','split','resize','zoom']){
       await driver.click('[data-canvas-action='+mode+']')
       await editorWheelBothDirections(await point(480,260),'editor '+mode+' mode')
     }
@@ -399,7 +399,23 @@ async function main() {
     assert.strictEqual(branchSaved.nodes.find(n=>n.id==='choose').branch.cases[0].name,'大额复核');assert.strictEqual(branchSaved.edges.find(e=>e.from==='choose'&&e.to==='small').outputSlot,1)
     await driver.evaluate('workflowUI.openDraft('+JSON.stringify(branchFlow.id)+')',{awaitPromise:true})
     assert.deepStrictEqual(await driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.find(n=>n.properties.workflowId==='choose').outputs.map(p=>p.name)`),['大额复核','小额直接通过'])
-    console.log('Workflow canvas: Ribbon icon-over-text groups, HTML5 drag/drop coordinates, live marquee blue preview, select/move, Shift multiselect, marquee group drag, vertical/horizontal split both sides, Esc rollback, wheel anchor, keyboard menu, real port connection/save/reopen, wheel zoom in both diagrams before focus and after redraw, anchored scaling, isolated form scrolling and sidebar reopen without new facts passed')
+    // Rejection lines share the exact same port drag as connection lines, with no node-type restriction.
+    const rejectFlow=await req('POST',base+'/api/workflows/save',{name:'驳回线拖线验收',version:2,nodes:[{id:'s',type:'start',text:'开始',pos:[40,700]},{id:'e',type:'end',title:'结束',pos:[500,700]}],edges:[{from:'s',to:'e'}]})
+    await driver.evaluate('workflowUI.openDraft('+JSON.stringify(rejectFlow.id)+')',{awaitPromise:true})
+    await wait(()=>driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.length===2`),'rejection canvas')
+    const rejectDragPorts=await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data,g=c.graph,r=c.canvas.getBoundingClientRect();for(const [id,pos] of [['rj_from',[40,60]],['rj_to',[500,60]]]){const n=LiteGraph.createNode('workflow/human');n.properties.workflowId=id;n.title=id;n.pos=pos;g.add(n)}c.ds.scale=.45;c.ds.offset=[0,0];c.setDirty(true,true);const a=g._nodes.find(n=>n.properties.workflowId==='rj_from'),b=g._nodes.find(n=>n.properties.workflowId==='rj_to'),p=v=>({x:r.left+(v[0]+c.ds.offset[0])*c.ds.scale,y:r.top+(v[1]+c.ds.offset[1])*c.ds.scale});return{a:p([a.pos[0]+a.size[0]-9,a.pos[1]+20]),b:p([b.pos[0]+30,b.pos[1]+20])}})()`)
+    await driver.click('[data-canvas-action=reject]')
+    await sleep(320);await drag(rejectDragPorts.a,rejectDragPorts.b)
+    const createdRejection=await driver.evaluate(`(()=>{const g=document.getElementById('workflowCanvas').data.graph,l=Object.values(g.links).filter(Boolean).find(l=>l.properties&&l.properties.kind==='reject');return l?{from:g.getNodeById(l.origin_id).properties.workflowId,to:g.getNodeById(l.target_id).properties.workflowId}:null})()`)
+    assert(createdRejection&&createdRejection.from==='rj_from'&&createdRejection.to==='rj_to','Reject mode draws a real rejection link with the same port drag: '+JSON.stringify(createdRejection))
+    await driver.click('#workflowSave');await wait(()=>driver.evaluate(`!document.getElementById('workflowCards').classList.contains('hidden')`),'rejection save')
+    const rejectSaved=(await req('GET',base+'/api/workflows')).workflows.find(f=>f.id===rejectFlow.id)
+    assert(rejectSaved.rejections&&rejectSaved.rejections.some(r=>r.from==='rj_from'&&r.to==='rj_to'),'Rejection links persist as graph.rejections: '+JSON.stringify(rejectSaved.rejections))
+    assert(!rejectSaved.edges.some(e=>e.from==='rj_from'),'Rejection links never enter the forward DAG')
+    await driver.evaluate('workflowUI.openDraft('+JSON.stringify(rejectFlow.id)+')',{awaitPromise:true})
+    await wait(()=>driver.evaluate(`document.getElementById('workflowCanvas').data.graph._nodes.length===4`),'rejection reopen')
+    assert(await driver.evaluate(`Object.values(document.getElementById('workflowCanvas').data.graph.links).some(l=>l&&l.properties&&l.properties.kind==='reject')`),'Reopening restores the rejection link as a real link')
+    console.log('Workflow canvas: Ribbon icon-over-text groups, HTML5 drag/drop coordinates, live marquee blue preview, select/move, Shift multiselect, marquee group drag, vertical/horizontal split both sides, Esc rollback, wheel anchor, keyboard menu, real port connection/save/reopen, rejection line port drag and typed persistence, wheel zoom in both diagrams before focus and after redraw, anchored scaling, isolated form scrolling and sidebar reopen without new facts passed')
   } catch (error) {
     try{console.error('Port diagnostics',JSON.stringify(await driver.evaluate(`(()=>{const c=document.getElementById('workflowCanvas').data;return{connecting:c.connecting_node&&c.connecting_node.properties.workflowId,nodes:c.graph._nodes.map(n=>({id:n.properties.workflowId,inputs:(n.inputs||[]).map(p=>({name:p.name,link:p.link,temp:p._workflowTemporary})),outputs:(n.outputs||[]).map(p=>({name:p.name,links:p.links,temp:p._workflowTemporary}))})),edges:Object.values(c.graph.links).map(l=>({from:l.origin_id,to:l.target_id,in:l.target_slot,out:l.origin_slot}))}})()`)))}catch(_){}
     console.error(logs.slice(-1200))

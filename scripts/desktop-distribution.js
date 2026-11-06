@@ -242,6 +242,26 @@ async function verify(target, staged, input) {
   }
 }
 
+// Windows may keep a directory handle open (Explorer, indexer, IDE watchers) while
+// its files stay movable. Replace entries atomically per file, with the same rollback.
+function replaceEntries(prepared, destination, backup) {
+  fs.mkdirSync(backup, { recursive: true })
+  const previous = fs.readdirSync(destination), incoming = fs.readdirSync(prepared.staged)
+  for (const name of previous) fs.renameSync(path.join(destination, name), path.join(backup, name))
+  try {
+    for (const name of incoming) fs.renameSync(path.join(prepared.staged, name), path.join(destination, name))
+  } catch (error) {
+    for (const name of incoming) {
+      const file = path.join(destination, name)
+      if (fs.existsSync(file)) fs.rmSync(file, { recursive: true, force: true })
+    }
+    for (const name of previous) fs.renameSync(path.join(backup, name), path.join(destination, name))
+    throw error
+  }
+  try { fs.rmSync(backup, { recursive: true, force: true }) } catch (error) { console.warn('保留待清理的旧包：' + backup) }
+  return destination
+}
+
 function publish(prepared, output) {
   const directory = output || OUTPUT
   fs.mkdirSync(directory, { recursive: true })
@@ -253,7 +273,12 @@ function publish(prepared, output) {
   // Backup is private build state, outside the delivery tree. Rename failure leaves old data intact.
   const backup = path.join(path.dirname(prepared.staged), 'previous-delivery')
   if (fs.existsSync(backup)) throw new Error('PREVIOUS_DELIVERY_REQUIRES_RECOVERY: ' + backup)
-  if (fs.existsSync(destination)) fs.renameSync(destination, backup)
+  if (fs.existsSync(destination)) {
+    try { fs.renameSync(destination, backup) } catch (error) {
+      if (process.platform !== 'win32' || !['EBUSY', 'EPERM', 'EACCES'].includes(error.code)) throw error
+      return replaceEntries(prepared, destination, backup)
+    }
+  }
   try { fs.renameSync(prepared.staged, destination) } catch (error) {
     if (fs.existsSync(backup)) fs.renameSync(backup, destination)
     throw error

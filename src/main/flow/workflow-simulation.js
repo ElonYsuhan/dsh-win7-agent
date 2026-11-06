@@ -1,6 +1,6 @@
 'use strict'
 // Pure structural simulation: no registered executor, model, repository or IO.
-const C=require('../contracts/workflows'),Schema=require('../contracts/workflow-schema'),Design=require('../contracts/workflow-node-design'),Processing=require('../contracts/workflow-processing'),P=require('./workflow-policy')
+const C=require('../contracts/workflows'),Schema=require('../contracts/workflow-schema'),Design=require('../contracts/workflow-node-design'),Processing=require('../contracts/workflow-processing'),Interaction=require('../contracts/workflow-interaction'),P=require('./workflow-policy')
 const own=(object,key)=>Object.prototype.hasOwnProperty.call(object,key)
 const textLength=schema=>Math.max(schema.minLength||0,Math.min(schema.maxLength===undefined?8:schema.maxLength,8))
 function exampleCost(schema,depth=0){
@@ -41,12 +41,30 @@ function templateBounded(text,inputs,input){
  while((match=pattern.exec(text))){parts.push(text.slice(offset,match.index),match[1]?(inputs[Number(match[1])-1]||''):input);offset=pattern.lastIndex}
  parts.push(text.slice(offset));return joinBounded(parts,'')
 }
+// 驳回线的合理性只在这里判定：编辑器允许任意节点之间画线，保存不拦截，
+// 由自测验证报告问题，避免把产品判断散落到拖拽手势或契约里。
+function checkRejectLinks(workflow,plan,issue){
+ const links=[...(workflow.rejections||[]).map(r=>({from:r.from,to:r.to})),...(workflow.edges||[]).filter(e=>e.rejectTo).map(e=>({from:e.to,to:e.rejectTo}))]
+ const bySource=new Map()
+ for(const link of links){
+  const group=bySource.get(link.from)||[];group.push(link.to);bySource.set(link.from,group)
+  const source=workflow.nodes.find(n=>n.id===link.from),target=workflow.nodes.find(n=>n.id===link.to)
+  const name=source&&source.title||link.from,targetName=target&&target.title||link.to
+  if(!source||!target){issue(link.from,'error','驳回线引用了不存在的节点');continue}
+  if(target.type!=='human')issue(link.from,'error','驳回线「'+name+' → '+targetName+'」的退回目标不是人工环节')
+  else if(!Interaction.reachable(workflow,link.from,true).includes(link.to))issue(link.from,'error','驳回线「'+name+' → '+targetName+'」的退回目标不在上游链路上')
+  else if(!plan.includes(link.to))issue(link.from,'warning','驳回目标「'+targetName+'」不在通向结束节点的执行路径上')
+  if(source.type!=='human'||!source.interaction||!['review','approve'].includes(source.interaction.type))issue(link.from,'warning','驳回线起点「'+name+'」不是可驳回的人工环节，运行时不会触发')
+ }
+ for(const [from,targets]of bySource)if(new Set(targets).size>1){const source=workflow.nodes.find(n=>n.id===from);issue(from,'error','节点「'+(source&&source.title||from)+'」存在多条驳回目标，退回链路不唯一')}
+}
 function simulate(raw,types){
  const report={mode:'simulation',passed:false,issues:[],steps:[],summary:'仅验证流程结构、样例数据与交付声明；未调用模型、工具、接口或创建真实产物。'}
  const issue=(nodeId,severity,message)=>report.issues.push({nodeId:nodeId||null,severity,message})
  if(!raw||typeof raw!=='object'||JSON.stringify(raw).length>768000){issue(null,'error','仿真请求无效或超过768000字');return report}
  let workflow,plan
  try{workflow=C.validate(raw.workflow,types);plan=P.plan(workflow);P.validateInteractions(workflow,plan)}catch(error){issue(null,'error',error.message);return report}
+ checkRejectLinks(workflow,plan,issue)
  const samples=raw.samples||{},outputs=raw.outputs||{},files=raw.files||{}
  for(const [name,map]of Object.entries({samples,outputs,files}))if(!map||typeof map!=='object'||Array.isArray(map)||Object.keys(map).some(id=>!workflow.nodes.some(n=>n.id===id))){issue(null,'error',name+' 必须按本流程节点 ID 提供样例');return report}
  const states=[];let textBudget=1000000
