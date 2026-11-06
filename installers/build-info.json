@@ -2,13 +2,13 @@
   "formatVersion": 1,
   "target": "win-x64",
   "version": "0.4.4",
-  "sourceCommit": "8ac26e4a71ef3297a437cb42588c247602c9b2b4",
+  "sourceCommit": "2c7fc908bb0b050eb88278857c7820a72099ecd4",
   "electron": "22.3.27",
   "node": "16.17.1",
   "chromium": "108",
-  "uiBuild": "36405115a54493122b85b81e15a051ff91d53b38cbc48920029ff06a4b0da8f8",
-  "packageBuildId": "69f4bed481ddb8151f018e87fd5a121b0bc88afe118f41f8fbe70c2bb37d590c",
+  "uiBuild": "45949a8ea50d0c57c27f5de5dadc004ff689c3d9270700862137d31dfc78e7db",
+  "packageBuildId": "b38840364c0147369b0caf59303a08f49e29424dd29cc862375db448744c6f3c",
   "file": "Agent-win-x64/Agent.exe",
-  "size": 71710927,
-  "sha256": "11feb54d56dde26a67dd6d19190d14f2625bd257a8cdbcd4fced79bd0f415ed1"
+  "size": 71713060,
+  "sha256": "57881719a8861fca7c1b2eac9f8c076e75bf5439709d0a50220716989a60d9b0"
 }
