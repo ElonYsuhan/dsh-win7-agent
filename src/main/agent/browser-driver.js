@@ -416,10 +416,10 @@ class BrowserDriver {
 
   /* 可见调试窗口全局最多两个：多会话/子 Agent 各开一个会让用户看到窗口无限增加。 */
   trimLiveDrivers() {
-    const others = Array.from(liveDrivers).filter((driver) => driver !== this && driver.isOpen)
+    const others = Array.from(liveDrivers).filter((driver) => driver !== this && driver.child && driver.child.exitCode === null)
     while (others.length >= 2) {
       const oldest = others.shift()
-      try { oldest.close().catch(() => {}) } catch (error) { /* 收摊不计较 */ }
+      try { oldest.killChild(); oldest.close().catch(() => {}) } catch (error) { /* 收摊不计较 */ }
     }
   }
 

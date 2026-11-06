@@ -58,6 +58,26 @@ function applyTitlebarDoubleClick(win, action) {
   return 'maximize'
 }
 
+/* 页面脚本可能循环 window.open 同一地址：主窗口外链加冷却与去重，
+   否则系统浏览器会被瞬间刷出几十个标签。 */
+const externalRecent = new Map()
+const EXTERNAL_GAP_MS = 800
+const EXTERNAL_DEDUPE_MS = 5000
+let lastExternalAt = 0
+function openExternalThrottled(target) {
+  const link = String(target || '')
+  if (!/^https?:\/\//i.test(link)) return
+  const now = Date.now()
+  if (now - lastExternalAt < EXTERNAL_GAP_MS) return
+  if (now - (externalRecent.get(link) || 0) < EXTERNAL_DEDUPE_MS) return
+  lastExternalAt = now
+  externalRecent.set(link, now)
+  if (externalRecent.size > 200) {
+    for (const [key, ts] of externalRecent) if (now - ts > 60000) externalRecent.delete(key)
+  }
+  shell.openExternal(link).catch(() => {})
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -87,7 +107,7 @@ function createWindow() {
   /* 外链（http/https）交给系统默认浏览器，其余一律拒绝开新窗口 */
   mainWindow.webContents.setWindowOpenHandler(({ url: target }) => {
     if (/^https?:\/\//i.test(String(target || ''))) {
-      shell.openExternal(target).catch(() => {})
+      openExternalThrottled(target)
     }
     return { action: 'deny' }
   })
@@ -96,7 +116,7 @@ function createWindow() {
     if (target !== current) {
       event.preventDefault()
       if (/^https?:\/\//i.test(String(target || ''))) {
-        shell.openExternal(target).catch(() => {})
+        openExternalThrottled(target)
       }
     }
   })
