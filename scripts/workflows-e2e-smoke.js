@@ -84,6 +84,10 @@ assert(Math.abs(moved[0][0])>30,'Dragging a selected card must move it '+JSON.st
  // 线型切换后，路径前缀与下拉值必须同时更新，不能出现旧前缀配新线型。
  const liveSync=await driver.evaluate(`(()=>{const select=document.getElementById('workflowLinkReject');select.value='reject';select.dispatchEvent(new Event('change'));const path=document.getElementById('workflowLinkPath').textContent,value=select.value;select.value='';select.dispatchEvent(new Event('change'));return{path,value,restoredPath:document.getElementById('workflowLinkPath').textContent,restoredValue:select.value}})()`)
  assert(liveSync.path.startsWith('驳回线：')&&liveSync.value==='reject'&&liveSync.restoredPath.startsWith('连接线：')&&liveSync.restoredValue==='','Cable attributes update live with the selected line type: '+JSON.stringify(liveSync))
+ // 下拉框实际渲染成自定义触发器：必须和输入框一样有可见边框，且文本跟随选中的线型。
+ await clickCable('review','end')
+ const cableTrigger=await driver.evaluate(`(()=>{const panel=document.getElementById('workflowLinkPanel'),trigger=panel&&panel.querySelector('.select-trigger'),cs=trigger&&getComputedStyle(trigger),label=panel&&panel.querySelector('.select-label');return trigger?{border:cs.borderTopColor,bg:cs.backgroundColor,label:label?label.textContent:''}:null})()`)
+ assert(cableTrigger&&cableTrigger.border!==cableTrigger.bg&&cableTrigger.label==='连接线','Cable dropdown trigger must look like the field input: '+JSON.stringify(cableTrigger))
  await driver.click('[data-canvas-action=reject]')
  assert(await driver.evaluate(`(()=>{const b=document.querySelector('[data-canvas-action=reject]'),c=document.getElementById('workflowCanvas').data;return b.getAttribute('aria-pressed')==='true'&&c.allow_interaction&&!c.allow_dragnodes&&document.getElementById('workflowCanvasHint').textContent.includes('任意节点')})()`),'Rejection line tool shares the connection tool interaction')
  // 驳回线与连接线共用 LiteGraph 端口拖线：任意节点之间都能画，合理性交给「自测验证」。

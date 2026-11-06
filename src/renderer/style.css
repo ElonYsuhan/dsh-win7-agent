@@ -8,6 +8,9 @@
   --composer-bg: #2b2b2b;
   --workflow-context-bg: #25282d;
   --border: #303030;
+  /* 表单控件专用底色与边框：--border 与 --panel-2 同色，直接复用会让输入框/下拉框没有边界。 */
+  --field-bg: #262626;
+  --field-border: #4c4c4c;
   /* 分组之间的竖分隔线：--border 在深色/浅色两套主题里都和 panel-2 同值或只差几阶，
      画在 Ribbon 上等于隐形（用户 2026-11-03「流程中的这个竖线白色主题看不清」）。 */
   --divider: #4c4c4c;
@@ -964,6 +967,8 @@ button.danger:hover:not(:disabled) {
   --composer-bg: #f5f5f5;
   --workflow-context-bg: #f8f9fb;
   --border: #eeeeee;
+  --field-bg: #ffffff;
+  --field-border: #c9c9c9;
   --divider: #c9c9c9;
   --text: #252525;
   --muted: #666666;
@@ -7328,8 +7333,8 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
 .workflow-property-content input,
 .workflow-property-content select{
  display:block;width:100%;margin-top:6px;
- background:var(--panel-2);color:var(--text);
- border:1px solid var(--border);border-radius:8px;
+ background:var(--field-bg);color:var(--text);
+ border:1px solid var(--field-border);border-radius:8px;
  padding:8px 10px;font:inherit;
  appearance:none;-webkit-appearance:none;
 }
@@ -7337,6 +7342,11 @@ html.chat-hidden #app.workflows-open .main,html.chat-hidden #app.workflows-open 
  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23777777' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
  background-repeat:no-repeat;background-position:right 10px center;background-size:14px;
  padding-right:32px;
+}
+/* 原生 select 会被统一换成 select-trigger，trigger 才是用户看到的控件，必须和输入框同款边框/底色。 */
+.workflow-property-content .select-trigger{
+border-color:var(--field-border);
+background:var(--field-bg);
 }
 .workflow-property-content input:focus,
 .workflow-property-content select:focus{border-color:var(--focus);outline:none;}

@@ -1185,9 +1185,12 @@ function edit(flow){
   if(path&&path.textContent!==snap.path)path.textContent=snap.path
   if(hint&&hint.textContent!==snap.hint)hint.textContent=snap.hint
   if(select){
-   if(select.options.length!==2){select.textContent='';for(const [value,label]of [['','连接线'],['reject','驳回线']]){const option=node('option',label);option.value=value;select.append(option)}}
-   if(select.value!==snap.value)select.value=snap.value
+   let changed=false
+   if(select.options.length!==2){select.textContent='';for(const [value,label]of [['','连接线'],['reject','驳回线']]){const option=node('option',label);option.value=value;select.append(option)}changed=true}
+   if(select.value!==snap.value){select.value=snap.value;changed=true}
    if(select.disabled)select.disabled=false
+   // 原生 select 被统一换成自定义触发器后 label 不会自动跟随 value，需要显式刷新。
+   if(changed&&window.agentSelect&&typeof window.agentSelect.refresh==='function')window.agentSelect.refresh(select)
   }
  }
  // 点击哪条线就以哪条线为唯一数据源；重复点同一条线不重建控件，也不打断焦点。
