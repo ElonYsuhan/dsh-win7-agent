@@ -141,7 +141,7 @@ Skill 是操作指引，MCP 是工具协议，插件提供运行时能力，三�
 
 ## 从仓库获取安装程序
 
-仓库镜像目录提供 [Windows x64 离线安装程序](installers/Agent-win-x64/Agent.exe)和 [macOS Apple Silicon 应用](installers/Agent-mac-arm64/Agent.app)。各平台构建来源可能不同，以 [安装程序说明和构建记录](installers/README.md)为准。Mac 应用内的 Electron 文件超过 GitHub 普通 Git 推送的单文件大小限制，远程分发需另行解决；本目录不使用 LFS 指针。
+安装程序不随代码仓库分发，构建产物位于 `release/desktop/`。
 
 桌面三层防护、独立发布代码签名及授权申请短标识的实现与限制见 [桌面安全说明](docs/DESKTOP-SECURITY.md)。构建前需在构建机初始化独立发布签名身份：`node scripts/desktop/release-signing.js init`；私钥仅留在构建机，不进入安装包。正式系统证书签名和可信在线更新仍需单独配置与验收。
 

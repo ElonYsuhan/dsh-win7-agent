@@ -143,7 +143,7 @@ Skills provide instructions, MCP defines a tool protocol, and plugins implement 
 
 ## Install from the repository
 
-The repository mirror directory contains the [Windows x64 offline installer](installers/Agent-win-x64/Agent.exe) and the [macOS Apple Silicon app](installers/Agent-mac-arm64/Agent.app). Platform builds may have different source states; see the [installer guide and build records](installers/README.md). An Electron file inside the Mac app exceeds GitHub’s per-file limit for ordinary Git pushes, so remote distribution requires a separate solution. This directory does not use LFS pointers.
+Installers are not distributed with the source repository; build outputs are stored under `release/desktop/`.
 
 See [desktop security](docs/DESKTOP-SECURITY.md) for renderer isolation, IPC validation, signed code manifests, and short license request labels. Initialize the separate build signing identity with `node scripts/desktop/release-signing.js init`; its private key stays on the build host and is never shipped. Official platform certificates and trusted online updates still require separate setup and acceptance.
 
