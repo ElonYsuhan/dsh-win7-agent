@@ -119,6 +119,7 @@
     taskRequest: (action, data) => action === 'list' ? request('GET', '/api/tasks') : action === 'conversation' ? request('GET', '/api/tasks/conversation?runId='+encodeURIComponent(data.runId)) : request('POST', '/api/tasks'+(action==='save'?'':'/'+action),data),
     workflowRequest: (action,data) => action==='list'?request('GET','/api/workflows'):request('POST','/api/workflows/'+action,data||{}),
     knowledgeRequest: (action, data) => action === 'list' ? request('GET', '/api/knowledge') : request('POST', '/api/knowledge/' + action, data || {}),
+    memoryRequest: (action, data) => request('POST', '/api/memory/' + action, data || {}),
     knowledgeUpload: async (raw, file) => { const query = new URLSearchParams(raw); const response = await fetch('/api/knowledge/import?' + query.toString(), { method: 'POST', body: file }); const value = await response.json(); if (!response.ok) throw new Error(value.error || 'KNOWLEDGE_IMPORT_FAILED'); return value },
     extensionRequest: (action, data) => action === 'list' ? request('GET', '/api/extensions') : request('POST', '/api/extensions/' + action, data || {}),
     mcpRequest: (action, data) => action === 'list' ? request('GET', '/api/mcp') : request('POST', '/api/mcp/' + action, data || {}),
@@ -158,7 +159,7 @@
     /* sessionId = 这条消息属于哪条会话。后端是多实例池（一条会话一台 worker），
        所以 send 只认**这条会话**的收尾事件 —— 并发时别的会话的 finished
        不能把这次 send 结掉（否则第二条会话的 promise 会被提前 resolve）。 */
-    send: (text, history, images, memory, sessionId, uiCapabilities) => {
+    send: (text, history, images, memory, sessionId, uiCapabilities, workspacePath) => {
       return new Promise((resolve, reject) => {
         let settled = false
         let timer = null
@@ -184,7 +185,7 @@
            finished 会在订阅前丢掉，界面会一直停在「思考中」。 */
         waitForEvents().then(() => {
           if (settled) return
-          return request('POST', '/api/chat', { text, history, images, memory, sessionId, uiCapabilities })
+          return request('POST', '/api/chat', { text, history, images, memory, sessionId, uiCapabilities, workspacePath })
         }).catch((error) => {
           finish(error)
         })

@@ -160,12 +160,14 @@ function drawNodeCard(n,ctx,size,selected,hovered){
   refresh()
  }
  async function refresh(){
-  if(disposed||page.classList.contains('hidden'))return
+  if(disposed)return
+  if(page.classList.contains('hidden')){if(window.workflowChat)await window.workflowChat.syncRuns().catch(error=>notice(error.message));return}
   if(refreshing){refreshAgain=true;return}
   refreshing=true
   try{
    const next=await api('list')
    data={...next,workflows:next.workflows||[],runs:next.runs||[],nodes:(next.nodes&&next.nodes.length)?next.nodes:FALLBACK_NODES.slice()}
+   if(window.workflowChat)await window.workflowChat.reconcileRuns(data.runs)
    $('workflowCount').textContent=String(data.workflows.length)
    const waitingRuns=new Set(data.runs.filter(run=>run.status==='waiting').map(run=>run.id));for(const key of taskForms.keys())if(!waitingRuns.has(key.split(':')[0]))taskForms.delete(key)
    if(mode==='flows')renderFlows()
@@ -251,6 +253,23 @@ function drawNodeCard(n,ctx,size,selected,hovered){
     runButton,
     instanceButton,
     action('edit','edit','编辑流程',()=>{notice('');edit(flow)}),
+    action('history','wf-steps','版本历史与回滚',async()=>{
+      try {
+        const result=await window.dsh.workflowRequest('history',{id:flow.id})
+        const revisions=result.revisions||[]
+        if(!revisions.length)return notice('没有可回滚的历史版本')
+        await window.appDialogs.alert('流程“'+flow.name+'”的版本：\n'+revisions.map(item=>'v'+item.revision+(item.current?'（当前）':'')).join('\n'))
+        if(!revisions.some(item=>!item.current))return
+        const value=await window.appDialogs.prompt('输入要回滚的版本号；回滚会生成一个新版本，旧版本保留',String(revisions.find(item=>!item.current).revision))
+        if(value===null)return
+        const revision=Number(value)
+        if(!Number.isInteger(revision)||!revisions.some(item=>!item.current&&item.revision===revision))return window.appDialogs.alert('请输入列出的非当前版本号')
+        if(!await window.appDialogs.confirm('回滚到 v'+revision+'？将生成新版本，当前版本仍保留在历史中。'))return
+        await window.dsh.workflowRequest('rollback',{id:flow.id,revision})
+        notice('已生成回滚版本')
+        await refresh()
+      } catch(error) { await window.appDialogs.alert(error.message) }
+    }),
     action('delete','trash','删除流程',async()=>{if(await window.appDialogs.confirm('删除流程“'+flow.name+'”？已产生的执行记录仍保留。')){const removed=await window.dsh.taskRequest('removeWorkflow',{id:flow.id});if(removed.syncError)notice('流程已删除，但定时任务未清理：'+removed.syncError);if(filter===flow.id)filter='';await refresh()}})
    )
    card.append(actions);list.append(card)
@@ -426,7 +445,7 @@ function drawNodeCard(n,ctx,size,selected,hovered){
 
   for(const key of taskForms.keys())if(key.startsWith(result.id+':')&&(!waiting||key!==result.id+':'+waiting.taskId))taskForms.delete(key)
   if(waiting){
-   const analyze=button('打开会话分析',()=>window.workflowChat.open({workflowId:result.workflowId,runId:result.id,nodeId:waiting.id,name:result.name,nodeTitle:waiting.title}));analyze.prepend(glyph('customize'));analyze.className='workflow-analyze-action';taskHead.append(analyze)
+   const analyze=button('在会话中处理',()=>window.workflowChat.openRun(result));analyze.prepend(glyph('customize'));analyze.className='workflow-analyze-action';taskHead.append(analyze)
    if(waiting.id!==runSelection){const locate=button('',()=>{runSelection=waiting.id;pinnedSelection=false;detailSignature='';renderDetail()},'定位当前待办节点：'+waiting.title);locate.className='workflow-locate-action';locate.append(glyph('wf-fit'));taskTitle.classList.add('workflow-current-task-title');taskTitle.append(locate)}
    const taskActions=renderHumanForm(result,waitingEntry,waiting,task);if(taskActions)right.append(taskActions)
   }else task.append(node('p',result.status==='running'?'系统正在自动处理，无需人工操作。':result.status==='pending'?'等待执行。':'此实例当前没有待办。','muted'))
@@ -496,15 +515,16 @@ function humanTaskView(entry,step,result){
  const view=result&&result.processingViews&&result.processingViews[step.id]||entry.processing||{version:1,blocks:[{type:'instructions'},...(schema?[{type:'form'}]:[]),{type:'attachments'},{type:'conclusion',required:true}]}
  return {interaction,flowView,modes,schema,view}
 }
-function renderHumanForm(result,entry,step,task){
+function renderHumanForm(result,entry,step,task,options={}){
  const key=result.id+':'+step.taskId
  const {interaction,flowView,modes,schema,view}=humanTaskView(entry,step,result)
- if(taskForms.has(key)){const cached=taskForms.get(key);task.append(cached.content);return cached.actions}
- const content=node('div'),cached={content,actions:null};task.append(content);task=content;taskForms.set(key,cached)
+ if(options.cache!==false&&taskForms.has(key)){const cached=taskForms.get(key);task.append(cached.content);return cached.actions}
+ const content=node('div'),cached={content,actions:null};task.append(content);task=content;if(options.cache!==false)taskForms.set(key,cached)
  content.className='workflow-human-content'
- const built=buildHumanTask({entry,interaction,modes,schema,view,step,flowView,formId:'workflowTaskForm-'+result.id+'-'+step.taskId})
+ const built=buildHumanTask({entry,interaction,modes,schema,view,step,flowView,formId:(options.formPrefix||'workflowTaskForm-')+result.id+'-'+step.taskId})
  const {form,error,files,label,conclusion,reason,choice,reviewed,reused,submit,sync}=built
  cached.actions=built.actions
+ form.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.isComposing||event.keyCode===229))event.preventDefault()})
  form.addEventListener('submit',async event=>{
   event.preventDefault();if(submit.disabled)return;error.textContent='';submit.disabled=true;submit.textContent='正在提交…';form.setAttribute('aria-busy','true')
   try{const selected=Array.from(files.files||[]);if(selected.length>3||selected.reduce((sum,file)=>sum+file.size,0)>512*1024)throw Error('最多3个附件，总大小不能超过512KB');files.removeAttribute('aria-invalid')
@@ -515,7 +535,8 @@ function renderHumanForm(result,entry,step,task){
    await api('submit',{id:result.id,nodeId:step.id,taskId:step.taskId,conclusion:rejected&&reason?reason.value:label.isConnected?conclusion.value:'',values:rejected&&interaction?undefined:values?values():undefined,reuseFiles:rejected&&interaction?[]:Array.from(reused),reviewed:reviewed.checked||!!(interaction&&interaction.type==='review'),decision:approvable||rejected?choice():'confirm',files:payload})
    // 退回信息由实例头部的退回横幅承载，页面顶部不再重复提示。
    pinnedSelection=false;detailSignature='';notice('')
-   await refresh()
+   if(options.onSubmitted)await options.onSubmitted()
+   else await refresh()
   }catch(e){error.textContent=e.message}finally{submit.disabled=false;sync();form.removeAttribute('aria-busy')}
  })
  task.append(form);return built.actions
@@ -1495,7 +1516,7 @@ $('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNo
   if(next&&Array.isArray(next.workflows))$('workflowCount').textContent=String(next.workflows.length)
   if(next&&Array.isArray(next.nodes)&&next.nodes.length)data.nodes=next.nodes
  }).catch(()=>{})
- const timer=setInterval(()=>{if(!document.hidden&&mode!=='editor')refresh()},1500)
+ const timer=setInterval(()=>{if(!document.hidden&&!page.classList.contains('hidden')&&mode!=='editor')refresh()},1500)
  window.addEventListener('resize',resize)
  let canvasResizeFrame=0
  const canvasSizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(()=>{
@@ -1516,11 +1537,14 @@ $('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNo
   if(!await confirmLeaveEditor())return
   open();const latest=await api('list');data=latest;const flow=latest.workflows.find(w=>w.id===id);if(!flow)throw Error('流程不存在');edit(flow)
  }
- async function startDraft(id){
+ async function startDraft(id,options={}){
   if(!await confirmLeaveEditor())return
   const latest=await api('list'),flow=latest.workflows.find(w=>w.id===id);if(!flow)throw Error('流程不存在，请重新设计或选择已有流程')
+  if(options.inConversation){const existing=latest.runs.find(run=>(options.runIds||[]).includes(run.id)&&run.workflowId===id&&stoppable(run));if(existing)return existing}
   const run=await startRun(flow);if(!run)return
+  if(options.inConversation)return run
   open();data=latest;filter=id;activeRun=run.id;runSelection='';pinnedSelection=false;detailSignature='';view('detail');await refresh()
+  return run
  }
  async function openReference(ref){
   open()
@@ -1528,5 +1552,5 @@ $('workflowNodeTitle').addEventListener('input',()=>{if(selectedNode){selectedNo
   else if(ref.workflowId)await openDraft(ref.workflowId)
   else{view('flows');await refresh()}
  }
- window.workflowUI={open,hide,refresh,openDraft,startDraft,openReference,buildHumanTask,humanTaskView,detectRejectTarget}
+ window.workflowUI={open,hide,refresh,openDraft,startDraft,openReference,buildHumanTask,humanTaskView,detectRejectTarget,renderHumanForm,renderArtifacts}
 })()

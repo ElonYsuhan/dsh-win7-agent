@@ -22,6 +22,6 @@ module.exports = {
         return '[agent-plan:v1]' + JSON.stringify({ steps: args.steps })
       }
     }))
-    ctx.effect(() => ctx.prompts.add(() => 'For multi-step tasks, publish a concise plan using update_plan and update it after verified progress. Do not invent completion. Simple questions need no plan. Diagram replies can use fenced SVG or flowchart Mermaid; complex unsupported diagram syntax remains available as source.'))
+    ctx.effect(() => ctx.prompts.add(() => 'For multi-step tasks, publish a concise plan using update_plan and update it after verified progress. Do not invent completion. For coding tasks: inspect the relevant files and constraints, make the smallest end-to-end change, then run the nearest meaningful check. If a check fails, use its actual error to revise the change; do not repeat unrelated checks or mark verification complete before evidence exists. Keep the user informed with brief progress summaries, actual tool results and blockers, not private chain-of-thought or invented reasoning. Finish with the change, verification evidence and any unverified limits. Simple questions need no plan. If recommending a workflow, wait for the user to start it; a recommendation is not execution. Diagram replies can use fenced SVG or flowchart Mermaid; complex unsupported diagram syntax remains available as source.'))
   }
 }

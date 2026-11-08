@@ -8,6 +8,7 @@
   <!-- 排版基准必须排在 style.css 之前：@font-face 与字号/字重令牌都在这里。 -->
   <link rel="stylesheet" href="typography.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="memory.css">
   <link rel="stylesheet" href="licensing.css">
   <link rel="stylesheet" href="knowledge-upload.css">
   <link rel="stylesheet" href="workflow-ribbon.css">
@@ -454,6 +455,7 @@
         <button class="settings-nav-item active" data-settings-tab="general"><span class="icon" data-icon="general"></span><span>&#36890;&#29992;</span></button>
 
                 <button class="settings-nav-item" data-settings-tab="model"><span class="icon" data-icon="model"></span><span>&#27169;&#22411;</span></button>
+                <button class="settings-nav-item" data-settings-tab="memory"><span class="icon" data-icon="library-books"></span><span>记忆</span></button>
                 <button class="settings-nav-item" data-settings-tab="environment"><span class="icon" data-icon="plugin"></span><span>能力中心</span></button>
 
         <button class="settings-nav-item" data-settings-tab="license"><span class="icon" data-icon="shield-check" aria-hidden="true"></span><span>软件授权</span></button>
@@ -541,6 +543,29 @@
             <button id="addModel" class="provider-add"><span class="icon" data-icon="plus" aria-hidden="true"></span><span>&#28155;&#21152;&#27169;&#22411;</span></button>
           </div>
         </div>
+            <div class="settings-panel hidden" data-settings-panel="memory">
+              <div class="memory-toolbar">
+                <input id="memorySearch" type="search" placeholder="搜索长期记忆" aria-label="搜索长期记忆">
+                <select id="memoryStatus" aria-label="记忆状态">
+                  <option value="active">有效</option>
+                  <option value="disabled">已停用</option>
+                </select>
+                <button id="memoryRefresh" type="button">刷新</button>
+              </div>
+              <p class="muted">长期记忆由你查看、修改或删除；Agent 推断的候选需要确认后才会写入。密码、密钥和令牌不会自动保存。</p>
+              <div class="memory-preferences">
+                <label><input id="memoryAuto" type="checkbox"> 自动提取明确的长期偏好与事实</label>
+                <span id="memoryNotice" class="muted" role="status"></span>
+              </div>
+              <section class="memory-section">
+                <h3>待确认候选</h3>
+                <div id="memoryCandidates" class="memory-list"></div>
+              </section>
+              <section class="memory-section">
+                <h3>已保存记忆</h3>
+                <div id="memoryList" class="memory-list"></div>
+              </section>
+            </div>
             <div class="settings-panel" data-settings-panel="environment">
               <div id="taskServiceSettings" class="settings-block"><summary>能力中心</summary><p id="taskHost" class="muted"></p><div id="taskDesktopOptions" hidden><p class="muted">以下设置仅作用于当前桌面应用。</p><label><input id="taskKeepRunning" type="checkbox">关闭窗口后保持托盘运行</label><label><input id="taskLaunchAtLogin" type="checkbox">开机自启</label></div></div>
             </div>
@@ -563,6 +588,7 @@
   <script src="licensing.js"></script>
   <script src="generative-ui-chat.js"></script>
   <script src="app.js"></script>
+  <script src="memory.js"></script>
   <script src="dialogs.js"></script>
   <script src="dialog-drag.js"></script>
   <script src="extensions.js"></script>

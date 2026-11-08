@@ -50,8 +50,10 @@ architecture for future Agent iterations, not an optional integration.
   edit generated upstream code. Use the documented vendor regeneration workflow.
 - Preserve Windows 7 SP1 x64 / Electron 22.3.27 / Node 16.17.1 and offline use.
   Do not add production dependencies or runtime downloads. See `docs/WIN7-COMPAT.md`.
-- Run `npm run check` and meaningful runtime regression tests. Check the runtime
-  with Electron's embedded Node 16.17.1 as well as the build machine's Node.
+- Use change-scoped checks during development; run `npm run check` once for an
+  agreed feature batch or delivery. Validate affected runtime boundaries with
+  Electron's embedded Node 16.17.1; full delivery checks remain mandatory.
+  Follow the development-efficiency section below for scope and timing.
 
 # Build and delivery rule（2026-10-24 更新）
 
@@ -66,7 +68,8 @@ architecture for future Agent iterations, not an optional integration.
   “一个分发文件”不等于 Electron 只能有一个物理二进制，禁止为凑单文件而每次启动
   都全量解压运行时。Mac 的 `.app` 是标准应用包，不应伪装成裸 Mach-O 可执行文件。
 - 支持范围仍为 `win-x64`、`mac-arm64`、`mac-x64`、`linux-x64`、`linux-arm64`。
-  每个功能或任务完成后生成本机平台验收包；明确要求发版才升级版本并构建全部平台。
+  仅在用户明确要求打包、交付或发版时生成安装包；小功能完成不自动打包。
+  明确要求发版才升级版本并构建全部平台。
   日常验收不自动递增 package/lockfile 版本，未要求发版不得顺便升级运行时或依赖。
 - 对外文件名按产品＋平台固定，成功验收后原子替换该平台旧包，不创建时间戳或临时
   版本发布目录。内部保留不可变 buildId、源码提交、载荷摘要和发布记录。正式更新
@@ -164,3 +167,14 @@ Win7 API/PE 静态检查、内嵌 Node 验证与 Win7 真机验证须分别报�
 - 涉及程序功能的交付，在相关检查和当前源码构建通过后同步替换对应安装程序，同时更新 `installers/SHA256SUMS.txt`、`installers/build-info.json` 和必要说明。不得将旧版本包标成当前源码构建，也不得将失败或未通过验证的暂存包提交。
 - 目录仅存最新版固定文件名安装程序；不提交解压运行时、缓存、私钥、用户数据或验证临时文件。使用完整 Git 二进制，不擅自改为需要额外下载的 LFS 指针。
 - 中英文 README 明确提供仓库内安装程序路径与说明链接。最终回复提供安装程序所在文件夹的可点击绝对路径链接。纯文档修改无需为了同步此镜像重建程序。
+
+# 开发效率与验证节奏（2026-11-08）
+
+- 功能优先。先完成一个端到端可验收闭环，不做与当前目标无关的重构、全仓迁移或中间打包。
+- 日常小修改只检查改动文件并做一次最接近边界的行为验证；纯文案、样式或计数修改不自动运行全量 `check`、Node16 或完整 E2E，不自行把小修定义为“批次收口”。UI 修改仍需一次对应的真实界面验证。
+- 明确的完整功能批次收口或交付时集中运行一次 `npm run check`。涉及 Node16、IPC/HTTP、权限、持久化、启动或交付边界时，开发阶段用 `npm run check:node16 -- <相关测试名>`；无参数仍是完整 Node16 验收。已包含在全量检查中的类型检查和 smoke 不额外重复执行。
+- 构建、保护载荷、安装包和性能采样仅在用户明确要求打包、交付或发版时统一执行，不因内部“批次收口”自动触发；默认 30 组性能样本，失败只重跑受影响步骤，源码变化使证据失效的关联步骤必须重新验证。正式交付的保护、清单、哈希、签名与回滚检查不减免。
+- 同一逻辑只保留最接近改动边界的一层验证，避免 service、HTTP、UI、安装包重复验证同一行为；高风险边界（权限、持久化、恢复、CSP、签名）仍保留定向回归。
+- 后台任务启动后使用完成通知，不反复 `tail` 轮询；需要输出时只在完成或用户询问时读取一次。
+- 每项任务记录真实阶段时间，最终回复列出定位/编码、验证、打包、收尾与总耗时及执行轮次；未执行写明，失败重跑单列，不把等待算作纯编码，不为计时另建系统。
+- 精简实现：删除重复提取、重复索引、重复缓存和重复服务入口，保持单一事实源；能复用既有 Workflow revision、权限和 Cordis 生命周期时不另造机制。

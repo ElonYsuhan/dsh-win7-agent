@@ -15,6 +15,7 @@ function defaultProfile(options) {
     require('./plugins/knowledge'),
     require('./plugins/knowledge-tools'),
     require('./plugins/sessions'),
+    require('./plugins/memory-store'),
     require('./plugins/memory'),
     require('./plugins/agent-loop'),
     require('./plugins/agents'),
@@ -23,6 +24,8 @@ function defaultProfile(options) {
     require('./plugins/workflow-nodes'),
     require('./plugins/workflow-designer'),
     require('./plugins/workflows'),
+    require('./plugins/capability'),
+    require('./plugins/adaptive'),
     require('./plugins/workflow-tools')
   ]
 }

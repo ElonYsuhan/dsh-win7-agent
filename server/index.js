@@ -274,6 +274,7 @@ async function handleApi(request, response, url) {
   if (await require('./task-api').handleTaskApi(request, response, url, { tasks: pluginHost.get('tasks'), json, readBody })) return true
   if (await require('./workflow-api').handleWorkflowApi(request,response,url,{workflows:pluginHost.get('workflows'),json,readBody,emit:broadcast}))return true
   if (await require('./knowledge-api').handleKnowledgeApi(request, response, url, { isRunning: id => pool.isRunning(id), projects: () => settingsStore.all().projects || [], knowledge: pluginHost.get('knowledge'), json, readBody, workspace: () => pool.getWorkspace() })) return true
+  if (await require('./memory-api').handleMemoryApi(request, response, url, { memory: pluginHost.get('memoryStore'), json, readBody, workspace: () => pool.getWorkspace() })) return true
   if (await require('./mcp-api').handleMcpApi(request, response, url, { mcp: pluginHost.get('mcp'), json, readBody })) return true
   if (url.pathname === '/api/health' && request.method === 'GET') {
     json(response, 200, {
@@ -506,7 +507,17 @@ async function handleApi(request, response, url) {
     }
     let uiCapabilities
     try { uiCapabilities = require('../src/main/contracts/generative-ui').negotiate(body.uiCapabilities) } catch (error) { json(response, 400, { error: error.message }); return true }
-    pool.run(sessionId, text, history, images.length > 0 ? images : undefined, memory, undefined, undefined, undefined, uiCapabilities)
+    let workspacePath = body.workspacePath
+    if (workspacePath !== undefined) {
+      if (typeof workspacePath !== 'string' || workspacePath.length > 4096) { json(response, 400, { error: 'WORKSPACE_INVALID' }); return true }
+      if (workspacePath) {
+        const resolved = path.resolve(workspacePath), data = settingsStore.all()
+        const allowed = [data.workspacePath, data.recentWorkspacePath, ...(data.projects || []).flatMap(project => project.folders || [])].filter(Boolean).map(item => path.resolve(item))
+        if (!allowed.includes(resolved) || !fs.existsSync(resolved)) { json(response, 400, { error: 'WORKSPACE_INVALID' }); return true }
+        workspacePath = resolved
+      }
+    }
+    pool.run(sessionId, text, history, images.length > 0 ? images : undefined, memory, undefined, undefined, undefined, uiCapabilities, workspacePath)
       .catch((error) => broadcast(pool.tag(sessionId, { type: 'error', message: error.message })))
     json(response, 202, { ok: true, sessionId: sessionId })
     return true

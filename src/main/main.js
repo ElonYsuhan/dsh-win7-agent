@@ -382,7 +382,17 @@ licensedHandle('chat:send', async (_event, payload) => {
   const history = payload && Array.isArray(payload.history) ? payload.history : undefined
   const images = payload && Array.isArray(payload.images) ? payload.images : undefined
   const memory = payload && payload.memory ? payload.memory : undefined
-  await pool.run(sessionId, text, history, images, memory, undefined, undefined, undefined, payload && payload.uiCapabilities)
+  let workspacePath = payload && payload.workspacePath
+  if (workspacePath !== undefined) {
+    if (typeof workspacePath !== 'string' || workspacePath.length > 4096) throw new Error('WORKSPACE_INVALID')
+    if (workspacePath) {
+      const resolved = path.resolve(workspacePath), data = settings.all()
+      const allowed = [data.workspacePath, data.recentWorkspacePath, ...(data.projects || []).flatMap(project => project.folders || [])].filter(Boolean).map(item => path.resolve(item))
+      if (!allowed.includes(resolved) || !fs.existsSync(resolved)) throw new Error('WORKSPACE_INVALID')
+      workspacePath = resolved
+    }
+  }
+  await pool.run(sessionId, text, history, images, memory, undefined, undefined, undefined, payload && payload.uiCapabilities, workspacePath)
   return true
 })
 
@@ -571,7 +581,28 @@ licensedHandle('shell:open-external', async (_event, target) => {
   return 'OK'
 })
 
-licensedHandle('workflows:request',async(_event,action,data)=>{const service=pluginHost.get('workflows');service.attach(sendEvent);if(action==='list')return service.list();if(!['save','remove','run','detail','stop','submit','context','template','pause','resume','retry','artifact','design','designOptions','validateDesign','simulate','cancelDesign','importMaterial'].includes(action))throw Error('WORKFLOW_ACTION_INVALID');return service[action](data||{})})
+licensedHandle('workflows:request',async(_event,action,data)=>{const service=pluginHost.get('workflows');service.attach(sendEvent);if(action==='list')return service.list();if(!['save','remove','run','detail','stop','submit','context','template','pause','resume','retry','artifact','design','designOptions','validateDesign','simulate','cancelDesign','importMaterial','history','rollback'].includes(action))throw Error('WORKFLOW_ACTION_INVALID');return service[action](data||{})})
+
+licensedHandle('memory:request', async (_event, action, data) => {
+  const memory = pluginHost.get('memoryStore')
+  if (!memory) throw new Error('MEMORY_UNAVAILABLE')
+  const raw = data || {}
+  const root = pool.getWorkspace() || ''
+  const scope = raw.scope === 'user' ? 'user' : root ? 'project' : 'session'
+  const scopeId = scope === 'user' ? '' : root || String(raw.sessionId || '')
+  if (action === 'list') return memory.list({ ...raw, scope, scopeId })
+  if (action === 'search') return memory.search({ ...raw, scope, scopeId })
+  if (action === 'update') return memory.update(raw)
+  if (action === 'forget') return memory.forget(raw.id)
+  if (action === 'candidates') return memory.candidates({ ...raw, scope, scopeId })
+  if (action === 'confirm') return memory.confirm(raw)
+  if (action === 'reject') return memory.reject(raw)
+  if (action === 'preferences') return memory.preferences({ ...raw, scope, scopeId })
+  if (action === 'preference') return memory.setPreference({ ...raw, scope, scopeId })
+  if (action === 'feedback') return memory.feedback(raw)
+  if (action === 'feedback-list') return memory.feedbackList(raw)
+  throw new Error('MEMORY_ACTION_INVALID')
+})
 
 licensedHandle('knowledge:request', async (_event, action, data) => {
   const knowledge = pluginHost.get('knowledge')

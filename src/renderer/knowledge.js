@@ -116,12 +116,14 @@
     page.classList.remove('hidden'); $('app').classList.remove('capabilities-open'); $('app').classList.add('knowledge-open')
     $('contentFrame').classList.add('hidden'); $('capabilityCenter').classList.add('hidden'); $('openCustomize').removeAttribute('aria-current'); $('openLibrary').setAttribute('aria-current', 'page'); refresh()
   }
-  async function refresh() {
-    if (page.classList.contains('hidden')) return
+  async function refresh(background = false) {
+    if (page.classList.contains('hidden') && !background) return
     if (busy) { again = true; return }
     busy = true
     try {
       const next = await api('list')
+      $('libraryCount').textContent = String(next.bases.length)
+      if (page.classList.contains('hidden')) return
       const signature = data => JSON.stringify([data.currentScope, data.bases.map(b => [b.id, b.scopes]), data.documents.map(d => [d.id, d.active])])
       const changed = signature(next) !== signature(snapshot)
       if (changed) clearResults()
@@ -134,7 +136,7 @@
       render(); notice(snapshot.error || '')
       if (changed && $('knowledgeQuery').value.trim() && selected) search()
     } catch (e) { notice('知识库暂不可用：' + e.message) }
-    finally { busy = false; if (again) { again = false; refresh() } }
+    finally { busy = false; if (again) { again = false; refresh(true) } }
   }
   function render() {
     selectedFile = view().active
@@ -203,7 +205,6 @@
       }, doc.id + ':delete'); remove.className = 'knowledge-file-delete'; remove.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>'; remove.title = '删除资料'; remove.setAttribute('aria-label', '删除资料：' + doc.name); row.append(remove); group.append(row)
     }
     if (!visible.length) group.append(el('p', query ? '没有匹配的资料' : '暂无资料', 'knowledge-empty'))
-    $('libraryCount').textContent = String(snapshot.bases.length)
     if (focused) { const target = Array.from(page.querySelectorAll('[data-knowledge-control]')).find(n => n.dataset.knowledgeControl === focused); if (target) target.focus({ preventScroll: true }) }
   }
   async function source(id, baseId) {

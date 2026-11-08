@@ -19,6 +19,12 @@ Previously named DSH Agent, the repository retains the directory name `dsh-win7-
 
 Availability depends on enablement, permissions, runtime requirements and actual invocation results. Built-in Excel tools store formulas without evaluating them; document tools do not provide a full Office layout engine.
 
+Sidebar counts for knowledge bases, the capability center and workflows use numbers only (`0` for an empty list). Knowledge-base counts load asynchronously at startup and update when knowledge changes, without first opening the page; hidden pages do not poll the full list.
+
+## Ordinary conversations and project directories
+
+Ordinary conversations use a separate `recentWorkspacePath` (by default, `workspace` under the user-data directory), not the active project's directory or a project path left in an old conversation. Loading or saving settings repairs ordinary defaults that point into a project directory; historical messages remain unchanged. Creating an ordinary conversation never reuses an empty project conversation, and switching projects does not retarget other sessions' established execution directories. Project conversations retain their associated folder; knowledge conversations use their server-owned bound directory. Commands retain existing permissions and approval; this is not an operating-system sandbox.
+
 ## Compatibility and offline operation
 
 The shipped runtime is pinned to **Electron 22.3.27 / Node 16.17.1 / Chromium 108**. Do not automatically upgrade it, add unauthorized production dependencies or download runtime components on target machines. Client resources ship with the application; model and external tool services use configured trusted intranet addresses.
@@ -60,15 +66,32 @@ The map uses the explicitly authorized, pinned `cesium@1.104.0` offline bundle. 
 
 ## Validation
 
+For routine changes, check the changed files and select one relevant regression instead of automatically running full acceptance or packaging:
+
+```bash
+npm run check:syntax -- src/renderer/app.js src/renderer/knowledge.js
+npm run check:footer
+# Select relevant Node16 suites only when target-runtime boundaries are affected
+npm run check:node16 -- renderer-smoke web-bridge-smoke
+# Preview the suite list without executing tests or verifying the runtime
+npm run check:node16 -- --list
+```
+
+`check:syntax` checks syntax only, not behavior; without file arguments it still scans the original source directories. `check:node16` uses Electron's embedded Node 16.17.1 and accepts suite names or paths such as `scripts/renderer-smoke.js`; unknown targets fail immediately and duplicates run once. Checks report actual elapsed time. UI changes use the relevant real-window regression (such as `check:footer`), without stacking every UI test on top.
+
+Run full acceptance once for an agreed feature batch or explicit delivery, selecting additional checks as needed:
+
 ```bash
 npm run check
 npm run check:node16
+# Optional selections; check already includes typecheck:core and check:adaptive
 npm run typecheck:core
+npm run check:adaptive
 npm run check:workflows:properties:browser
 npm run check:workflows:canvas:browser
 ```
 
-Add relevant real UI, runtime and target-system checks for each change. `check:node16` runs tests using Electron's embedded Node 16.17.1.
+Without arguments, `check` and `check:node16` retain their full scope; targeted checks are not full acceptance. Preserve focused regressions for permissions, persistence, recovery, CSP and signatures. Build-host or embedded Node16 checks do not replace target-system testing. Generate installers only when packaging, delivery or a release is explicitly requested; delivery still requires complete protection, manifest, hash and signature verification.
 
 ## Build and delivery
 
@@ -110,6 +133,7 @@ Skills provide instructions, MCP defines a tool protocol, and plugins implement 
 - [Project rules](AGENTS.md): future Git commit subjects and bodies use Chinese, retaining technical identifiers where needed. Maintain both README language versions together.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Generative UI protocol and stage status](docs/GENERATIVE-UI.md)
+- [Long-term memory and adaptive Agent](docs/ADAPTIVE-AGENT.md)
 - [Win7 compatibility](docs/WIN7-COMPAT.md)
 - [Desktop delivery, updates, source protection and performance](docs/DESKTOP-DELIVERY.md)
 - [Offline extension packages](docs/EXTENSION-PACKAGES.md)
@@ -131,7 +155,11 @@ A new workflow starts with a start and an end node already wired together, so it
 
 The bundled `workflow-process-designer` Skill adapts a pinned official Camunda BPMN Skill and OMG BPMN 2.0.2 modeling principles to local approvals, rejection/correction, and resubmission. The workflow catalog provides the enabled guide on demand; it can be disabled in the capability center. A standard offline `.skill.pgk` is available. See [design Skill provenance and limits](docs/WORKFLOW-DESIGN-SKILL.md).
 
-The bundled `workflow-suggestion` Skill matches a conversation against saved workflows on goal, steps, human checkpoints and deliverable. Only a genuine fit triggers `workflow_suggest`, which renders an open-workflow card in the message and states what is covered and what is missing. Suggesting is read-only: it never edits definitions or creates instances. Clicking opens the run and lands directly on that workflow instance page.
+The bundled `workflow-suggestion` Skill receives a live, read-only saved-workflow summary automatically on every ordinary conversation turn (up to 50 entries and approximately 16,000 characters; truncation is explicit and missing details are retrieved on demand). Users need not say that a workflow exists, and discovery does not require a preliminary file search or catalog call. The model compares meaning, goal, steps, human checkpoints and deliverable; unspecified details in a short task are not contradictions, explicit constraints take precedence, and matching quality still depends on the selected model. Only a genuine fit triggers `workflow_suggest`. Its actionable card appears in the chat body, outside collapsed execution details, and is restored from actual tool records when revisiting the conversation. Cards contain only the name, revision and actions, including an optional workflow-panel action. Follow-up text is concise and mentions only necessary inputs or real risks, not repeated checklists or startup tutorials. Actions retain readable hover, keyboard-focus and disabled states in both themes. Suggesting is read-only: it never edits definitions or creates instances. Clicking starts the run and keeps its forms in the current conversation without automatic navigation.
+
+A run started in chat is linked to its originating conversation; current and subsequent human tasks appear there without automatically creating an execution conversation. A conversation can retain references and results for multiple runs, and clicking an unfinished workflow again does not start a duplicate. Schema forms, attachments, review, approval and rejection with a reason use the original workflow service and current taskId validation. Submission continues the original run, reload restores actual execution records, and AI does not submit on the user's behalf. The workflow panel opens on demand and returning preserves the unsubmitted chat form. Legacy dedicated execution conversations remain readable. When another conversation is selected, new replies (including streaming replies) or workflow records add an unread dot at the top-right of the original conversation row; it survives reload and clears after opening and reading that conversation.
+
+Complex coding tasks keep the existing Cordis Agent and `update_plan`, guiding the model through a concise plan, relevant files and constraints, a minimal change, the nearest meaningful check, and fixes based on real errors. Progress reports use actual tool results, verification evidence and blockers. This neither displays nor fabricates private chain-of-thought, nor establishes model capability equivalent to Claude.
 
 Conditional nodes select the first matching rule or the default exit; merge nodes accept the active path. Resubmission reevaluates routing while preserving history. Unselected paths do not execute. Parallel approvals and role-based approval permissions remain unsupported.
 

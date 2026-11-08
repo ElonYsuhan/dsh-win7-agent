@@ -66,8 +66,8 @@ function keyOf(sessionId) {
  *   4. 只对「同一条会话重入」判 SESSION_BUSY；跨会话并发由 maxConcurrentRuns 兜底。
  *
  * 插件宿主（PluginHost）是**共享**的：它本身没有按 agent 的状态，工具定义 / 系统提示
- * 对所有 worker 一致，共享省掉每会话重新加载插件的开销。工作区是全局设置，
- * 切工作区时统一广播给所有 worker。
+ * 对所有 worker 一致，共享省掉每会话重新加载插件的开销。工作区由各 worker
+ * 在执行前确定，切换界面项目不改变其他会话的工作区。
  */
 class AgentPool {
   constructor(options) {
@@ -100,13 +100,11 @@ class AgentPool {
     return this.workspacePath()
   }
 
-  /* 切换工作区：设置只写一次，然后统一广播给插件宿主和所有已存在的 worker */
   setWorkspace(workspacePath) {
     const raw = String(workspacePath || '')
     if (raw) this.settings.update({ workspacePath: raw })
     const resolved = this.workspacePath()
     if (this.pluginHost) this.pluginHost.workspaceRoot = resolved
-    for (const worker of this.workers.values()) if (!worker.unattended && !worker.knowledgeBound) worker.workspaceRoot = resolved
     return resolved
   }
 
@@ -135,7 +133,7 @@ class AgentPool {
     )
     /* 给 worker 打主人标记：插件事件里回传的 agent 也能认出属于哪条会话 */
     worker.sessionId = key
-    worker.workspaceRoot = this.workspacePath()
+    worker.workspaceRoot = (this.settings && this.settings.data && this.settings.data.recentWorkspacePath) || this.workspacePath()
     this.workers.set(key, worker)
     this.touch(key)
     this.evictIfNeeded(key)
@@ -207,7 +205,7 @@ class AgentPool {
   /* 执行一条会话。同会话重入 → SESSION_BUSY；池满 → POOL_BUSY。
      两个都是**调用方该看到的错误**，所以 Server 侧会先探一次（拿得到 HTTP 状态码），
      这里的判断是二道闸，防止两个请求同时挤进同一个入口。 */
-  async run(sessionId, text, history, images, memory, unattended, uiActionId, signal, uiCapabilities) {
+  async run(sessionId, text, history, images, memory, unattended, uiActionId, signal, uiCapabilities, workspaceRoot) {
     const key = keyOf(sessionId)
     if (this.running.has(key)) {
       throw new Error('SESSION_BUSY: this session is already running')
@@ -216,6 +214,7 @@ class AgentPool {
       throw new Error('POOL_BUSY: ' + this.running.size + ' of ' + this.maxConcurrentRuns + ' sessions are running')
     }
     const worker = this.acquire(key)
+    if (!unattended && typeof workspaceRoot === 'string') worker.workspaceRoot = workspaceRoot
     if (unattended) {
       worker.unattended = true
       const data = Object.freeze({ ...this.settings.data, ...unattended.settings, workspacePath: unattended.workspaceRoot })

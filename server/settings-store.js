@@ -3,6 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const mcpContract = require('../src/main/contracts/mcp')
+const { resolveRecentWorkspace } = require('../src/main/agent/settings')
 
 const DEFAULT_MODEL_ID = 'default'
 const DEFAULT_MODEL_NAME = '\u9ed8\u8ba4\u6a21\u578b'
@@ -26,6 +27,7 @@ const DEFAULTS = {
   keepRecentMessages: 50,
   summaryMaxTokens: 1024,
   workspacePath: process.env.WORKSPACE_PATH || '',
+  recentWorkspacePath: '',
   /* 同时能跑几条会话（每条一个 worker Agent，见 src/main/agent/agent-pool.js）。
      与 src/main/agent/settings.js 的默认值保持一致。 */
   maxConcurrentRuns: 8,
@@ -120,6 +122,7 @@ function normalize(data) {
   next.approveWrites = permissionMode === 'readonly'
   next.approveCommands = permissionMode !== 'full'
   if (not(Array.isArray(next.recentWorkspaces))) next.recentWorkspaces = []
+  next.recentWorkspacePath = typeof next.recentWorkspacePath === 'string' ? next.recentWorkspacePath : ''
   /* 并发上限：本地大模型机器差异很大，允许用户按硬件放大。 */
   const concurrent = Math.floor(Number(next.maxConcurrentRuns))
   next.maxConcurrentRuns = Number.isFinite(concurrent) && concurrent >= 1
@@ -161,6 +164,12 @@ class SettingsStore {
     if (not(this.data.workspacePath)) {
       this.data.workspacePath = path.join(this.home, 'workspace')
     }
+    const recentWorkspacePath = resolveRecentWorkspace(this.data, this.home)
+    if (this.data.recentWorkspacePath !== recentWorkspacePath) {
+      this.data.recentWorkspacePath = recentWorkspacePath
+      this.save()
+    }
+    fs.mkdirSync(recentWorkspacePath, { recursive: true })
   }
 
   save() {
@@ -202,7 +211,11 @@ class SettingsStore {
       next.workspacePath = workspace
       next.recentWorkspaces = [workspace].concat(next.recentWorkspaces || []).filter((value, index, list) => list.indexOf(value) === index).slice(0, 10)
     }
-    this.data = normalize(next)
+    if (patch.recentWorkspacePath) next.recentWorkspacePath = path.resolve(patch.recentWorkspacePath)
+    const normalized = normalize(next)
+    normalized.recentWorkspacePath = resolveRecentWorkspace(normalized, this.home)
+    fs.mkdirSync(normalized.recentWorkspacePath, { recursive: true })
+    this.data = normalized
     if (this.data.workspacePath) fs.mkdirSync(this.data.workspacePath, { recursive: true })
     this.save()
     return this.all()

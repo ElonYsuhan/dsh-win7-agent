@@ -30,9 +30,21 @@ function label(file) {
 }
 
 function main() {
-  const files = []
-  for (const dir of SCAN_DIRS) walk(path.join(ROOT, dir), files)
-  files.sort()
+  const started = Date.now()
+  const inputs = process.argv.slice(2)
+  const collected = []
+  if (!inputs.length) {
+    for (const dir of SCAN_DIRS) walk(path.join(ROOT, dir), collected)
+  } else {
+    for (const input of inputs) {
+      const file = path.resolve(ROOT, input)
+      if (!fs.existsSync(file) || !fs.statSync(file).isFile() || !file.endsWith('.js')) {
+        throw new Error('Expected an existing JavaScript file: ' + input)
+      }
+      collected.push(file)
+    }
+  }
+  const files = [...new Set(collected)].sort()
 
   const failed = []
   for (const file of files) {
@@ -44,7 +56,7 @@ function main() {
   }
 
   if (failed.length > 0) {
-    console.error('syntax check FAILED: ' + failed.length + ' of ' + files.length + ' files')
+    console.error('syntax check FAILED: ' + failed.length + ' of ' + files.length + ' files, ' + (Date.now() - started) + ' ms')
     for (const item of failed) {
       console.error('  ' + label(item.file))
       console.error('    ' + item.error.split('\n').slice(0, 3).join('\n    '))
@@ -52,7 +64,7 @@ function main() {
     process.exit(1)
   }
 
-  console.log('syntax OK: ' + files.length + ' files, node ' + process.versions.node)
+  console.log('syntax OK: ' + files.length + ' files, node ' + process.versions.node + ', ' + (Date.now() - started) + ' ms')
 }
 
 main()

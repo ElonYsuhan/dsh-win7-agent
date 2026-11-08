@@ -72,6 +72,25 @@ none of these substitute for a real Win7 test. A future provider-specific
 idempotent/resumable model adapter can replace request reissue without changing
 the persisted conversation/tool boundary.
 
+## Long-term memory and adaptive capabilities
+
+`core/memory-store` wraps a separate SQLite 3.54/FTS5 database under the user
+data directory. It owns durable, user-visible memories and evidence/revision
+history, not conversation execution state; the existing `memory` service still
+owns context compression. Memory extraction runs asynchronously on
+`agent:afterRun`, stores explicit facts/preferences, and leaves inferred task
+experience as candidates requiring confirmation. Sensitive values are rejected
+before persistence. Retrieval is scoped by user/project/session and only active,
+non-expired entries are injected as bounded reference data.
+
+`core/capability-registry` projects the live `tools`, `skillLibrary`,
+`workflows`, `mcp` and `extensions` services; it has no independent capability
+database. `core/adaptive` combines that projection with the memory store to
+produce deterministic, read-only plans and recommendations. It never installs,
+changes permissions, starts a workflow or executes a tool. The existing Agent
+loop, tool registry, licensing, approval and cancellation paths remain the only
+execution path. See `docs/ADAPTIVE-AGENT.md` for the current limits.
+
 ## TypeScript boundaries
 
 New compile-time contracts live in `types/` and are checked with `strict: true`
@@ -276,6 +295,10 @@ Node 16 tests and cross-builds do not replace Windows hardware validation.
 注册 update_plan 工具并回收资源。计划内容只是工具结果，沿既有 message.appended
 事实落盘；共享插件中没有会话进度或第二套执行策略。前端从消息恢复计划展示。
 
+编码任务的提示沿用此插件，引导简短计划、读取相关文件与约束、最小端到端修改、
+就近验证，以及根据实际错误修正；只有取得证据后才报告验证完成。对用户输出进度、
+工具结果和阻塞，不暴露或编造模型私有思维链，不引入新模型 SDK、执行循环或能力等价承诺。
+
 execution.startedAt 来自 turn.started 事件时间，属于状态 reducer 派生事实，兼容旧快照。
 工具 UI 事件附带已记录的 outcome 与调用 ID；失败的命令退出码经纯 flow.outcome 归类，
 界面不得把取消、失败或历史未确认步骤重画成成功。其余计时与展开状态仅为 UI 元数据。
@@ -425,6 +448,33 @@ keeps platform lifecycle work outside Agent policy. Older shells without this
 handler require one complete exit before this behavior takes effect. Regression
 coverage exercises unchanged contents, overwritten contents and duplicate events;
 this is not evidence of a Windows 7 hardware test.
+
+### Regular conversations and project workspaces
+
+An ordinary (recent) conversation resolves its workspace only from the separate
+`recentWorkspacePath`; legacy per-session workspace snapshots never update that
+default. Settings load/update share one Node16 IO resolver that repairs a recent
+path inside a configured project (including real-path aliases), persists the
+repair and creates the independent directory. The default is `workspace` under
+user data, with `chat-workspace` as the alternative if that default is a project.
+Historical conversation messages are not rewritten.
+
+The renderer sends the resolved workspace per turn. HTTP and IPC validate known
+directories and preserve an explicit empty path so it cannot fall back to a
+previous project. AgentPool assigns it to that worker only; changing the global
+UI workspace never broadcasts to existing workers, including active runs. New
+workers default to the recent directory. Project conversations resolve their
+configured folder and knowledge bindings remain authoritative server-side. The
+normal new-conversation button only reuses an empty unbound recent session.
+
+The existing Cordis loop, tool approval and persistence paths remain unchanged;
+workspace routing is not an OS command sandbox. Settings-migration and concurrency
+regressions cover persisted contamination and in-flight project switches; the
+compiled-app UI regression restores a contaminated old session, creates an
+ordinary conversation from an empty project session, and checks real `pwd`
+results for both scopes. These are Mac/embedded-runtime checks, not Win7 hardware
+acceptance. Future hosts can replace the path/transport adapters without changing
+conversation or tool contracts.
 
 ### Knowledge-associated regular conversations
 
@@ -588,7 +638,43 @@ Agent state semantics. See SOFTWARE-LICENSING.md for offline limits and validati
 
 ### 会话内流程匹配推荐（2026-11-05）
 
-内置 workflow-suggestion 技能给出目标、步骤、人工环节、交付产物四道匹配关，只在会话里判断是否推荐。core/workflow-tools 的 catalog 增加只读 workflows 摘要（id、名称、说明、步骤标题、人工环节数、产物，最多 50 条），新增只读工具 workflow_suggest：校验流程存在与推荐理由，matches 限定四类，返回 suggestion 由渲染层复用既有发起链路呈现「开启工作流」入口。推荐不写流程定义、不建实例、不触发执行，用户点击后才走 workflows.run 并进入执行实例页；无人值守任务无权调用。未新增服务容器、事件总线或执行器，执行与持久化契约不变；固定 Node16/Chromium108，无新增生产依赖。验证入口为 workflow-suggestion-smoke 与 workflow-suggestion-e2e-smoke，Win7 真机验证单独进行。后续把判断范围扩展到开发软件功能与改代码：技能不再把「调代码」排除在匹配之外，系统提示要求动手写代码前先读 workflow_catalog，避免已有流程未被识别就直接开工。
+内置 workflow-suggestion 技能给出目标、步骤、人工环节、交付产物四道匹配关。core/workflow-tools 的现有 prompts resolver 在每轮普通聊天开始时，通过注入的 workflows 服务投影实时摘要（id、revision、名称、说明、步骤标题、人工环节数、产物格式与名称），与 workflow_catalog 共用同一提取函数；最多50条、约16000字符，明确提供总数与截断标识。不另建索引、缓存、匹配服务或模型请求，修订与删除随下一轮生效。无人值守、工具停用或 Cordis 插件释放后不注入；未配置流程数据目录的轻量宿主不提供索引，仓储损坏等其他读取错误仍显式失败。摘要是有界参考数据，不是高优先级指令或授权，不包含节点指令、附件或产物文件列表。
+
+模型无需用户提醒“已有流程”或先搜索文件，就能用语义比对普通业务、运动训练和编码等任务；简短请求未指定的细节不是冲突，明确限制或拒绝优先，摘要不足或被截断时再按需补查。适配后通过原只读 workflow_suggest 生成真实卡片，不从自然语言伪造引用。推荐不写定义、不建实例，用户点击后才走 workflows.run，表单留在发起会话，流程面板按需打开；人工办理、权限与取消边界不变。固定 Node16/Chromium108，无新增依赖、容器、事件总线或执行器，未来可替换模型或渲染适配而不改变工作流事实协议。
+
+workflow-suggestion-smoke 验证实时注入、修订/删除、无人值守/停用/释放边界；workflow-suggestion-e2e-smoke 让模型替身仅从首个请求的真实索引选取 ID，以无“流程”提示的锻炼请求验证发现到卡片链路，并使用真实鼠标验证深浅主题悬停对比度、Tab 焦点及禁用状态。这证明上下文与 UI 链路，不证明任意实际模型的语义匹配质量，也不替代 Win7 真机验收。
+
+### 会话内流程执行与未读（2026-11-08）
+
+推荐卡片从真实工具结果渲染到聊天正文，不再放在默认折叠的过程里。历史通过
+assistant.tool_calls 与 tool.tool_call_id 对应恢复工具身份，只展示名称、revision 和操作；
+匹配依据保留在原工具事实中，模型提示要求最多一句简短补充，不重复启动教程或无关免责。
+不从助手自然语言推断流程 ID，也不因展示卡片启动实例。
+
+`workflow-chat` 是可替换渲染适配器：点击启动后将实例引用和阅读游标写入发起会话的
+`workflowRuns`，直接在当前聊天挂载待办，不新建执行会话、不强制打开流程面板。
+同会话可引用多个实例；未结束的同一流程再次点击只定位原实例。异步启动期间切换会话
+不会把实例绑定到新会话或抢回焦点。运行页的「在会话中处理」优先返回已绑定会话，
+未绑定实例由当前会话承接；waiting 通知只对账，不自行创建会话。旧单实例字段仍可读取。
+会话不复制流程事件、状态或消息，步骤、taskId、人工 Schema 与产物均从既有
+workflows.list/detail 投影。workflows:changed 及重连触发有界合并对账，异步 detail
+不写入已离开的会话；同 taskId 复用表单节点，重绘聊天或往返面板不清空填写内容。
+
+聊天与运行面板复用 renderHumanForm、附件和产物预览，但保有独立表单节点和草稿。
+提交继续走原 workflows.submit，验证 waiting、nodeId、taskId、Schema、附件与许可；
+重复或过期待办拒绝，审批、驳回与外部重放边界不变。AI 只读取有界参考，不替用户审批。
+普通后台回复沿用会话行未读入口，在首个未查看的正文增量或完整回复到达时更新阅读通知
+游标，已未读期间不逐 token 重写会话库；finished 仍以 lastExecution 的 id/终态对账。
+流程未读由权威 sequence 与对应引用的阅读游标比较。切回并渲染内容、且聊天和窗口
+实际可见后确认已读，刷新保留未查看提示。这些字段只属于 UiStore 的阅读/关联元数据，
+不是第二份执行状态账本。
+
+实现使用 Chromium108/Node16 已有 API，无新增依赖、服务容器或 Agent 循环。
+workflow-suggestion-e2e-smoke 覆盖真实 Agent 卡片、原会话启动与表单、按需打开面板、
+草稿保留、重复点击、多实例引用、旧引用恢复、审批/驳回/附件/重提、taskId 过期拒绝、
+停止和产物，以及后台流式回复在结束前的未读、刷新保留和打开后自动清除。模型使用本地
+确定性替身，不能据此宣称实际模型匹配质量或 Win7 真机验收。未来替换渲染器或桌面
+运行时保留工作流事实、submit 和会话引用契约，不迁移业务执行状态。
 
 ### 条件分支与排他汇合（2026-10-29）
 

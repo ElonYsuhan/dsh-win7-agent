@@ -25,6 +25,13 @@ function ok(name, cond, detail) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+async function waitFor(test, label) {
+  for (let i = 0; i < 120; i += 1) {
+    if (await test()) return
+    await sleep(60)
+  }
+  throw new Error('Timeout: ' + label)
+}
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -82,6 +89,7 @@ const MEASURE = `(function () {
     sidebar: r(side),
     scroll: r(scroll),
     btn: r(btn),
+    newSession: r(document.querySelector('.new-session-entry')),
     icon: r(icon),
     text: r(text),
     textContent: text ? text.textContent : '',
@@ -128,6 +136,7 @@ async function main() {
   child.stderr.on('data', (c) => { logs += c.toString() })
   const base = 'http://127.0.0.1:' + port
 
+  try {
   let up = false
   for (let i = 0; i < 60; i += 1) {
     try { const r = await get(base + '/api/health'); if (r.status === 200) { up = true; break } } catch (e) { /* wait */ }
@@ -144,6 +153,10 @@ async function main() {
     currentProjectId: 'p_sf'
   })
 
+  const seeded = await postJson(base + '/api/knowledge/create', { name: '已有知识库' })
+  if (seeded.status !== 200) throw new Error('创建隔离知识库失败')
+  const seededId = JSON.parse(seeded.body).id
+
   /* ---- 宽窗口（展开侧栏） ---- */
   let wide = null
   const wideDriver = new BrowserDriver({})
@@ -158,7 +171,30 @@ async function main() {
       await sleep(300)
     }
     ok('宽窗口界面加载完成', ready)
-    await sleep(500)
+    await waitFor(() => evalJs('typeof state!=="undefined" && !!state.runPoll && ["libraryCount","customizeCount","workflowCount"].every(id => /^[0-9]+$/.test(document.getElementById(id).textContent))'), '侧栏计数初始化')
+    ok('未打开知识库时就显示已有数量', await evalJs('document.getElementById("libraryCount").textContent === "1" && document.getElementById("knowledgePage").classList.contains("hidden")'))
+    ok('隐藏知识库页面不提前渲染列表', await evalJs('document.getElementById("knowledgeBases").children.length === 0'))
+    ok('三个入口计数均为纯数字', await evalJs('["libraryCount","customizeCount","workflowCount"].every(id => /^[0-9]+$/.test(document.getElementById(id).textContent))'))
+    ok('能力全部停用时仍显示数字 0', await evalJs('(()=>{const plugins=state.settings.disabledPlugins,skills=state.settings.disabledSkills;try{state.settings.disabledPlugins=cachedPluginList.slice();state.settings.disabledSkills=systemSkillList.map(item=>item.id);updateShortcutMeta();return document.getElementById("customizeCount").textContent==="0"}finally{state.settings.disabledPlugins=plugins;state.settings.disabledSkills=skills;updateShortcutMeta()}})()'))
+    const added = await postJson(base + '/api/knowledge/create', { name: '后台新增知识库' })
+    if (added.status !== 200) throw new Error('后台新增知识库失败')
+    await waitFor(() => evalJs('document.getElementById("libraryCount").textContent === "2"'), '后台新增同步')
+    ok('知识库变更后不打开页面也会同步数量', await evalJs('document.getElementById("knowledgePage").classList.contains("hidden") && document.getElementById("knowledgeBases").children.length===0'))
+    ok('读取失败保留最近确认的真实数量', await wideDriver.evaluate('(async()=>{const request=window.dsh.knowledgeRequest;let calls=0;window.dsh.knowledgeRequest=async(action,data)=>{if(action==="list"){calls++;throw Error("隔离读取失败")}return request(action,data)};try{await window.knowledgeUI.refresh(true);const retained=document.getElementById("libraryCount").textContent==="2";await window.knowledgeUI.refresh();await window.knowledgeUI.refresh();return retained&&calls===1}finally{window.dsh.knowledgeRequest=request}})()', { awaitPromise: true }))
+    for (const id of [seededId, JSON.parse(added.body).id]) {
+      const removed = await postJson(base + '/api/knowledge/remove-base', { id })
+      if (removed.status !== 200) throw new Error('删除隔离知识库失败')
+    }
+    await waitFor(() => evalJs('document.getElementById("libraryCount").textContent === "0"'), '空知识库计数')
+    ok('删除全部知识库后显示 0', true)
+    await wideDriver.click('#openLibrary')
+    await waitFor(() => evalJs('!document.getElementById("knowledgePage").classList.contains("hidden") && document.getElementById("knowledgeBases").textContent.includes("新建一个知识库")'), '打开空知识库')
+    await wideDriver.click('#knowledgeNew')
+    await wideDriver.input('#knowledgeName', '侧栏计数验证')
+    await wideDriver.click('#knowledgeSave')
+    await waitFor(() => evalJs('document.getElementById("libraryCount").textContent==="1" && document.getElementById("knowledgeBases").textContent.includes("侧栏计数验证")'), '界面新增知识库')
+    ok('界面创建知识库后同步列表和侧栏数量', true)
+    await wideDriver.click('#knowledgeClose')
     wide = JSON.parse(String(await evalJs(MEASURE)))
     const shot = await wideDriver.screenshot().catch(() => '')
     if (shot) fs.writeFileSync(path.join(OUT, 'sidebar-footer.png'), Buffer.from(shot, 'base64'))
@@ -213,7 +249,10 @@ async function main() {
     const listShot = await wideDriver.screenshot().catch(() => '')
     if (listShot) fs.writeFileSync(path.join(OUT, 'sidebar-footer-list.png'), Buffer.from(listShot, 'base64'))
 
-    ok('按钮高度收到 26px', Math.abs(wide.btn.height - 26) <= 0.6, wide.btn.height)
+    ok('设置按钮与新建会话等高', Math.abs(wide.btn.height - wide.newSession.height) <= 0.5, wide.btn.height + ' vs ' + wide.newSession.height)
+    ok('设置按钮与新建会话等宽且左右对齐',
+      Math.abs(wide.btn.width - wide.newSession.width) <= 0.5 && Math.abs(wide.btn.left - wide.newSession.left) <= 0.5,
+      wide.btn.width + ' vs ' + wide.newSession.width)
     const iconMid = mid(wide.icon)
     const textMid = mid(wide.text)
     const btnMid = mid(wide.btn)
@@ -222,8 +261,8 @@ async function main() {
       Math.abs(iconMid - btnMid) <= 1 && Math.abs(textMid - btnMid) <= 1, btnMid)
     const gapBottom = wide.sidebar.bottom - wide.footer.bottom
     const gapTop = wide.btn.top - wide.footer.top
-    ok('整块高度收矮：按钮上 5px、侧栏底 6px（区块 37px）',
-      Math.abs(gapTop - 5) <= 1 && Math.abs(gapBottom - 6) <= 1,
+    ok('设置行保留上方 5px、侧栏底部 18px 留白（与会话输入框一致）',
+      Math.abs(gapTop - 5) <= 1 && Math.abs(gapBottom - 18) <= 1,
       'top=' + gapTop.toFixed(1) + ' bottom=' + gapBottom.toFixed(1)
         + ' block=' + (wide.sidebar.bottom - wide.footer.top).toFixed(1))
 
@@ -231,6 +270,9 @@ async function main() {
     await evalJs("(function(){document.documentElement.setAttribute('data-theme','light');return 'ok'})()")
     await sleep(400)
     const lightBar = JSON.parse(String(await evalJs(MEASURE)))
+    ok('浅色主题下设置按钮仍与新建会话等宽等高',
+      Math.abs(lightBar.btn.width - lightBar.newSession.width) <= 0.5 && Math.abs(lightBar.btn.height - lightBar.newSession.height) <= 0.5,
+      lightBar.btn.width + '×' + lightBar.btn.height)
     ok('浅色主题分割线换成 #c9c9c9（不是和底色同色的 --border #eee）',
       lightBar.bar.background === 'rgb(201, 201, 201)',
       lightBar.bar.background + ' / ' + lightBar.dividerVar)
@@ -275,7 +317,11 @@ async function main() {
     await wideDriver.close().catch(() => {})
   }
 
-  child.kill()
+  } finally {
+    child.kill('SIGTERM')
+    await waitFor(() => child.exitCode !== null || child.signalCode !== null, '隔离服务退出')
+    for (const dir of [home, workspace]) fs.rmSync(dir, { recursive: true, force: true })
+  }
   console.log('\nsidebar-footer smoke: ' + passed + '/' + (passed + failed) + ' checks passed')
   if (failed > 0) process.exitCode = 1
 }

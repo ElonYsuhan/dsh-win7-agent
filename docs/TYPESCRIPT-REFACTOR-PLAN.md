@@ -7,7 +7,7 @@
 按“核心层一次落地”的范围完成了 P0 的可运行类型检查基础，以及 contracts/flow/state/runtime 的类型边界：
 
 - 新增 `tsconfig.base.json`、`tsconfig.types.json`、`tsconfig.core.json`、`tsconfig.preload.json`、`tsconfig.renderer.json`、`tsconfig.adapters.json`。`types/` 下的新契约使用 `strict: true`；legacy JS 通过 `checkJs` 以非严格模式检查，后续按模块收紧。
-- `types/core/contracts.ts`、`flow.ts`、`state.ts`、`runtime.ts` 定义事件、消息、工具、模型、流程决策、reducer 状态、Cordis 服务/插件和 runtime 服务边界；`types/browser/` 定义 preload/`window.dsh`/UI 交互边界；`types/build/` 和 `types/node/` 定义构建、server、shell、Agent/AgentPool/PluginHost 边界。类型夹具包含合法和 `@ts-expect-error` 非法样例。
+- `types/core/contracts.ts`、`flow.ts`、`state.ts`、`runtime.ts`、`memory.ts`、`capability.ts`、`adaptive.ts` 定义事件、消息、工具、模型、流程决策、reducer 状态、长期记忆/能力/自适应服务、Cordis 服务/插件和 runtime 服务边界；`types/browser/` 定义 preload/`window.dsh`/UI 交互边界；`types/build/` 和 `types/node/` 定义构建、server、shell、Agent/AgentPool/PluginHost 边界。类型夹具包含合法和 `@ts-expect-error` 非法样例。
 - `src/main/contracts`、`src/main/flow`、`src/main/state`、两个 preload、`src/renderer` 的 `markdown.js`、`ui-enhancements.js`、`web-bridge.js`、`workflow-auto-layout.js`、`workflow-link-routing.js`，以及 `agent/cdp-client`、`browser-driver`、`test-runner`、`tools`、`validation-ledger`、`runtime/context-memory`、`runtime/generative-ui-service`、`server/native-folder` 纳入 `checkJs`。运行时仍是 CommonJS JavaScript，未新增 TS 运行时依赖或生成物。
 - `scripts/typecheck-core.js` 校验 5 个配置、类型夹具、目标路径不含 `.ts/.tsx`、类型契约无 `@ts-ignore/@ts-nocheck`，并纳入 `npm run check`；`check:node16` 跳过构建机专用的 TypeScript 检查，仍执行全部目标运行时回归。`build-desktop` 在组装应用前运行同一检查。
 - server/shell 主入口、renderer 的 DOM/大型 `app.js` 尚未迁移；它们保留 JS，通过 `types/node`、`types/browser` 声明和编译夹具约束。Vue 模板、真实 Chromium 和完整保护包仍需按原阶段门槛单独验证。

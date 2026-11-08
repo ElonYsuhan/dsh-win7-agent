@@ -14,9 +14,22 @@ async function main(){
   assert(library.systemPromptBlock().includes(skillId),'Skill index must advertise the suggestion skill to the model')
 
   const settings=new Settings(home);host=new PluginHost({workspaceRoot:home,settings});await host.ready()
+  const bare=new PluginHost({workspaceRoot:home,settings:{data:{}}})
+  try{await bare.ready();assert(!(await bare.buildSystemPrompt('BASE')).includes('SAVED_WORKFLOWS_JSON:'),'A lightweight host without workflow storage can still build its prompt')}finally{await bare.dispose()}
   const tools=host.get('tools'),service=host.get('workflows'),context={settings:{permissionMode:'workspace'},signal:new AbortController().signal}
+  const promptIndex=async()=>{const prompt=await host.buildSystemPrompt('BASE'),line=prompt.split('\n').find(value=>value.startsWith('SAVED_WORKFLOWS_JSON: '));assert(line,'Ordinary conversations receive saved workflows without calling a tool');return JSON.parse(line.slice('SAVED_WORKFLOWS_JSON: '.length))}
+  assert.deepStrictEqual((await promptIndex()).workflows,[],'An empty library does not invent candidates')
   const definition={name:'周报汇总',description:'收集本周进展并生成周报',nodes:[{id:'s',type:'start',text:'本周进展'},{id:'h',type:'human',title:'整理素材',interaction:{version:1,type:'handle',returnTo:'previous-human'}},{id:'e',type:'end',deliverable:{format:'markdown',name:'周报'}}],edges:[{from:'s',to:'h'},{from:'h',to:'e'}]}
   const draft=JSON.parse(await tools.execute('workflow_create_draft',{definition:JSON.stringify(definition)},context)).workflowDraft
+  const initial=await promptIndex()
+  assert.strictEqual(initial.total,1);assert.strictEqual(initial.truncated,false)
+  assert.strictEqual(initial.workflows[0].id,draft.id)
+  assert.strictEqual(initial.workflows[0].revision,draft.revision)
+  assert.deepStrictEqual(initial.workflows[0].deliverable,{format:'markdown',name:'周报'})
+  const updated=service.save({...service.list().workflows[0],description:'本周进展与验收结论汇总'})
+  const refreshed=await promptIndex()
+  assert.strictEqual(refreshed.workflows[0].revision,updated.revision,'The next conversation sees the live workflow revision without a second cache')
+  assert.strictEqual(refreshed.workflows[0].description,updated.description)
 
   const catalog=JSON.parse(await tools.execute('workflow_catalog',{},context))
   const listed=catalog.workflows.find(workflow=>workflow.id===draft.id)
@@ -39,7 +52,16 @@ async function main(){
 
   const denied=await tools.execute('workflow_suggest',{workflowId:draft.id,reason:'无人值守'},{settings:{unattended:{tools:[],skillIds:[]}},signal:context.signal})
   assert(String(denied).indexOf('DENIED')===0,'Unattended tasks cannot present suggestions')
-  console.log('Workflow suggestion passed: bundled matching skill, catalog workflow index with human checkpoints, read-only suggestion tool, dropped unknown match keys, guarded inputs and no execution side effects')
+  const background=await host.get('prompts').build('BASE',{settings:{unattended:{tools:[]}}})
+  assert(!background.includes('SAVED_WORKFLOWS_JSON:'),'Background tasks do not receive interactive workflow candidates')
+  settings.data.disabledPlugins=['core/workflow-tools']
+  assert(!(await host.buildSystemPrompt('BASE')).includes('SAVED_WORKFLOWS_JSON:'),'Disabled workflow tools do not advertise unavailable actions')
+  delete settings.data.disabledPlugins
+  service.remove({id:draft.id})
+  assert.deepStrictEqual((await promptIndex()).workflows,[],'Deleted workflows disappear on the next turn')
+  await host.unload('core/workflow-tools')
+  assert(!(await host.buildSystemPrompt('BASE')).includes('SAVED_WORKFLOWS_JSON:'),'Cordis teardown removes the prompt projection')
+  console.log('Workflow suggestion passed: live first-turn index, revision/deletion refresh, unattended/disabled/teardown boundaries, bundled matching skill, read-only recommendation and no execution side effects')
  }finally{if(host)await host.dispose();fs.rmSync(home,{recursive:true,force:true})}
 }
 main().catch(error=>{console.error(error);process.exitCode=1})

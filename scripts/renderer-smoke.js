@@ -333,6 +333,7 @@ const settingsState = {
   projects: [],
   currentProjectId: '',
   workspacePath: '/ws/a',
+  recentWorkspacePath: '/ws/a',
   theme: 'dark',
   models: []
 }
@@ -425,8 +426,8 @@ sandbox.window.dsh = {
     sandbox.__uiStoreRemote = JSON.parse(JSON.stringify(store || {}))
     return { ok: true, updatedAt: Date.now() }
   },
-  send: async (text, history, images, memory, sessionId) => {
-    sandbox.__sendCalls.push({ text: text, images: images, history: history, memory: memory, sessionId: sessionId })
+  send: async (text, history, images, memory, sessionId, uiCapabilities, workspacePath) => {
+    sandbox.__sendCalls.push({ text: text, images: images, history: history, memory: memory, sessionId: sessionId, workspacePath: workspacePath })
     return true
   },
   stop: async (sessionId) => {
@@ -826,9 +827,9 @@ const concurrencyStatic = {
   mainUsesPool: mainSrc.indexOf('new AgentPool(') !== -1 && mainSrc.indexOf('new Agent(') === -1
     && mainSrc.indexOf('pool.listPlugins()') !== -1,
   /* 两条入口都把 sessionId 带下去 */
-  preloadCarriesSessionId: preloadSrc.indexOf('{ text, history, images, memory, sessionId, uiCapabilities }') !== -1
+  preloadCarriesSessionId: preloadSrc.indexOf('{ text, history, images, memory, sessionId, uiCapabilities, workspacePath }') !== -1
     && preloadSrc.indexOf("invoke('chat:stop', sessionId)") !== -1,
-  bridgeCarriesSessionId: bridgeSrc.indexOf('{ text, history, images, memory, sessionId, uiCapabilities }') !== -1
+  bridgeCarriesSessionId: bridgeSrc.indexOf('{ text, history, images, memory, sessionId, uiCapabilities, workspacePath }') !== -1
     && bridgeSrc.indexOf('/api/chat') !== -1
     && bridgeSrc.indexOf("String(event.sessionId) !== String(sessionId)") !== -1,
   bridgeStopBySession: bridgeSrc.indexOf("request('POST', '/api/stop', { sessionId })") !== -1,
@@ -871,7 +872,7 @@ const concurrencyStatic = {
     && appSrc.indexOf('state.approvalCurrentId') !== -1
     && appSrc.indexOf('expireApproval(event.id)') !== -1
     && appSrc.indexOf('state.approvalBusy = false') !== -1,
-  rendererSendCarriesSessionId: appSrc.indexOf('window.dsh.send(workflowText, history, images, memory, sessionId, uiCapabilities)') !== -1 && appSrc.indexOf('workflowChat.textFor(session,text)') !== -1,
+  rendererSendCarriesSessionId: appSrc.indexOf('window.dsh.send(workflowText, history, images, memory, sessionId, uiCapabilities, sessionWorkspacePath(session))') !== -1 && appSrc.indexOf('workflowChat.textFor(session,text)') !== -1,
   rendererStopIsPerSession: appSrc.indexOf('window.dsh.stop(sessionId)') !== -1
     && appSrc.indexOf('resetChat(sessionId)') !== -1,
   rendererQueueIsPerSession: appSrc.indexOf('sessionId: state.currentSessionId,') !== -1
@@ -1749,6 +1750,33 @@ const checks = `
     Boolean(firstStored) && firstStored.role === 'user' && Array.isArray(firstStored.content)
       && firstStored.content.length === 1 && firstStored.content[0].type === 'image_url',
     JSON.stringify(firstStored && firstStored.content))
+
+  /* 2026-11-08 用户报「普通聊天串到项目工作目录」：发送时必须按会话计算工作区。 */
+  const s1MessageCount = findSessionById('s1').messages.length
+  settingsState.projects = [{ id: 'project_a', name: '项目A', folders: ['/ws/project'] }]
+  settingsState.recentWorkspacePath = '/ws/recent'
+  state.workspacePath = '/ws/project'
+  sessionStore.__recent__ = [{ id: 'r1', scope: 'recent', title: '普通聊天', messages: [], workspacePath: '/ws/project', updatedAt: '2026-01-01T00:00:00Z' }]
+  window.__sendCalls = []
+  state.currentSessionId = 'r1'
+  composerInputEl.innerText = '普通聊天'
+  await sendMessage()
+  ok('普通会话发送时使用最近工作区，不继承项目目录',
+    window.__sendCalls[0] && window.__sendCalls[0].workspacePath === '/ws/recent',
+    String(window.__sendCalls[0] && window.__sendCalls[0].workspacePath))
+  window.__sendCalls = []
+  state.currentSessionId = 's1'
+  composerInputEl.innerText = '项目聊天'
+  await sendMessage()
+  ok('项目会话发送时仍使用项目目录',
+    window.__sendCalls[0] && window.__sendCalls[0].workspacePath === '/ws/project',
+    String(window.__sendCalls[0] && window.__sendCalls[0].workspacePath))
+  sessionStore.__recent__ = []
+  settingsState.projects = []
+  settingsState.recentWorkspacePath = '/ws/a'
+  state.workspacePath = '/ws/a'
+  state.currentSessionId = 's1'
+  findSessionById('s1').messages.splice(s1MessageCount)
   state.runs = {}
   applyRunState()
   clearWaitingTimer()
@@ -2657,6 +2685,7 @@ const checks = `
   state.currentSessionId = ''
   sessionStore = { __recent__: [] }
   state.workspacePath = ''
+  settingsState.recentWorkspacePath = ''
   window.__sendCalls = []
   firstInput.innerText = '未配置工作区时的草稿'
   await sendMessage()
@@ -2664,6 +2693,7 @@ const checks = `
     window.__sendCalls.length === 0 && state.currentSessionId === ''
       && firstInput.innerText === '未配置工作区时的草稿')
   state.workspacePath = '/ws/first'
+  settingsState.recentWorkspacePath = '/ws/first'
   settingsState.currentProjectId = ''
   settingsState.projects = []
   byId('projectModal').classList.add('hidden')
@@ -2844,9 +2874,10 @@ const checks = `
     cssSrc.indexOf('.sidebar-shortcuts::after') === -1
       && cssSrc.indexOf('.sidebar-shortcuts {') !== -1
       && cssSrc.indexOf('.sidebar-shortcut-meta') !== -1)
-  ok('技能与规则显示真实的启用项数，不是写死的假数字',
+  ok('能力中心以纯数字显示真实启用项数，包含 0',
     appSrc.indexOf('function updateShortcutMeta') !== -1
-      && appSrc.indexOf('项启用') !== -1)
+      && appSrc.indexOf('meta.textContent = String(total)') !== -1
+      && appSrc.indexOf('项启用') === -1)
   /* 纵向节奏统一在 CSS 末尾那个块里收口：前面几处 gap 互相覆盖过，
      结果分组标题贴死第一行、品牌行下面空一大片。这里钉住关键值。 */
   const sbSpace = cssSrc.slice(cssSrc.indexOf('侧边栏纵向节奏'))
@@ -3018,14 +3049,9 @@ const checks = `
   ok('网络层错误翻译成可行动的提示，不把 fake-ip 原文丢给用户',
     appSrc.indexOf('/ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ECONNREFUSED/i') !== -1
       && appSrc.indexOf('连接模型服务超时') !== -1)
-  /* 用户 2026-11-02：「这个上下边距太高了」。页脚内距（12/4）+ 侧栏底部内距 14 叠起来
-     把「设置」那一带撑到 72px，收成 4/0 + 8 = 54px。
-     2026-11-03 又要求「顶部一条 80% 居中的分割线、整体高度再往低跳一跳」：
-     分割线绝对定位（窄栏 footer 是 flex，普通块会被挤成 flex 项）、按钮 32 → 26、
-     侧栏底部 8 → 6，整块 44 → 37px。 */
-  ok('页脚（设置行）上内距 5、侧栏底部 6（整块 37px）',
+  ok('页脚（设置行）上内距 5、侧栏底部 18（与会话输入框一致）',
     /[.]sidebar-footer [{][^}]*padding: 5px 0 0/.test(cssSrc)
-      && /[.]sidebar [{][^}]*padding-bottom: 6px/.test(cssSrc))
+      && /[.]sidebar [{][^}]*padding-bottom: 18px/.test(cssSrc))
   /* 分割线只占 80% 宽、居中，且不能走进布局流 —— 窄栏（<=900px）时 .sidebar-footer 是
      display:flex，::before 若为普通项会和按钮并排把齿轮挤走。 */
   const footerBar = (cssSrc.match(/[.]sidebar-footer::before [{][^}]*[}]/) || [''])[0]
@@ -3035,8 +3061,8 @@ const checks = `
       && footerBar.indexOf('right: 10%') !== -1
       && footerBar.indexOf('background: var(--divider)') !== -1
       && footerBar.indexOf('height: 1px') !== -1)
-  ok('页脚按钮 26px 高，图标与文字锁同一条中线（flex + center + line-height 1）',
-    /#sidebar [.]footer-button [{][^}]*height: 26px[^}]*align-items: center[^}]*line-height: 1/.test(cssSrc))
+  ok('页脚按钮与新建会话同为 32px 高，图标与文字居中',
+    /#sidebar [.]footer-button [{][^}]*height: 32px[^}]*align-items: center[^}]*line-height: 1/.test(cssSrc))
   /* 品牌显示卡片已移除（用户 2026-10-17）：设置里不该再有品牌表单，
      品牌行也不该再读 settings 里的自定义值 —— 否则删掉入口后旧值永远卡在侧栏上。 */
   ok('设置里不再有「品牌显示」卡片', htmlSrc.indexOf('brand-settings') === -1

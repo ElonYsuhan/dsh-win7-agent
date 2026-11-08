@@ -33,6 +33,40 @@ async function run() {
   })
   await new Promise((resolve) => stale.listen(0, '127.0.0.1', resolve))
   const stalePort = stale.address().port
+  const model = http.createServer((request, response) => {
+    let raw = ''
+    request.setEncoding('utf8')
+    request.on('data', chunk => { raw += chunk })
+    request.on('end', () => {
+      const messages = JSON.parse(raw).messages
+      let lastUser = messages.length - 1
+      while (lastUser >= 0 && messages[lastUser].role !== 'user') lastUser -= 1
+      const result = messages.slice(lastUser + 1).find(message => message.role === 'tool')
+      const delta = result ? { content: '当前工作目录验收：\n' + result.content } : {
+        tool_calls: [{ index: 0, id: 'workspace_pwd', type: 'function', function: { name: 'run_command', arguments: JSON.stringify({ command: 'pwd' }) } }]
+      }
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.end('data: ' + JSON.stringify({ choices: [{ delta, finish_reason: result ? 'stop' : 'tool_calls' }] }) + '\n\ndata: [DONE]\n\n')
+    })
+  })
+  await new Promise(resolve => model.listen(0, '127.0.0.1', resolve))
+  const home = path.join(dir, 'agent-home')
+  const recentWorkspace = path.join(home, 'workspace')
+  fs.mkdirSync(home)
+  const projectSettings = {
+    workspacePath: workspace, recentWorkspacePath: workspace,
+    projects: [{ id: 'package_project', name: '打包验收项目', folders: [workspace] }], currentProjectId: 'package_project',
+    models: [{ id: 'workspace_mock', name: '隔离目录验收', baseURL: 'http://127.0.0.1:' + model.address().port + '/v1', apiKey: 'test', model: 'workspace_mock' }],
+    currentModelId: 'workspace_mock', contextAutoCompress: false
+  }
+  fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify(projectSettings))
+  fs.writeFileSync(path.join(home, 'ui-store.json'), JSON.stringify({
+    currentSessionId: 'legacy_recent',
+    sessions: {
+      __recent__: [{ id: 'legacy_recent', scope: 'recent', projectId: '', title: '旧普通会话', workspacePath: workspace, messages: [{ role: 'user', content: '历史消息' }] }],
+      package_project: [{ id: 'package_project_session', scope: 'project', projectId: 'package_project', title: '项目验收会话', workspacePath: workspace, messages: [] }]
+    }
+  }))
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ mode: 'local', lastPort: stalePort, theme: 'dark' }))
   const log = fs.openSync(path.join(dir, 'app.log'), 'w')
   const env = Object.assign({}, process.env)
@@ -70,6 +104,7 @@ async function run() {
       fs.writeFileSync(file, Buffer.from(shot.data, 'base64'))
     }
     await delay(1500)
+    assert(await evaluate('navigator.userAgent.includes("Chrome/108.")'), 'packaged browser must use Chromium 108')
     const results = []
     assert(await evaluate("document.getElementById('pageShare').hidden && getComputedStyle(document.getElementById('pageShare')).display==='none'"), 'browser shortcut must be hidden')
     for (const theme of ['dark', 'light']) {
@@ -92,12 +127,11 @@ async function run() {
       await delay(150)
     }
     assert(unlocked, 'isolated package must unlock its one-time trial')
-    const projectSettings = {
-      workspacePath: workspace,
-      projects: [{ id: 'package_project', name: '打包验收项目', folders: [workspace] }],
-      currentProjectId: 'package_project'
-    }
-    const saveStatus = await evaluate('window.fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(' + JSON.stringify(projectSettings) + ')})'
+    const restored = await evaluate('window.dsh.getState().then(value=>({workspacePath:value.workspacePath,recentWorkspacePath:value.settings.recentWorkspacePath,currentProjectId:value.settings.currentProjectId}))')
+    assert.strictEqual(restored.recentWorkspacePath, recentWorkspace, 'startup must repair the contaminated recent default')
+    assert.strictEqual(restored.workspacePath, recentWorkspace, 'restoring a legacy recent session must not restore its project directory')
+    assert.strictEqual(restored.currentProjectId, '', 'restored ordinary conversation must not select a project')
+    const saveStatus = await evaluate('window.fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(' + JSON.stringify({ workspacePath: workspace, currentProjectId: 'package_project' }) + ')})'
       + '.then(function(response){return response.status})')
     assert.strictEqual(saveStatus, 200, 'package must persist the isolated project settings')
     await evaluate('location.reload(); "reload"')
@@ -108,6 +142,53 @@ async function run() {
       await delay(150)
     }
     assert(projectReady, 'package must render the isolated project')
+    assert.strictEqual(await evaluate('typeof window.dsh.memoryRequest'), 'function', 'packaged client must expose memory management')
+    assert.strictEqual(await evaluate('window.dsh.memoryRequest("list",{}).then(value=>Array.isArray(value.items))'), true, 'packaged memory API must be reachable')
+    assert.strictEqual(await evaluate('!!document.querySelector("[data-settings-tab=memory]")'), true, 'packaged settings must expose the memory tab')
+    await evaluate('document.querySelector("#projectList [data-session-id=package_project_session]").click(); true')
+    for (let i = 0; i < 80; i += 1) {
+      if (await evaluate('document.getElementById("sessionAssociationLabel").textContent==="项目会话"')) break
+      await delay(100)
+    }
+    await evaluate('document.getElementById("newSession").click(); true')
+    let ordinary
+    for (let i = 0; i < 80; i += 1) {
+      ordinary = await evaluate('window.dsh.uiStoreGet().then(value=>(value.store.sessions.__recent__||[]).find(session=>session.id===value.store.currentSessionId))')
+      if (ordinary && ordinary.id !== 'legacy_recent') break
+      await delay(100)
+    }
+    assert(ordinary && ordinary.id !== 'legacy_recent', 'new ordinary conversation must not reuse an empty project conversation')
+    assert.strictEqual(ordinary.scope, 'recent')
+    assert.strictEqual(ordinary.projectId, '')
+    assert.strictEqual(ordinary.workspacePath, recentWorkspace, 'new ordinary conversation must use the repaired directory')
+    async function directoryTurn(sessionId, expected) {
+      await evaluate('document.getElementById("input").textContent="当前工作目录是"; document.getElementById("input").dispatchEvent(new Event("input",{bubbles:true})); document.getElementById("send").click(); true')
+      let snapshot
+      for (let i = 0; i < 600; i += 1) {
+        await evaluate('(()=>{const modal=document.getElementById("approvalModal");if(modal.classList.contains("hidden"))return;const signature=document.getElementById("approvalSignature").textContent,detail=document.getElementById("approvalDetail").textContent.trim();if(signature!=="command:pwd"||detail!=="cwd=.\\npwd")throw Error("Unexpected isolated command approval");document.getElementById("approvalOnce").click()})()')
+        try { snapshot = JSON.parse(fs.readFileSync(path.join(home, 'sessions', sessionId, 'last-session.json'), 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
+        if (snapshot && snapshot.execution.status === 'completed') break
+        await delay(100)
+      }
+      if (!snapshot || snapshot.execution.status !== 'completed') {
+        await picture(path.join(ROOT, 'release/validation/packaged-workspace-failure.png'))
+        const visible = await evaluate('document.getElementById("messages").innerText')
+        throw new Error('directory turn must complete through the real Agent: ' + String(visible).slice(-2000))
+      }
+      const tool = snapshot.messages.filter(message => message.role === 'tool').pop()
+      assert(tool && String(tool.content).includes('exitCode=0\n' + expected + '\n'), 'actual command cwd must be ' + expected)
+      assert(snapshot.messages.find(message => message.role === 'system').content.includes(expected), 'system prompt must agree with the actual cwd')
+      for (let i = 0; i < 80; i += 1) {
+        if (await evaluate('document.getElementById("messages").textContent.includes(' + JSON.stringify(expected) + ')')) return
+        await delay(100)
+      }
+      throw new Error('command result must be visible in the actual conversation')
+    }
+    await directoryTurn(ordinary.id, recentWorkspace)
+    await picture(path.join(ROOT, 'release/validation/packaged-ordinary-workspace.png'))
+    await evaluate('document.querySelector("#projectList [data-session-id=package_project_session]").click(); true')
+    await directoryTurn('package_project_session', workspace)
+    const workspaceIsolation = { legacyRestored: true, ordinaryWorkspace: recentWorkspace, projectWorkspace: workspace, actualCommands: 2 }
     const projectFolderAction = JSON.parse(String(await evaluate(
       '(function(){'
       + 'var more=document.querySelector("#projectList .project-more");if(!more)return JSON.stringify({error:"missing-more"});more.click();'
@@ -172,13 +253,14 @@ async function run() {
       await picture(path.join(ROOT, 'release/validation/packaged-generative-' + theme + '.png'))
     }
     await evaluate('window.__packageGui && window.__packageGui.dispose(); document.getElementById("packageGuiHost").remove(); true').catch(() => {})
-    fs.writeFileSync(path.join(ROOT, 'release/validation/packaged-ui.json'), JSON.stringify({ version, skippedObsoleteService: true, results, projectFolderAction, generative }, null, 2))
-    console.log('PASS compiled Mac app: isolated data, obsolete service skipped, current build, independent titlebar, flat themes, project folder action, protected v2 UI, sandboxed static visual, safe Markdown details and offline Cesium')
+    fs.writeFileSync(path.join(ROOT, 'release/validation/packaged-ui.json'), JSON.stringify({ version, skippedObsoleteService: true, results, projectFolderAction, generative, workspaceIsolation }, null, 2))
+    console.log('PASS compiled Mac app: isolated data, legacy recent recovery, actual ordinary/project command directories, obsolete service skipped, current build, independent titlebar, flat themes, project folder action, protected v2 UI, sandboxed static visual, safe Markdown details and offline Cesium')
   } finally {
     if (ws && ws.socket) ws.socket.destroy()
     child.kill('SIGTERM')
     await delay(1000)
     stale.close()
+    model.close()
     fs.closeSync(log)
     fs.rmSync(dir, { recursive: true, force: true })
   }

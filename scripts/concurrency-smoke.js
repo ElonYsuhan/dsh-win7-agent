@@ -280,17 +280,28 @@ async function main() {
   ok('reset 之后 running 账本清掉', poolReset.runningCount() === 0, String(poolReset.runningCount()))
   mock.releaseAll()
 
-  /* ---------- ⑦ 工作区广播 ---------- */
   const other = path.join(root, 'ws2')
   fs.mkdirSync(other, { recursive: true })
+  const pinnedWorkspaces = Array.from(pool.workers.values(), worker => worker.workspaceRoot)
+  const switching = pool.run('sa', 'switch-project', [], undefined, undefined)
+  await mock.waitFor(1)
   pool.setWorkspace(other)
-  let workersFollowed = true
-  for (const worker of pool.workers.values()) {
-    if (worker.workspaceRoot !== other) workersFollowed = false
-  }
-  ok('切工作区会广播给所有已存在的 worker',
-    workersFollowed && pool.getWorkspace() === other && settings.data.workspacePath === other,
+  ok('切换项目不改写运行中或空闲会话的工作目录',
+    Array.from(pool.workers.values()).every((worker, index) => worker.workspaceRoot === pinnedWorkspaces[index])
+      && pool.getWorkspace() === other && settings.data.workspacePath === other,
     pool.getWorkspace())
+  settings.update({ recentWorkspacePath: workspace })
+  ok('新建普通 worker 使用独立目录，不继承当前项目目录', pool.acquire('recent-new').workspaceRoot === workspace)
+  mock.releaseAll()
+  await switching
+  const retargeted = pool.run('sa', 'explicit-project', [], undefined, undefined, undefined, undefined, undefined, undefined, other)
+  await mock.waitFor(1)
+  ok('显式会话目录只影响该会话', pool.acquire('sa').workspaceRoot === other && pool.acquire('sb').workspaceRoot === workspace)
+  mock.releaseAll()
+  await retargeted
+  let emptyWorkspaceError = ''
+  try { await pool.run('sa', 'empty-workspace', [], undefined, undefined, undefined, undefined, undefined, undefined, '') } catch (error) { emptyWorkspaceError = error.message }
+  ok('显式空目录拒绝执行，不回落到旧项目', emptyWorkspaceError.startsWith('WORKSPACE_NOT_SET'))
   pool.setWorkspace(workspace)
 
   /* ---------- ⑧ worker 有 LRU 上限，在跑的绝不淘汰 ---------- */

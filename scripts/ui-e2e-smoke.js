@@ -272,8 +272,8 @@ async function main() {
     ok('资料库、能力中心与工作流纵向排列', sb.rows === 3 && sb.dir === 'column'
       && sb.shortcutIds === 'openLibrary,openCustomize,openWorkflows',
     'rows=' + sb.rows + ' ids=' + sb.shortcutIds + ' direction=' + sb.dir)
-    ok('技能与规则右侧显示真实启用项数', /[0-9]+ 项启用/.test(sb.metaText), 'meta=' + JSON.stringify(sb.metaText))
-    ok('资料库没有条目清单时右侧留空（不编假数字）', sb.libText === '', 'lib=' + JSON.stringify(sb.libText))
+    ok('能力中心右侧只显示真实启用项数', /^[0-9]+$/.test(sb.metaText), 'meta=' + JSON.stringify(sb.metaText))
+    ok('空知识库在进入应用后显示 0', sb.libText === '0', 'lib=' + JSON.stringify(sb.libText))
     ok('宽窗口下不显示窄屏图标栏', sb.railShown === 'none', 'rail=' + sb.railShown)
     /* 胶囊里的文字要和下面两个入口的文字对齐成一条竖线 */
     const align = JSON.parse(String(await evalJs(

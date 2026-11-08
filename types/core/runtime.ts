@@ -1,6 +1,9 @@
 import type { AgentView, RuntimeSettings, ToolDefinition, ToolEntry, ToolOutcome } from './contracts'
 import type { FlowService } from './flow'
 import type { SessionState, StateReducerService } from './state'
+import type { MemoryServiceView } from './memory'
+import type { CapabilityServiceView } from './capability'
+import type { AdaptiveServiceView } from './adaptive'
 export interface CordisDisposable { (): void | Promise<void> }
 export interface CordisContext {
   provide(name: string, service: unknown): CordisDisposable
@@ -48,6 +51,9 @@ export interface RuntimeServices {
   readonly prompts: PromptService
   readonly sessions: SessionService
   readonly generativeUi: GenerativeUiService
+  readonly memoryStore: MemoryServiceView
+  readonly capabilities: CapabilityServiceView
+  readonly adaptive: AdaptiveServiceView
   readonly llm: ModelService
   readonly agentLoop: { run(agent: AgentView, ...args: readonly unknown[]): Promise<unknown> }
   readonly settings: RuntimeSettings

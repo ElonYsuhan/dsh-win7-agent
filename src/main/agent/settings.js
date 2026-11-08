@@ -3,6 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const mcpContract = require('../contracts/mcp')
+const { isInside } = require('./path-guard')
 
 const DEFAULT_MODEL_ID = 'default'
 const DEFAULT_MODEL_NAME = '\u9ed8\u8ba4\u6a21\u578b'
@@ -26,6 +27,7 @@ const DEFAULTS = {
   keepRecentMessages: 50,
   summaryMaxTokens: 1024,
   workspacePath: '',
+  recentWorkspacePath: '',
   /* 同时能跑几条会话（每条一个 worker Agent，见 agent-pool.js）。
      同一条会话重入仍然会被 SESSION_BUSY 挡下；这个上限管的是「几条会话能并行」 */
   maxConcurrentRuns: 8,
@@ -119,6 +121,7 @@ function normalize(data) {
   next.approveWrites = permissionMode === 'readonly'
   next.approveCommands = permissionMode !== 'full'
   if (not(Array.isArray(next.recentWorkspaces))) next.recentWorkspaces = []
+  next.recentWorkspacePath = typeof next.recentWorkspacePath === 'string' ? next.recentWorkspacePath : ''
   /* 并发上限：1 ~ 16 之间的整数，配坏了退回默认 3（与 agent-pool 的兜底一致） */
   const concurrent = Math.floor(Number(next.maxConcurrentRuns))
   next.maxConcurrentRuns = Number.isFinite(concurrent) && concurrent >= 1
@@ -141,8 +144,25 @@ function normalize(data) {
 
 const not = (value) => value ? false : true
 
+function resolveRecentWorkspace(data, home) {
+  const canonical = (value) => {
+    const absolute = path.resolve(value)
+    try { return fs.realpathSync.native(absolute) } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+      const parent = path.dirname(absolute)
+      return parent === absolute ? absolute : path.join(canonical(parent), path.basename(absolute))
+    }
+  }
+  const projects = (data.projects || []).flatMap(project => project.folders || []).map(canonical)
+  const candidates = [data.recentWorkspacePath, path.join(home, 'workspace'), path.join(home, 'chat-workspace')]
+  const workspace = candidates.find(candidate => candidate && !projects.some(project => isInside(project, canonical(candidate))))
+  if (!workspace) throw new Error('RECENT_WORKSPACE_CONFLICT: regular conversations require a non-project workspace')
+  return path.resolve(workspace)
+}
+
 class Settings {
   constructor(userDataDir) {
+    this.home = userDataDir
     this.file = path.join(userDataDir, 'settings.json')
     this.data = normalize({})
     this.load()
@@ -159,6 +179,12 @@ class Settings {
       this.data = normalize({})
       this.save()
     }
+    const recentWorkspacePath = resolveRecentWorkspace(this.data, this.home)
+    if (this.data.recentWorkspacePath !== recentWorkspacePath) {
+      this.data.recentWorkspacePath = recentWorkspacePath
+      this.save()
+    }
+    fs.mkdirSync(recentWorkspacePath, { recursive: true })
   }
 
   save() {
@@ -200,10 +226,14 @@ class Settings {
       next.workspacePath = workspace
       next.recentWorkspaces = [workspace].concat(next.recentWorkspaces || []).filter((value, index, list) => list.indexOf(value) === index).slice(0, 10)
     }
-    this.data = normalize(next)
+    if (patch.recentWorkspacePath) next.recentWorkspacePath = path.resolve(patch.recentWorkspacePath)
+    const normalized = normalize(next)
+    normalized.recentWorkspacePath = resolveRecentWorkspace(normalized, this.home)
+    fs.mkdirSync(normalized.recentWorkspacePath, { recursive: true })
+    this.data = normalized
     this.save()
     return this.all()
   }
 }
 
-module.exports = { Settings, DEFAULTS, normalizeModel, makeId }
+module.exports = { Settings, DEFAULTS, normalizeModel, makeId, resolveRecentWorkspace }

@@ -193,6 +193,7 @@ contextBridge.exposeInMainWorld('dsh', {
   taskRequest: (action, data) => ipcRenderer.invoke('tasks:request', action, data),
   workflowRequest: (action,data) => ipcRenderer.invoke('workflows:request',action,data),
   knowledgeRequest: (action, data) => ipcRenderer.invoke('knowledge:request', action, data),
+  memoryRequest: (action, data) => ipcRenderer.invoke('memory:request', action, data),
   knowledgeUpload: async (raw, bytes) => { if (bytes.byteLength > 8 * 1024 * 1024) throw new Error('KNOWLEDGE_FILE_LIMIT'); return ipcRenderer.invoke('knowledge:request', 'import', { ...raw, bytes }) },
   extensionRequest: (action, data) => ipcRenderer.invoke('extensions:request', action, data),
   mcpRequest: (action, data) => ipcRenderer.invoke('mcp:request', action, data),
@@ -210,7 +211,7 @@ contextBridge.exposeInMainWorld('dsh', {
   clearWorkspace: () => ipcRenderer.invoke('workspace:clear'),
   /* sessionId 一路带到后端（多实例池：一条会话一台 worker，见 agent-pool.js）。
      stop / reset / clear 都按会话生效，不带就退化成全局。 */
-  send: (text, history, images, memory, sessionId, uiCapabilities) => ipcRenderer.invoke('chat:send', { text, history, images, memory, sessionId, uiCapabilities }),
+  send: (text, history, images, memory, sessionId, uiCapabilities, workspacePath) => ipcRenderer.invoke('chat:send', { text, history, images, memory, sessionId, uiCapabilities, workspacePath }),
   generativeUiRead: (request) => ipcRenderer.invoke('generative-ui:read', request),
   generativeUiChange: (request) => ipcRenderer.invoke('generative-ui:change', request),
   generativeUiAction: (request, capabilities) => ipcRenderer.invoke('generative-ui:action', request, capabilities),

@@ -78,7 +78,18 @@ async function run(userText, history, images, memory, uiActionId) {
     started = true
     if (this.sessionId && Object.keys(this.state.ui.surfaces).length) this.emit({ type: 'ui:interaction', snapshot: require('../contracts/generative-ui-interaction').snapshot(this.state, this.sessionId) })
     if (limits.turnTimeoutMs > 0) deadline = setTimeout(() => { timedOut = true; this.abort() }, limits.turnTimeoutMs)
-    const systemContent = await this.plugins.buildSystemPrompt(this.systemPrompt(), signal, this.executionContext, this)
+    let systemContent = await this.plugins.buildSystemPrompt(this.systemPrompt(), signal, this.executionContext, this)
+    if (!unattended && this.plugins.has('memoryStore')) {
+      try {
+        const memory = await this.plugins.get('memoryStore').context({
+          scope: this.workspaceRoot ? 'project' : 'session',
+          scopeId: this.workspaceRoot || this.sessionId,
+          sessionId: this.sessionId,
+          query: String(userText || '')
+        })
+        if (memory) systemContent += '\n\n' + memory
+      } catch (error) { this.emit({ type: 'status', text: '长期记忆暂不可用：' + String(error.message || error).slice(0, 200) }) }
+    }
     const preparedHistory = this.messages.slice()
     if (preparedHistory[0] && preparedHistory[0].role === 'system') preparedHistory[0] = { role: 'system', content: systemContent }
     else preparedHistory.unshift({ role: 'system', content: systemContent })

@@ -703,9 +703,10 @@ function createSession(projectId, title, scope) {
     id: 'session_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     projectId: isRecent ? '' : projectId || '',
     scope: isRecent ? 'recent' : 'project',
-    workspacePath: state.workspacePath || '',
+    workspacePath: isRecent ? recentWorkspaceFor() : sessionWorkspacePath({ scope: 'project', projectId }),
     title: title || '\u65b0\u4f1a\u8bdd',
     messages: [],
+    readExecution: '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }
@@ -745,6 +746,61 @@ function ensureProjectSession(projectId) {
 
 function currentSession() {
   return findSessionById(state.currentSessionId)
+}
+
+function conversationVisible(sessionId) {
+  const frame = byId('contentFrame')
+  return sessionId === state.currentSessionId && frame && !frame.classList.contains('hidden') && !document.documentElement.classList.contains('chat-hidden') && document.visibilityState !== 'hidden' && (typeof document.hasFocus !== 'function' || document.hasFocus())
+}
+
+function executionReceipt(session) {
+  const execution = session && session.lastExecution
+  return execution && execution.id && !['idle', 'running'].includes(execution.status) ? execution.id + ':' + execution.status : ''
+}
+
+function markSessionRead(sessionId) {
+  const session = findSessionById(sessionId)
+  if (!session || !conversationVisible(sessionId)) return
+  const receipt = executionReceipt(session)
+  let changed = false
+  if (session.readExecution !== receipt) { session.readExecution = receipt; changed = true }
+  if (session.readReplyNotice !== (session.replyNotice || 0)) { session.readReplyNotice = session.replyNotice || 0; changed = true }
+  if (changed) saveSessionStore()
+  if (window.workflowChat) window.workflowChat.markRead(session)
+  syncSessionUnread()
+}
+
+function sessionUnread(session) {
+  return !!((session.replyNotice || 0) > (session.readReplyNotice || 0) || (session.readExecution !== undefined && executionReceipt(session) && session.readExecution !== executionReceipt(session)) || (window.workflowChat && window.workflowChat.unread(session)))
+}
+
+function noteSessionReply(sessionId, event) {
+  if (!['assistant:delta', 'assistant:message'].includes(event.type) || !String(event.text || '').trim() || conversationVisible(sessionId)) return
+  const session = findSessionById(sessionId)
+  if (!session || (session.replyNotice || 0) > (session.readReplyNotice || 0)) return
+  session.replyNotice = (session.replyNotice || 0) + 1
+  saveSessionStore()
+  syncSessionUnread()
+}
+
+function updateSessionUnread(item, session) {
+  let badge = item.querySelector('.session-unread')
+  if (!sessionUnread(session)) { if (badge) badge.remove(); return }
+  if (!badge) {
+    badge = document.createElement('span')
+    badge.className = 'session-unread'
+    badge.setAttribute('role', 'status')
+    badge.setAttribute('aria-label', '有未读消息')
+    badge.title = '有未读消息'
+    item.appendChild(badge)
+  }
+}
+
+function syncSessionUnread() {
+  for (const item of document.querySelectorAll('.chat-item[data-session-id]')) {
+    const session = findSessionById(item.dataset.sessionId)
+    if (session) updateSessionUnread(item, session)
+  }
 }
 
 function renderWindowTitle() {
@@ -945,7 +1001,10 @@ let historyJob = null
    这样同一段逻辑既能同步画首屏，也能分片画历史（分片之间必须能续上状态）。 */
 function createRenderContext(session, list, runningHere, staticProcessHtml, start) {
   const timeline = Boolean(session && Array.isArray(session.processTimeline))
+  const toolNames = new Map()
+  for (const message of list || []) for (const call of message.tool_calls || []) toolNames.set(call.id, call.function.name)
   const ctx = {
+    toolNames,
     session: session || null,
     list: list || [],
     runningHere: Boolean(runningHere),
@@ -989,9 +1048,21 @@ function advanceToWindow(ctx, start) {
 
 /* 画第 index 条消息。以前这段是写死在 renderMessages 里的两个 for 循环，
    现在抽出来，首屏和历史回填共用同一份逻辑。 */
+function renderToolCard(name, value) {
+  if (!window.workflowChat) return
+  const host = document.createElement('div')
+  window.workflowChat.decorateToolResult(host, name, value)
+  if (!host.childNodes.length) return
+  const body = addBubble('assistant', '', { noActions: true })
+  body.parentNode.classList.add('workflow-tool-card')
+  body.appendChild(host)
+}
+
 function renderOneMessage(ctx, index) {
   const message = ctx.list[index]
   if (not(message)) return
+  const toolName = message.name || ctx.toolNames.get(message.tool_call_id)
+  if (message.role === 'tool') renderToolCard(toolName, message.content)
   if (ctx.timeline) {
     if (message.role === 'user') addUserBubble(message.content)
     if (message.role === 'tool' && message.content && index < ctx.legacyCount) {
@@ -1115,7 +1186,7 @@ function renderMessages(session) {
   const list = session && Array.isArray(session.messages) ? session.messages : []
   const processHtml = session && session.processHtml ? session.processHtml : ''
   if (window.agentUI) window.agentUI.planFromMessages(list)
-  if (list.length === 0 && not(currentRunning()) && window.agentUI) window.agentUI.empty(messagesContent())
+  if (list.length === 0 && !(window.workflowChat && window.workflowChat.hasRuns(session)) && not(currentRunning()) && window.agentUI) window.agentUI.empty(messagesContent())
   if (session && session.memory && session.memory.text) {
     const memoryDetails = document.createElement('details')
     memoryDetails.className = 'thinking-block memory-block'
@@ -1156,6 +1227,7 @@ function renderMessages(session) {
     resumeThinking(ctx.timeline ? ctx.activeHtml : seedHtml)
     scheduleWaitingHint()
   }
+  if (window.workflowChat) window.workflowChat.mountRun(session, messagesContent())
   if (window.agentUI && window.agentUI.positionPlan) window.agentUI.positionPlan()
   /* 先把「载入更早」入口插好再滚到底：两件事都要读布局，反过来的话就是两次强制布局。 */
   syncHistoryMore()
@@ -1314,14 +1386,9 @@ async function selectSession(sessionId) {
   let pendingProjectSwitch = null
   if (session.scope === 'recent') {
     state.activeProjectId = ''
-    const workspacePath = session.knowledgeBaseId ? state.workspacePath : session.workspacePath || state.workspacePath
-    if (workspacePath && workspacePath !== state.workspacePath) {
-      /* 不再静默切换工作区：必须用户确认，否则只看历史不动目录 */
-      const ok = await confirmDialog('该会话原工作区是「' + workspaceLabel(workspacePath) + '」：\n' + workspacePath + '\n\n与当前工作区不同，切换过去吗？（取消则只查看历史，工作区保持不变）')
-      if (ok) {
-        state.settings = await window.dsh.saveSettings({ workspacePath })
-        state.workspacePath = state.settings.workspacePath || workspacePath
-      }
+    state.workspacePath = session.knowledgeBaseId ? session.workspacePath || '' : recentWorkspaceFor()
+    if (!session.knowledgeBaseId && state.workspacePath && (settings.currentProjectId || settings.workspacePath !== state.workspacePath)) {
+      pendingProjectSwitch = { id: '', folders: [state.workspacePath] }
     }
   } else {
     state.activeProjectId = session.projectId
@@ -1339,6 +1406,7 @@ async function selectSession(sessionId) {
     syncRunningState().then(()=>flushPendingMessage()).catch(()=>{})
     if(state.pendingMessages.length>0)scheduleQueueFlush()
     applyRunState()
+    markSessionRead(sessionId)
     switchProjectContext(pendingProjectSwitch)
     return
   }
@@ -1355,6 +1423,7 @@ async function selectSession(sessionId) {
   const fresh = findSessionById(sessionId)
   renderMessages(fresh)
   renderWorkspaceList()
+  markSessionRead(sessionId)
   /* 换会话时必须跟宿主对一次表：上一个会话跑完但事件没到（断线/错过 finished）时，
      发送按钮会一直停在「停止」态、新消息只能排队 —— 用户报的「切换会话后不能发送」。
      对了表后把「当前会话」积压的队列冲出去（别的会话的队列等切回去再说）。 */
@@ -1817,6 +1886,7 @@ function createSessionRow(session) {
   if (window.agentUI) item.appendChild(window.agentUI.sessionBadge(session, isSessionRunning(session.id)))
   item.appendChild(title)
   item.appendChild(more)
+  updateSessionUnread(item, session)
   item.setAttribute('role', 'button'); item.tabIndex = 0
   item.addEventListener('keydown', (event) => { if (event.target === item && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(session.id) } })
   item.addEventListener('click', () => selectSession(session.id))
@@ -1827,6 +1897,7 @@ function createSessionRow(session) {
    而 syncRunningState() 每 500ms 一轮，运行中的会话会让侧边栏一直重建
    （鼠标下的行被换掉、滚动位置被打断，看起来就是卡）。 */
 function syncSessionBadges() {
+  syncSessionUnread()
   if (not(window.agentUI) || typeof window.agentUI.sessionBadge !== 'function') return
   const rows = document.querySelectorAll('.flat-item.chat-item')
   for (const item of rows) {
@@ -2059,6 +2130,10 @@ async function setWorkspacePath(target) {
   const next = await window.dsh.setWorkspace(target)
   state.settings = next.settings || state.settings
   state.workspacePath = next.workspacePath || target
+  if (!state.activeProjectId) {
+    state.settings = await window.dsh.saveSettings({ recentWorkspacePath: target })
+    state.workspacePath = state.settings.workspacePath || target
+  }
   renderWorkspace()
   renderModelInfo()
   fillSettingsForm()
@@ -3234,7 +3309,6 @@ function appendProcessToolResult(target, name, result, executionOutcome) {
       output.appendChild(pre)
       body.appendChild(output)
     }
-    if(window.workflowChat&&body)window.workflowChat.decorateToolResult(body,name,value)
     if (window.agentUI) window.agentUI.diffPreview(step, name, step._toolArgs || {}, value)
   } else {
     /* 没有配对的工具步骤（比如旧宿主没发 tool:start）也要留下痕迹，不能静默丢。 */
@@ -3501,6 +3575,7 @@ function settleRun(sessionId, event) {
     if (generativeUiChat && event.ui) generativeUiChat.interaction(event.ui)
   }
   renderWorkspaceList()
+  markSessionRead(targetId)
   applyRunState()
   flushPendingMessage()
 }
@@ -3508,15 +3583,16 @@ function settleRun(sessionId, event) {
 async function handleEvent(event) {
   if (not(event) || not(event.type)) return
   if (event.type.startsWith('workflows:')) {if(window.workflowUI)window.workflowUI.refresh();return}
-  if (event.type.startsWith('knowledge:')) { if (window.knowledgeUI) window.knowledgeUI.refresh(); return }
+  if (event.type.startsWith('knowledge:')) { if (window.knowledgeUI) window.knowledgeUI.refresh(true); return }
   if (event.type.startsWith('tasks:')) { if (window.scheduledTasks) window.scheduledTasks.onEvent(event); return }
-  if (event.type === 'connection') { if (window.agentUI) window.agentUI.connection(event.connected, event.message); return }
+  if (event.type === 'connection') { if (window.agentUI) window.agentUI.connection(event.connected, event.message); if (event.connected && window.workflowChat) window.workflowChat.syncRuns().catch(error => setStatus(error.message)); return }
   if (event.type === 'user') return
   const eventSessionId = event.sessionId ? String(event.sessionId) : ''
   const isCurrent = eventSessionId === '' || eventSessionId === state.currentSessionId
   if (isCurrent && window.agentUI && event.type === 'tool:result') window.agentUI.planResult(event.result || '')
   if(window.workflowChat&&event.type==='tool:result')window.workflowChat.recordDraft(eventSessionId||state.currentSessionId,event.name,event.result)
   recordProcessTimeline(eventSessionId || state.currentSessionId, event)
+  noteSessionReply(eventSessionId || state.currentSessionId, event)
 
   if (event.type === 'finished') {
     settleRun(eventSessionId, event)
@@ -3636,6 +3712,7 @@ async function handleEvent(event) {
   }
   if (event.type === 'tool:result') {
     appendThinkingToolResult(event.name, event.result || '', event.outcome)
+    renderToolCard(event.name, event.result)
     scheduleWaitingHint()
     return
   }
@@ -3759,8 +3836,17 @@ async function syncRunningState() {
     state.workspacePath = next.workspacePath || state.workspacePath
     state.runLimit = Number(next.maxConcurrentRuns) > 0 ? Number(next.maxConcurrentRuns) : state.runLimit
     if (next.executions) {
-      for (const id of Object.keys(next.executions)) { const session = findSessionById(id); if (session) session.lastExecution = next.executions[id] }
+      let changed = false
+      for (const id of Object.keys(next.executions)) {
+        const session = findSessionById(id)
+        if (!session) continue
+        const receipt = executionReceipt(session)
+        session.lastExecution = next.executions[id]
+        if (executionReceipt(session) !== receipt) changed = true
+      }
+      if (changed) saveSessionStore()
     }
+    syncSessionUnread()
     if (byId('statusLine') && byId('statusLine').getAttribute('data-connection') === 'error') setStatus('ready')
     const previousRuns = JSON.stringify(state.runs)
     applyRuns(next.runningSessions, next.running)
@@ -3972,18 +4058,14 @@ function isPluginEnabled(name) {
   return pluginDisabledList().indexOf(String(name || '')) === -1
 }
 
-/* 侧边栏入口右侧的计数（2026-10-17 按参考样式加的）。
-   只写真实可得的数字：技能与规则按「已启用插件数」算；
-   资料库目前还没有条目清单（服务端只有按 id 取单个资源，没有列表端点），
-   所以先留空 —— 写个假的「6」比空着更糟：用户会以为里面真有 6 条。 */
 function updateShortcutMeta() {
   const enabled = cachedPluginList.filter((name) => isPluginEnabled(name)).length
   const meta = byId('customizeCount')
   if (meta) {
     const skills = typeof systemSkillList === 'undefined' ? [] : systemSkillList
     const total = enabled + skills.filter((item) => !(state.settings.disabledSkills || []).includes(item.id)).length
-    meta.textContent = total > 0 ? (total + ' 项启用') : ''
-    meta.title = '已启用的插件与工具能力'
+    meta.textContent = String(total)
+    meta.title = '已启用的技能与插件数量'
   }
   const library = byId('libraryCount')
   if (library) {
@@ -4276,6 +4358,16 @@ function autoResizeComposer() {
   input.classList.toggle('needs-scroll', input.scrollHeight > maxHeight)
 }
 
+function recentWorkspaceFor() {
+  return String((state.settings && state.settings.recentWorkspacePath) || '')
+}
+function sessionWorkspacePath(session) {
+  if (session && session.knowledgeBaseId) return ''
+  if (session ? session.scope === 'recent' : !state.activeProjectId) return recentWorkspaceFor()
+  const projectId = session ? session.projectId : state.activeProjectId
+  const project = ((state.settings && state.settings.projects) || []).find(item => item.id === projectId)
+  return (project && project.folders && project.folders[0]) || (session && session.workspacePath) || state.workspacePath || ''
+}
 async function sendMessage() {
   const input = byId('input')
   const text = String(input.innerText || '').trim()
@@ -4297,7 +4389,7 @@ async function sendMessage() {
     autoResizeComposer()
     return
   }
-  if (not(state.workspacePath) && !(currentSession() && currentSession().knowledgeBaseId)) {
+  if (not(sessionWorkspacePath(currentSession())) && !(currentSession() && currentSession().knowledgeBaseId)) {
     addBubble('error', '\u8bf7\u5148\u9009\u62e9\u6216\u65b0\u5efa\u672c\u5730\u5de5\u4f5c\u533a\u76ee\u5f55')
     return
   }
@@ -4361,7 +4453,7 @@ async function sendMessage() {
   let isBusy = false
   try {
     const uiCapabilities = generativeUiChat ? await generativeUiChat.capabilities() : null
-    await window.dsh.send(workflowText, history, images, memory, sessionId, uiCapabilities)
+    await window.dsh.send(workflowText, history, images, memory, sessionId, uiCapabilities, sessionWorkspacePath(session))
   } catch (error) {
     if (state.currentSessionId === sessionId) state.liveRun = false
     const message = error && error.message ? String(error.message) : String(error)
@@ -4976,9 +5068,12 @@ async function init() {
   if (savedSession) {
     state.currentSessionId = savedSession.id
     state.activeProjectId = savedSession.scope === 'recent' ? '' : savedSession.projectId
-    if (savedSession.scope === 'recent' && !savedSession.knowledgeBaseId && savedSession.workspacePath) {
-      state.settings = await window.dsh.saveSettings({ workspacePath: savedSession.workspacePath })
-      state.workspacePath = state.settings.workspacePath || savedSession.workspacePath
+    if (savedSession.scope === 'recent' && !savedSession.knowledgeBaseId) {
+      const workspacePath = recentWorkspaceFor()
+      state.workspacePath = workspacePath
+      if (workspacePath && (state.settings.currentProjectId || state.settings.workspacePath !== workspacePath)) {
+        state.settings = await window.dsh.saveSettings({ workspacePath, currentProjectId: '' })
+      }
     }
     if (savedSession.scope !== 'recent') state.expandedProjects[savedSession.projectId] = true
   } else {
@@ -5000,6 +5095,9 @@ async function init() {
      renderMessages 要靠 currentRunning() 判断「这条会话是不是正在跑」，
      顺序反了会画出一个静态过程块、紧接着又起一个空块（重复）。 */
   if (initial.executions) for (const id of Object.keys(initial.executions)) { const session = findSessionById(id); if (session) session.lastExecution = initial.executions[id] }
+  for (const sessions of Object.values(sessionStore)) for (const session of Array.isArray(sessions) ? sessions : []) {
+    if (session.readExecution === undefined) session.readExecution = executionReceipt(session)
+  }
   applyRuns(initial.runningSessions, initial.running)
   state.runLimit = Number(initial.maxConcurrentRuns) > 0 ? Number(initial.maxConcurrentRuns) : state.runLimit
   renderMessages(currentSession())
@@ -5017,6 +5115,12 @@ async function init() {
   fillSettingsForm()
   renderPermission()
   window.dsh.onEvent(handleEvent)
+  if (window.knowledgeUI) window.knowledgeUI.refresh(true)
+  if (window.workflowChat) window.workflowChat.syncRuns().catch(error => setStatus('流程会话同步失败：' + error.message))
+  const readVisibleSession = () => markSessionRead(state.currentSessionId)
+  window.addEventListener('focus', readVisibleSession)
+  document.addEventListener('visibilitychange', readVisibleSession)
+  readVisibleSession()
   /* 关窗前把还没推上服务端的会话/偏好补一刀（fire-and-forget：桌面壳走 IPC 一般来得及；
      就算没赶上，localStorage 那份同 origin 还在，最多丢最后一次不到一秒的变更） */
   window.addEventListener('beforeunload', () => {
@@ -5109,7 +5213,7 @@ async function init() {
      再点「新建会话」不另建新会话 —— 反复点击不再堆积一排「新会话」。 */
   const newSessionAction = () => {
     const current = currentSession()
-    if (current && Array.isArray(current.messages) && current.messages.length === 0 && !currentRunning() && !state.liveRun && (state.pendingMessages || []).length === 0) {
+    if (current && current.scope === 'recent' && !current.knowledgeBaseId && !(window.workflowChat && window.workflowChat.hasRuns(current)) && !current.workflowReference && Array.isArray(current.messages) && current.messages.length === 0 && !currentRunning() && !state.liveRun && (state.pendingMessages || []).length === 0) {
       selectSession(current.id)
       setStatus('已是空会话，未新建')
       return
