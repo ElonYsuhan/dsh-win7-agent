@@ -1,7 +1,6 @@
 'use strict'
 
-const http = require('http')
-const https = require('https')
+const { request: networkRequest } = require('./network-proxy')
 
 const not = (value) => value ? false : true
 
@@ -27,7 +26,6 @@ function fetchModelList(baseURL, apiKey) {
       reject(new Error('MODEL_LIST_BAD_URL'))
       return
     }
-    const transport = parsed.protocol === 'https:' ? https : http
     const options = {
       protocol: parsed.protocol,
       hostname: parsed.hostname,
@@ -38,25 +36,36 @@ function fetchModelList(baseURL, apiKey) {
       timeout: 15000
     }
     if (apiKey) options.headers.authorization = 'Bearer ' + apiKey
-    const request = transport.request(options, (response) => {
+    let settled = false
+    let timer = null
+    const finish = (error, value) => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      if (error) reject(error)
+      else resolve(value)
+    }
+    const request = networkRequest(parsed, options, (response) => {
       let body = ''
-      response.on('data', (chunk) => { body += chunk.toString('utf8') })
+      response.setEncoding('utf8')
+      response.on('data', (chunk) => {
+        body += chunk
+        if (body.length > 8 * 1024 * 1024) request.destroy(new Error('MODEL_LIST_TOO_LARGE'))
+      })
+      response.on('error', finish)
+      response.on('aborted', () => finish(new Error('MODEL_LIST_RESPONSE_ABORTED')))
       response.on('end', () => {
-        if (response.statusCode >= 400) {
-          reject(new Error('MODEL_LIST_HTTP_' + response.statusCode))
-          return
-        }
+        if (response.statusCode >= 400) return finish(new Error('MODEL_LIST_HTTP_' + response.statusCode))
         try {
           const value = JSON.parse(body)
           const raw = Array.isArray(value.data) ? value.data : (Array.isArray(value.models) ? value.models : [])
-          resolve(raw.map((item) => typeof item === 'string' ? item : String((item && (item.id || item.name)) || '')).filter(Boolean))
-        } catch (error) {
-          reject(new Error('MODEL_LIST_BAD_JSON'))
-        }
+          finish(null, raw.map((item) => typeof item === 'string' ? item : String((item && (item.id || item.name)) || '')).filter(Boolean))
+        } catch (error) { finish(new Error('MODEL_LIST_BAD_JSON')) }
       })
     })
-    request.on('error', reject)
-    request.on('timeout', () => request.destroy(new Error('MODEL_LIST_TIMEOUT')))
+    request.on('error', finish)
+    // 覆盖 DNS、CONNECT 和 TLS 建立阶段，而不仅是已连接 socket 的空闲时间。
+    timer = setTimeout(() => request.destroy(new Error('MODEL_LIST_TIMEOUT')), 15000)
     request.end()
   })
 }

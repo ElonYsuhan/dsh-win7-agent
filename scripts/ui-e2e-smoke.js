@@ -158,6 +158,24 @@ async function main() {
     }
     ok('界面加载完成（模型下拉里有两个供应商的条目）', ready, 'ready=' + ready)
 
+    const projectFolderAction = JSON.parse(String(await evalJs(
+      '(function(){'
+      + 'window.__projectOpenPaths=[];window.dsh.isDesktop=true;'
+      + 'window.dsh.openPath=async function(target){window.__projectOpenPaths.push(target);return ""};'
+      + 'var more=document.querySelector("#projectList .project-more");if(!more)return JSON.stringify({error:"missing-more"});more.click();'
+      + 'var edit=document.getElementById("projectMenuEdit");if(!edit)return JSON.stringify({error:"missing-edit"});edit.click();'
+      + 'var open=document.querySelector("#projectFolderList .folder-open");'
+      + 'return JSON.stringify({label:open&&open.textContent,aria:open&&open.getAttribute("aria-label")});'
+      + '})()'
+    )))
+    ok('编辑工作区中的关联目录提供打开操作', projectFolderAction.label === '打开'
+      && projectFolderAction.aria === '打开目录：' + workspace, JSON.stringify(projectFolderAction))
+    await evalJs('document.querySelector("#projectFolderList .folder-open").click(); "clicked"')
+    await sleep(100)
+    const projectOpenPaths = JSON.parse(String(await evalJs('JSON.stringify(window.__projectOpenPaths)')))
+    ok('关联目录打开操作转交当前目录给系统桥接', JSON.stringify(projectOpenPaths) === JSON.stringify([workspace]), JSON.stringify(projectOpenPaths))
+    await evalJs('window.dsh.isDesktop=false; "restored"')
+
     const label0 = await readLabel()
     ok('初始标签 = 当前 model（m1）', label0 === 'm1', label0)
 
@@ -240,6 +258,7 @@ async function main() {
       + ' newBg: nsCs ? nsCs.backgroundColor : "",'
       + ' dir: cs ? cs.flexDirection : "",'
       + ' rows: rows.length,'
+      + ' shortcutIds: Array.from(rows).map(function(row){return row.id}).join(","),'
       + ' metaText: meta ? meta.textContent : "",'
       + ' libText: lib ? lib.textContent : "",'
       + ' railShown: rail ? getComputedStyle(rail).display : ""'
@@ -250,8 +269,9 @@ async function main() {
       /* 侧边栏本身有 16px 左右内边距，胶囊铺满的是内容区，所以留 48px 容差 */
       sb.newW > 0 && sb.newW >= sb.sidebarW - 48 && sb.newBg !== 'rgba(0, 0, 0, 0)',
       'newW=' + sb.newW + ' sidebarW=' + sb.sidebarW + ' bg=' + sb.newBg)
-    ok('资料库 / 技能与规则是纵向排列的两行', sb.rows === 2 && sb.dir === 'column',
-      'rows=' + sb.rows + ' direction=' + sb.dir)
+    ok('资料库、能力中心与工作流纵向排列', sb.rows === 3 && sb.dir === 'column'
+      && sb.shortcutIds === 'openLibrary,openCustomize,openWorkflows',
+    'rows=' + sb.rows + ' ids=' + sb.shortcutIds + ' direction=' + sb.dir)
     ok('技能与规则右侧显示真实启用项数', /[0-9]+ 项启用/.test(sb.metaText), 'meta=' + JSON.stringify(sb.metaText))
     ok('资料库没有条目清单时右侧留空（不编假数字）', sb.libText === '', 'lib=' + JSON.stringify(sb.libText))
     ok('宽窗口下不显示窄屏图标栏', sb.railShown === 'none', 'rail=' + sb.railShown)
@@ -431,27 +451,37 @@ async function main() {
     await evalJs('(function(){ if(window.closeSettings) window.closeSettings(); return true })()')
     await sleep(300)
 
-    /* 造够多的内容，量滚动 */
+    /* 定时任务的页签导航保持固定，实际列表才是独立滚动容器；填入临时行确保真实量到溢出。 */
+    await evalJs(
+      '(function(){var p=document.querySelector("#taskList");if(!p)return "missing";'
+      + 'Array.from(p.querySelectorAll("[data-ui-e2e-scroll-row]")).forEach(function(row){row.remove()});'
+      + 'for(var i=0;i<24;i++){var row=document.createElement("div");'
+      + 'row.className="scheduled-task";row.setAttribute("data-ui-e2e-scroll-row","");'
+      + 'row.style.height="48px";row.textContent="滚动验证任务 " + i;p.appendChild(row)}'
+      + 'return String(p.children.length)})()'
+    )
+    await sleep(100)
     const scrollProbe = JSON.parse(String(await evalJs(
       '(function(){'
-      + 'var p=document.querySelector("#capTasks");'
+      + 'var p=document.querySelector("#taskList");'
       + 'var hits=[];'
       + 'for(var i=0;i<document.styleSheets.length;i++){var ss=document.styleSheets[i];'
       + ' var rules;try{rules=ss.cssRules}catch(e){continue}'
       + ' for(var j=0;j<rules.length;j++){var t=rules[j].textContent||"";'
-      + '  if(t.indexOf("#capTasks")!==-1&&/overflow/.test(t))hits.push(t.slice(0,120))}}'
+      + '  if(t.indexOf("#taskList")!==-1&&/overflow/.test(t))hits.push(t.slice(0,120))}}'
       + 'return JSON.stringify({scrollable:p?p.scrollHeight>p.clientHeight+2:false,'
       + ' overflowY:p?getComputedStyle(p).overflowY:"",'
       + ' clientH:p?p.clientHeight:0, scrollH:p?p.scrollHeight:0,'
       + ' rules:hits});'
       + '})()'
     )))
-    ok('定时任务区域能滚动（overflow-y:auto 且内容超高时可滚）',
-      scrollProbe.overflowY === 'auto' && scrollProbe.clientH > 100, JSON.stringify(scrollProbe))
+    ok('定时任务列表区域能滚动（overflow-y:auto 且内容超高时可滚）',
+      scrollProbe.scrollable === true && scrollProbe.overflowY === 'auto' && scrollProbe.clientH > 100, JSON.stringify(scrollProbe))
     const moved = String(await evalJs(
-      '(function(){var p=document.querySelector("#capTasks");p.scrollTop=120;return String(p.scrollTop)})()'
+      '(function(){var p=document.querySelector("#taskList");p.scrollTop=120;return String(p.scrollTop)})()'
     ))
-    ok('滚得动（scrollTop 真的变了）', Number(moved) > 0, 'scrollTop=' + moved)
+    ok('定时任务列表真的能滚动（scrollTop 发生变化）', Number(moved) > 0, 'scrollTop=' + moved)
+    await evalJs('(function(){Array.from(document.querySelectorAll("[data-ui-e2e-scroll-row]")).forEach(function(row){row.remove()});return true})()')
 
     /* 空状态建议：跟着工作区内容走 */
     await evalJs('(function(){var c=document.getElementById("messagesInner");c.textContent="";'

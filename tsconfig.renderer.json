@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": [
+    "src/renderer/markdown.js",
+    "src/renderer/ui-enhancements.js",
+    "src/renderer/web-bridge.js",
+    "src/renderer/workflow-auto-layout.js",
+    "src/renderer/workflow-link-routing.js",
+    "types/browser/**/*.d.ts"
+  ]
+}

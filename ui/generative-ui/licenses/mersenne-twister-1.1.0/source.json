@@ -1,0 +1,11 @@
+{
+  "package": "mersenne-twister",
+  "version": "1.1.0",
+  "license": "BSD-3-Clause",
+  "npmIntegrity": "sha512-mUYWsMKNrm4lfygPkL3OfGzOPTR2DBlTkBNHM//F6hGp8cLThY897crAlk3/Jo17LEOOjQUrNAx6DvgO77QJkA==",
+  "licenseSource": "https://registry.npmjs.org/mersenne-twister/-/mersenne-twister-1.1.0.tgz#src/mersenne-twister.js",
+  "sourcePath": "src/mersenne-twister.js",
+  "sourceSha256": "b197b673a9e8add2068c9062e5f9222f73ae46ff03634909db28a924fdcad0eb",
+  "licenseSha256": "6cfa9a3359015ba08103af07bffee40c7a0273dda9c30c2a84a262d12cf76a06",
+  "reason": "The npm package omits a license file. Preserve the complete attribution and BSD-3-Clause terms embedded in its shipped source; npm metadata labels the package MIT."
+}

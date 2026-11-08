@@ -25,6 +25,7 @@ for (const file of ['smoke', 'permission-smoke', 'context-compression-smoke', 's
 for (const command of commands) {
   const match = /^node (scripts\/[a-z0-9-]+\.js)$/.exec(command)
   if (!match) throw new Error('Unsupported check command: ' + command)
+  if (match[1] === 'scripts/typecheck-core.js') { console.log('\nNode 16.17.1: skipped build-machine TypeScript check (npm run check covers it)'); continue }
   console.log('\nNode 16.17.1: ' + match[1])
   const result = spawnSync(executable, [path.join(root, match[1])], { cwd: root, env, stdio: 'inherit', timeout: 120000 })
   if (result.error) throw result.error

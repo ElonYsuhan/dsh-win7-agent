@@ -28,7 +28,8 @@ module.exports = {
             const result = await agentDriver(toolCtx).launch(input.url, {
               width: input.width,
               height: input.height,
-              noSandbox: process.env.SMOKE_NO_SANDBOX === '1'
+              noSandbox: process.env.SMOKE_NO_SANDBOX === '1',
+              hidden: input.visible !== true
             })
             return JSON.stringify(Object.assign({ url: input.url }, result))
           }

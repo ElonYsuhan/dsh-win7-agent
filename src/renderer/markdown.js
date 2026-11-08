@@ -100,7 +100,7 @@ function renderMarkdown(input) {
   const escaped = escapeHtml(input)
   const lines = escaped.split('\n')
   const output = []
-  const state = { ul: false, ol: false, code: false, table: false }
+  const state = { ul: false, ol: false, code: false, table: false, details: 0 }
   const codeLines = []
   /* 围栏语言（```js）—— 挂在 <code data-lang> 上，交给 highlight.js 的 highlightAll 认。
      不挂语言也能高亮，只是会回退成 js 那套规则。 */
@@ -125,6 +125,27 @@ function renderMarkdown(input) {
     }
     if (state.code) {
       codeLines.push(line)
+      continue
+    }
+    /* The model may emit plain <details>/<summary> wrappers around long tables.
+       Recognize only exact, attribute-free tags after escaping; contents still
+       go through the normal Markdown state machine and inline escaping. */
+    const detailsOpen = /^&lt;details(\s+open)?\s*&gt;$/.exec(trimmed)
+    if (detailsOpen) {
+      closeAll(state, output)
+      output.push('<details class="md-details"' + (detailsOpen[1] ? ' open' : '') + '>')
+      state.details += 1
+      continue
+    }
+    if (trimmed === '&lt;/details&gt;' && state.details > 0) {
+      closeAll(state, output)
+      output.push('</details>')
+      state.details -= 1
+      continue
+    }
+    const detailsSummary = /^&lt;summary&gt;(.*?)&lt;\/summary&gt;$/.exec(trimmed)
+    if (detailsSummary && state.details > 0) {
+      output.push('<summary>' + renderInline(detailsSummary[1]) + '</summary>')
       continue
     }
     /* 表头：当前行是表格行且下一行是分隔行 */
@@ -204,6 +225,7 @@ function renderMarkdown(input) {
     output.push('<pre><code>' + codeLines.join('\n') + '</code></pre>')
   }
   closeAll(state, output)
+  while (state.details > 0) { output.push('</details>'); state.details -= 1 }
   return output.join('')
 }
 

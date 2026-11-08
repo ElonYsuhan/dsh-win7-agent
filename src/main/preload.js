@@ -69,8 +69,9 @@ function setupWindowControls() {
       const label = value.maximized ? '还原窗口' : '最大化窗口'
       maximizeButton.title = label
       maximizeButton.setAttribute('aria-label', label)
-      maximizeButton.firstChild.innerHTML = titlebarIcon(value.maximized ? 'restore' : 'maximize')
-      maximizeButton.firstChild.className = 'window-control-icon window-control-icon-' + (value.maximized ? 'restore' : 'maximize')
+      const icon = /** @type {HTMLElement} */ (maximizeButton.firstChild)
+      icon.innerHTML = titlebarIcon(value.maximized ? 'restore' : 'maximize')
+      icon.className = 'window-control-icon window-control-icon-' + (value.maximized ? 'restore' : 'maximize')
     }
   }
   ipcRenderer.on('window:state', (_event, value) => update(value))
@@ -79,7 +80,7 @@ function setupWindowControls() {
 
 function wireTitlebarDoubleClick() {
   document.addEventListener('dblclick', (event) => {
-    const target = event.target
+    const target = /** @type {Element} */ (event.target)
     if (!target || typeof target.closest !== 'function') return
     if (!target.closest('#titlebarDrag')) return
     if (target.closest('button, a, input, select, textarea')) return
@@ -209,7 +210,10 @@ contextBridge.exposeInMainWorld('dsh', {
   clearWorkspace: () => ipcRenderer.invoke('workspace:clear'),
   /* sessionId 一路带到后端（多实例池：一条会话一台 worker，见 agent-pool.js）。
      stop / reset / clear 都按会话生效，不带就退化成全局。 */
-  send: (text, history, images, memory, sessionId) => ipcRenderer.invoke('chat:send', { text, history, images, memory, sessionId }),
+  send: (text, history, images, memory, sessionId, uiCapabilities) => ipcRenderer.invoke('chat:send', { text, history, images, memory, sessionId, uiCapabilities }),
+  generativeUiRead: (request) => ipcRenderer.invoke('generative-ui:read', request),
+  generativeUiChange: (request) => ipcRenderer.invoke('generative-ui:change', request),
+  generativeUiAction: (request, capabilities) => ipcRenderer.invoke('generative-ui:action', request, capabilities),
   stop: (sessionId) => ipcRenderer.invoke('chat:stop', sessionId),
   resetChat: (sessionId) => ipcRenderer.invoke('chat:reset', sessionId),
   clearChat: (sessionId) => ipcRenderer.invoke('chat:clear', sessionId),
@@ -261,9 +265,10 @@ contextBridge.exposeInMainWorld('dsh', {
 // Sandbox preloads cannot import local modules; keep both entry points aligned.
 for (const type of ['mousedown', 'mouseup', 'auxclick']) {
   window.addEventListener(type, (event) => {
-    if (event.button === 3 || event.button === 4) {
-      event.preventDefault()
-      event.stopImmediatePropagation()
+    const mouse = /** @type {MouseEvent} */ (event)
+    if (mouse.button === 3 || mouse.button === 4) {
+      mouse.preventDefault()
+      mouse.stopImmediatePropagation()
     }
   }, { capture: true, passive: false })
 }

@@ -30,6 +30,7 @@ function pickNativeFolder() {
       return
     }
     // 原生工具不可用时让页面使用服务器目录浏览器；用户取消才结束选择。
+    /** @type {Array<[string, string[]]>} */
     const candidates = [
       ['zenity', ['--file-selection', '--directory', '--title=' + TITLE]],
       ['kdialog', ['--getexistingdirectory', '.', '--title', TITLE]]

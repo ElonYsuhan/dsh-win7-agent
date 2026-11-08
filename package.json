@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "check": "node scripts/desktop-security-smoke.js && node scripts/check-runtime-architecture.js && node scripts/runtime-audit-smoke.js && node scripts/cordis-runtime-smoke.js && node scripts/layered-agent-smoke.js && node scripts/check-syntax.js && node scripts/check-win7-compat.js && node scripts/settings-migration-smoke.js && node scripts/renderer-smoke.js && node scripts/typography-smoke.js && node scripts/check-ui-dialogs.js && node scripts/web-bridge-smoke.js && node scripts/platform-smoke.js && node scripts/ui-store-smoke.js && node scripts/self-validate-smoke.js && node scripts/service-manager-smoke.js && node scripts/installer-smoke.js && node scripts/update-takeover-smoke.js && node scripts/startup-build-metadata-smoke.js && node scripts/shell-menu-smoke.js && node scripts/shell-chrome-smoke.js && node scripts/navigation-guard-smoke.js && node scripts/window-controls-smoke.js && node scripts/plugin-smoke.js && node scripts/mcp-smoke.js && node scripts/knowledge-native-smoke.js && node scripts/knowledge-smoke.js && node scripts/knowledge-session-smoke.js && node scripts/workflows-smoke.js && node scripts/workflow-process-skill-smoke.js && node scripts/workflow-branch-smoke.js && node scripts/document-mcp-smoke.js && node scripts/agent-smoke.js && node scripts/llm-stream-smoke.js && node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js && node scripts/release-retention-smoke.js && node scripts/desktop-distribution-smoke.js && node scripts/source-protection-smoke.js && node scripts/licensing-smoke.js && node scripts/license-authority-web-smoke.js && node scripts/agent-ux-smoke.js && node scripts/tasks-smoke.js && node scripts/task-lifecycle-smoke.js && node scripts/extensions-smoke.js && node scripts/workflow-v2-smoke.js && node scripts/workflow-artifacts-smoke.js && node scripts/workflow-processing-smoke.js && node scripts/workflow-interaction-smoke.js && node scripts/workflow-node-design-smoke.js && node scripts/workflow-routing-smoke.js && node scripts/workflow-layout-smoke.js && node scripts/workflow-schedule-smoke.js && node scripts/workflow-materials-smoke.js && node scripts/workflow-suggestion-smoke.js",
+    "check": "node scripts/desktop-security-smoke.js && node scripts/check-runtime-architecture.js && node scripts/runtime-audit-smoke.js && node scripts/cordis-runtime-smoke.js && node scripts/layered-agent-smoke.js && node scripts/generative-ui-smoke.js && node scripts/generative-ui-interaction-smoke.js && node scripts/generative-ui-business-smoke.js && node scripts/generative-ui-product-smoke.js && node scripts/generative-ui-view-smoke.js && node scripts/generative-ui-chat-smoke.js && node scripts/check-syntax.js && node scripts/typecheck-core.js && node scripts/check-win7-compat.js && node scripts/settings-migration-smoke.js && node scripts/renderer-smoke.js && node scripts/typography-smoke.js && node scripts/check-ui-dialogs.js && node scripts/web-bridge-smoke.js && node scripts/platform-smoke.js && node scripts/ui-store-smoke.js && node scripts/self-validate-smoke.js && node scripts/service-manager-smoke.js && node scripts/installer-smoke.js && node scripts/update-takeover-smoke.js && node scripts/startup-build-metadata-smoke.js && node scripts/shell-menu-smoke.js && node scripts/shell-chrome-smoke.js && node scripts/navigation-guard-smoke.js && node scripts/window-controls-smoke.js && node scripts/plugin-smoke.js && node scripts/mcp-smoke.js && node scripts/knowledge-native-smoke.js && node scripts/knowledge-smoke.js && node scripts/knowledge-session-smoke.js && node scripts/workflows-smoke.js && node scripts/workflow-process-skill-smoke.js && node scripts/workflow-branch-smoke.js && node scripts/document-mcp-smoke.js && node scripts/agent-smoke.js && node scripts/network-proxy-smoke.js && node scripts/llm-stream-smoke.js && node scripts/model-reconnect-smoke.js && node scripts/concurrency-smoke.js && node scripts/server-concurrency-smoke.js && node scripts/release-retention-smoke.js && node scripts/desktop-distribution-smoke.js && node scripts/source-protection-smoke.js && node scripts/licensing-smoke.js && node scripts/license-authority-web-smoke.js && node scripts/agent-ux-smoke.js && node scripts/tasks-smoke.js && node scripts/task-lifecycle-smoke.js && node scripts/extensions-smoke.js && node scripts/workflow-v2-smoke.js && node scripts/workflow-artifacts-smoke.js && node scripts/workflow-processing-smoke.js && node scripts/workflow-interaction-smoke.js && node scripts/workflow-node-design-smoke.js && node scripts/workflow-routing-smoke.js && node scripts/workflow-layout-smoke.js && node scripts/workflow-schedule-smoke.js && node scripts/workflow-materials-smoke.js && node scripts/workflow-suggestion-smoke.js",
     "check:audit": "node scripts/runtime-audit-smoke.js",
     "check:win7": "node scripts/check-win7-compat.js",
     "check:renderer": "node scripts/renderer-smoke.js && node scripts/web-bridge-smoke.js",
@@ -46,7 +46,7 @@
     "check:theme": "node scripts/theme-smoke.js",
     "check:typography:browser": "node scripts/typography-e2e-smoke.js",
     "check:licensing:gate": "node scripts/licensing-gate-e2e-smoke.js",
-    "check:runtime": "node scripts/check-runtime-architecture.js && node scripts/runtime-audit-smoke.js && node scripts/cordis-runtime-smoke.js && node scripts/layered-agent-smoke.js",
+    "check:runtime": "node scripts/check-runtime-architecture.js && node scripts/runtime-audit-smoke.js && node scripts/cordis-runtime-smoke.js && node scripts/layered-agent-smoke.js && node scripts/generative-ui-smoke.js",
     "vendor:cordis": "node scripts/vendor-cordis.js",
     "check:node16": "node scripts/check-node16.js",
     "check:ux": "node scripts/agent-ux-smoke.js",
@@ -54,7 +54,7 @@
     "check:memory:browser": "node scripts/stream-memory-e2e-smoke.js",
     "check:modules:browser": "node scripts/module-switch-e2e-smoke.js",
     "check:dialogs:browser": "node scripts/dialog-drag-e2e-smoke.js",
-    "check:llm": "node scripts/llm-stream-smoke.js",
+    "check:llm": "node scripts/network-proxy-smoke.js && node scripts/llm-stream-smoke.js && node scripts/model-reconnect-smoke.js",
     "check:mcp": "node scripts/mcp-smoke.js",
     "check:tasks": "node scripts/tasks-smoke.js && node scripts/task-lifecycle-smoke.js",
     "check:tasks:browser": "node scripts/tasks-e2e-smoke.js",
@@ -75,14 +75,28 @@
     "check:workflows:schedule": "node scripts/workflow-schedule-smoke.js",
     "check:workflows:properties:browser": "node scripts/workflow-properties-e2e-smoke.js",
     "check:workflows:materials:browser": "node scripts/workflow-materials-e2e-smoke.js",
-    "check:workflows:suggestion:browser": "node scripts/workflow-suggestion-e2e-smoke.js"
+    "check:workflows:suggestion:browser": "node scripts/workflow-suggestion-e2e-smoke.js",
+    "check:generative-ui:interaction": "node scripts/generative-ui-interaction-smoke.js && node scripts/generative-ui-business-smoke.js && node scripts/generative-ui-product-smoke.js && node scripts/generative-ui-view-smoke.js",
+    "check:generative-ui:build": "node scripts/generative-ui-build-smoke.js",
+    "check:generative-ui:browser": "node scripts/generative-ui-browser-smoke.js --protected",
+    "check:generative-ui:stage": "node scripts/generative-ui-stage-smoke.js",
+    "check:generative-ui:chat": "node scripts/generative-ui-chat-browser-smoke.js",
+    "typecheck:core": "node scripts/typecheck-core.js"
   },
   "devDependencies": {
+    "@types/node": "16.18.126",
+    "@vitejs/plugin-vue": "5.2.4",
+    "cesium": "1.104.0",
+    "echarts": "5.5.1",
     "electron": "22.3.27",
     "electron-builder": "24.13.3",
     "javascript-obfuscator": "4.1.1",
+    "naive-ui": "2.39.0",
     "resedit": "^3.1.0",
-    "terser": "5.31.0"
+    "terser": "5.31.0",
+    "typescript": "5.9.3",
+    "vite": "5.4.21",
+    "vue": "3.5.22"
   },
   "build": {
     "appId": "com.dsh.agent",

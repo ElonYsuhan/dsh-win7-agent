@@ -9,6 +9,7 @@ function defaultProfile(options) {
     require('./plugins/skill-library'),
     require('./plugins/model'),
     require('./plugins/plans'),
+    require('./plugins/generative-ui'),
     require('./plugins/mcp'),
     require('./plugins/extensions'),
     require('./plugins/knowledge'),

@@ -37,7 +37,7 @@ assert.strictEqual(await evaluate("window.fetch('/api/chat/send',{method:'POST',
   await evaluate("document.getElementById('openSettings').click();document.querySelector('[data-settings-tab=license]').click()")
   await until('!document.querySelector("[data-settings-panel=license]").classList.contains("hidden")');assert(await evaluate("document.getElementById('licenseSettings').textContent.includes('试用中')"))
   await stop();const stateFile=path.join(dir,'agent-home/licensing/state.json'),saved=JSON.parse(fs.readFileSync(stateFile,'utf8'));saved.trial.startedAt=Date.now()-C.TRIAL_MS-1;saved.trial.expired=true;fs.writeFileSync(stateFile,JSON.stringify(saved));await start();assert(await evaluate('window.licensingUI.isLocked()'));/* 试用用完之后按钮直接撤掉，不再以「试用已使用」的禁用态留在界面上 */
- assert.strictEqual(await evaluate("document.querySelectorAll('#licenseGate .license-actions button').length"),3)
+ assert.deepStrictEqual(await evaluate("Array.from(document.querySelectorAll('#licenseGate .license-actions button')).filter(button=>button.getClientRects().length).map(button=>button.textContent)"),['取消','导出申请文件','重新检查'])
  assert(await evaluate("document.querySelector('#licenseGate .license-primary').getClientRects().length===0"))
  assert(await evaluate("document.getElementById('licenseGateDescription').hidden===true"))
   const request=await evaluate("window.dsh.licenseRequest('request')"),directory=issuer.defaultDirectory(),authority=issuer.status(directory),issued=issuer.issue({directory,requestText:JSON.stringify(request),customer:'隔离验收',days:1})

@@ -127,6 +127,7 @@ class BrowserDriver {
     ]
     if (options.noSandbox) args.push('--no-sandbox')
     if (options.disableGpu) args.push('--disable-gpu')
+    if (options.hidden) args.push('--dsh-browser-hidden', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows')
     const env = Object.assign({}, process.env)
     delete env.ELECTRON_RUN_AS_NODE /* 关键：删掉才起 Chromium */
     /* --dsh-browser 让子进程只开一个浏览器窗口，不再启动整套应用 UI。 */

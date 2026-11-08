@@ -203,7 +203,7 @@ function assertResponse(message, expectedId) {
   if (hasResult === hasError || message.id === undefined || message.id === null) throw new Error('MCP_INVALID_RESPONSE')
   if (hasError) {
     if (!object(message.error) || !Number.isInteger(message.error.code) || typeof message.error.message !== 'string') throw new Error('MCP_INVALID_RESPONSE')
-    const error = new Error('MCP_RPC_ERROR: ' + String(message.error.message || message.error.code || 'unknown'))
+    const error = /** @type {Error & { code?: number }} */ (new Error('MCP_RPC_ERROR: ' + String(message.error.message || message.error.code || 'unknown')))
     error.code = message.error.code
     throw error
   }

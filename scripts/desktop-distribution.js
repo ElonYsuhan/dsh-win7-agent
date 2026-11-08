@@ -123,6 +123,8 @@ async function prepare(target) {
   fs.mkdirSync(workspace, { recursive: true })
   const input = await runtime.buildTarget(target, { noZip: true, outRoot: workspace })
   const appDir = appDirectory(input, target)
+  // The regular distribution path must never silently omit generated UI assets.
+  require('./desktop/generative-ui-manifest').verify(appDir)
   const licensing = require('./desktop/license-policy').stamp(appDir)
   const protection = await require('./desktop/source-protection').protect(appDir)
   fs.writeFileSync(path.join(appDir, 'distribution.json'), JSON.stringify({
@@ -177,9 +179,17 @@ async function prepare(target) {
     tools: { electronBuilder: '24.13.3', appBuilder: '4.0.0', nsis: '3.0.4.1', appimage: '12.0.1', appimageRuntime: APPIMAGE_RUNTIME.version, full7zip: process.platform === 'win32' ? { name: '7-Zip', ...WINDOWS_7ZIP } : 'p7zip 17.06 (17.05 banner)' },
     payload, delivery, verification: 'payload byte comparison and platform headers passed',
     targetMachineTest: target === 'mac-' + process.arch && process.platform === 'darwin' ? 'embedded runtime checked separately' : 'not performed' }
-  fs.mkdirSync(REPORTS, { recursive: true })
-  fs.writeFileSync(path.join(REPORTS, target + '.json'), JSON.stringify(report, null, 2) + '\n')
   return { target, staged, report }
+}
+
+function writeReport(prepared, stageOnly, directory = REPORTS) {
+  fs.mkdirSync(directory, { recursive: true })
+  const destination = path.join(directory, prepared.target + (stageOnly ? '.staged' : '') + '.json')
+  const temporary = destination + '.' + process.pid + '.tmp'
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(prepared.report, null, 2) + '\n')
+    fs.renameSync(temporary, destination)
+  } finally { fs.rmSync(temporary, { force: true }) }
 }
 
 function assertHeader(file, target) {
@@ -307,11 +317,21 @@ async function main() {
   if (targets.some(target => !runtime.targets.includes(target))) throw new Error('UNKNOWN_DESKTOP_TARGET')
   const prepared = []
   for (const target of targets) prepared.push(await prepare(target))
-  if (stageOnly) { for (const item of prepared) console.log('[desktop-distribution] verified staging ' + item.staged); return }
-  // Validate the whole requested batch before replacing any previously working delivery.
-  for (const item of prepared) console.log('[desktop-distribution] delivered ' + publish(item))
+  if (stageOnly) {
+    for (const item of prepared) {
+      writeReport(item, true)
+      console.log('[desktop-distribution] verified staging ' + item.staged)
+    }
+    return
+  }
+  // A failed or in-use publish must not label the previous delivery with the new report.
+  for (const item of prepared) {
+    const delivered = publish(item)
+    writeReport(item, false)
+    console.log('[desktop-distribution] delivered ' + delivered)
+  }
   checksums(OUTPUT)
   require('./release-retention').pruneLegacy(OUTPUT, targets)
 }
 
-module.exports = { entryName, inventory, builderConfig, publish, checksums, assertHeader, squashfsRange, main }
+module.exports = { entryName, inventory, builderConfig, publish, writeReport, checksums, assertHeader, squashfsRange, main }

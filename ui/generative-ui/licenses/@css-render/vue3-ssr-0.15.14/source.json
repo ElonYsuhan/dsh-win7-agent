@@ -1,0 +1,10 @@
+{
+  "package": "@css-render/vue3-ssr",
+  "version": "0.15.14",
+  "license": "MIT",
+  "npmIntegrity": "sha512-//8027GSbxE9n3QlD73xFY6z4ZbHbvrOVB7AO6hsmrEzGbg+h2A09HboUyDgu+xsmj7JnvJD39Irt+2D0+iV8g==",
+  "gitHead": "9345145da71707d1d05a99c1d3a6e89315ac0574",
+  "licenseSource": "https://raw.githubusercontent.com/07akioni/css-render/9345145da71707d1d05a99c1d3a6e89315ac0574/LICENSE",
+  "licenseSha256": "306f57de421d7ef77f7dc145e1234f9c0ec76b710d28769b4d98ef3c4f8a64bd",
+  "reason": "The npm package omits the root license of its source repository; gitHead matches the upstream monorepo commit."
+}

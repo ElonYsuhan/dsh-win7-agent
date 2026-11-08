@@ -1,0 +1,185 @@
+{
+  "version": 2,
+  "id": "business",
+  "revision": 1,
+  "title": "离线业务看板",
+  "root": "layout",
+  "state": {
+    "region": "",
+    "row": "",
+    "node": "",
+    "point": "",
+    "done": 25
+  },
+  "components": [
+    {
+      "id": "layout",
+      "type": "column",
+      "children": [
+        "region",
+        "records",
+        "progress",
+        "sketch",
+        "process",
+        "places",
+        "send"
+      ]
+    },
+    {
+      "id": "region",
+      "type": "filter",
+      "label": "地区",
+      "stateKey": "region",
+      "options": [
+        {
+          "value": "",
+          "label": "全部地区"
+        },
+        {
+          "value": "华东",
+          "label": "华东"
+        },
+        {
+          "value": "华北",
+          "label": "华北"
+        }
+      ]
+    },
+    {
+      "id": "records",
+      "type": "table",
+      "title": "业务记录",
+      "columns": [
+        {
+          "id": "name",
+          "label": "名称"
+        },
+        {
+          "id": "region",
+          "label": "地区"
+        },
+        {
+          "id": "value",
+          "label": "金额"
+        }
+      ],
+      "rows": [
+        {
+          "id": "shanghai",
+          "cells": [
+            "上海门店",
+            "华东",
+            120
+          ]
+        },
+        {
+          "id": "beijing",
+          "cells": [
+            "北京门店",
+            "华北",
+            90
+          ]
+        },
+        {
+          "id": "escaped",
+          "cells": [
+            "<img src=x onerror=window.__unexpectedExecution=1>",
+            "华东",
+            null
+          ]
+        }
+      ],
+      "selectionKey": "row",
+      "filterKey": "region",
+      "filterColumn": "region"
+    },
+    {
+      "id": "progress",
+      "type": "progress",
+      "label": "资料处理进度",
+      "valueKey": "done",
+      "max": 100,
+      "status": "running"
+    },
+    {
+      "id": "sketch",
+      "type": "visual",
+      "title": "离线静态示意图",
+      "height": 240,
+      "html": "<style>.sky{fill:#dcefff}.ground{fill:#d8ecd2}.wheel{fill:none;stroke:#243b40;stroke-width:6}.frame{fill:none;stroke:#1f8a7a;stroke-width:5}.label{font:16px sans-serif;fill:#1f2328}</style><svg width=\"100%\" height=\"240\" viewBox=\"0 0 420 220\" preserveAspectRatio=\"xMidYMid meet\" role=\"img\" aria-label=\"离线示意图\"><rect class=\"sky\" width=\"420\" height=\"180\"/><rect class=\"ground\" y=\"180\" width=\"420\" height=\"40\"/><circle class=\"wheel\" cx=\"120\" cy=\"150\" r=\"38\"/><circle class=\"wheel\" cx=\"285\" cy=\"150\" r=\"38\"/><path class=\"frame\" d=\"M120 150L175 95L285 150M175 95L225 150H120M225 150L250 90H285\"/><text class=\"label\" x=\"24\" y=\"34\">静态沙箱示意图</text></svg>"
+    },
+    {
+      "id": "process",
+      "type": "flow",
+      "title": "处理流程",
+      "nodes": [
+        {
+          "id": "receive",
+          "label": "接收资料",
+          "status": "completed"
+        },
+        {
+          "id": "review",
+          "label": "人工复核",
+          "status": "running"
+        },
+        {
+          "id": "deliver",
+          "label": "交付结果",
+          "status": "pending"
+        }
+      ],
+      "edges": [
+        {
+          "from": "receive",
+          "to": "review",
+          "label": "材料齐全"
+        },
+        {
+          "from": "review",
+          "to": "deliver"
+        }
+      ],
+      "selectionKey": "node"
+    },
+    {
+      "id": "places",
+      "type": "map",
+      "title": "门店位置",
+      "points": [
+        {
+          "id": "shanghai",
+          "label": "上海门店",
+          "longitude": 121.4737,
+          "latitude": 31.2304
+        },
+        {
+          "id": "beijing",
+          "label": "北京门店",
+          "longitude": 116.4074,
+          "latitude": 39.9042
+        }
+      ],
+      "selectionKey": "point"
+    },
+    {
+      "id": "send",
+      "type": "button",
+      "label": "分析所选记录",
+      "actionId": "analyze"
+    }
+  ],
+  "actions": [
+    {
+      "id": "analyze",
+      "type": "ask_agent",
+      "message": "结合筛选条件、所选记录、流程节点和地图标记给出分析；界面进度不是系统任务完成凭据。",
+      "stateKeys": [
+        "region",
+        "row",
+        "node",
+        "point"
+      ]
+    }
+  ]
+}

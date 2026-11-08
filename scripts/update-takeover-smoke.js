@@ -47,7 +47,7 @@ async function main(){try{
  live=new Set([103]);installer.writeManifest(home,{path:newer,pid:103,version:'0.4.3',buildId:id});assert.strictEqual(sandbox.resolveUpdate().action,'boot'),'same build should activate the running latest instance'
  calls=[];verified=false;current=newer;installer.writeManifest(home,{path:older,pid:888,version:'0.4.3'});live=new Set([888]);sandbox.resolveUpdate();forcedFailure=true;assert.strictEqual((await sandbox.runUpdate()).error,'COPY_FAILED');assert(!calls.some(x=>x.startsWith('kill:')),'stale PID cannot terminate unrelated process')
  // Exercise the actual app.whenReady branch, including automatic fallback.
- Object.assign(sandbox,{readConfig:()=>{},configureTaskTray:()=>{},applyWindowTheme:()=>{},hideApplicationMenu:()=>{},config:{theme:'dark'},nativeTheme:{},Menu:{},BrowserWindow:{getAllWindows:()=>[]}})
+ Object.assign(sandbox,{browserOnlyTarget:()=>null,createBrowserOnlyWindow:()=>{},readConfig:()=>{},configureTaskTray:()=>{},applyWindowTheme:()=>{},hideApplicationMenu:()=>{},config:{theme:'dark'},nativeTheme:{},Menu:{},BrowserWindow:{getAllWindows:()=>[]}})
  sandbox.app.whenReady=()=>Promise.resolve();sandbox.app.on=()=>{}
  const startup=source.slice(source.indexOf('app.whenReady().then(async () => {'),source.indexOf('/* ------------------------------------------------------------------ ipc */'))
  calls=[];verified=true;forcedFailure=false;current=newer;sandbox.mainWindow=null;live=new Set([104]);installer.writeManifest(home,{path:older,pid:104,version:'0.4.3',buildId:'old'});await vm.runInContext(startup,sandbox);assert(calls.includes('relaunch'));assert(!calls.includes('window'),'normal startup update stays entirely in background')

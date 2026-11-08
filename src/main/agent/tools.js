@@ -114,13 +114,14 @@ const toolDefinitions = [
     type: 'function',
     function: {
       name: 'browser_launch',
-      description: 'Launch the built-in Chromium (Electron runtime) with remote debugging and open the given URL. The browser session persists for this conversation: launch once, then drive it with browser_act/browser_eval. Use it to verify web/Cesium changes end to end. Does NOT touch the running Agent window (separate user-data-dir). IMPORTANT: when your verification is finished, call browser_close — do not leave the verification window open.',
+      description: 'Launch the built-in Chromium (Electron runtime) with remote debugging and open the given URL. The browser session persists for this conversation: launch once, then drive it with browser_act/browser_eval. Use it to verify web/Cesium changes end to end. Does NOT touch the running Agent window (separate user-data-dir). The verification window is hidden by default; set visible=true only when the user explicitly asks to watch. IMPORTANT: when your verification is finished, call browser_close — do not leave the verification window open.',
       parameters: {
         type: 'object',
         properties: {
           url: { type: 'string', description: 'URL to open (e.g. http://127.0.0.1:3000).' },
           width: { type: 'number', description: 'Window width. Default 1280.' },
-          height: { type: 'number', description: 'Window height. Default 800.' }
+          height: { type: 'number', description: 'Window height. Default 800.' },
+          visible: { type: 'boolean', description: 'Show the verification window. Default false; keep it hidden unless the user asks to watch.' }
         },
         required: ['url']
       }

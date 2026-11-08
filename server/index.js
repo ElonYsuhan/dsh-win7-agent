@@ -465,6 +465,19 @@ async function handleApi(request, response, url) {
     }
     return true
   }
+  if (['/api/generative-ui/read', '/api/generative-ui/change', '/api/generative-ui/action'].includes(url.pathname) && request.method === 'POST') {
+    if (!isLoopbackAddress(request.socket && request.socket.remoteAddress)) { json(response, 403, { error: 'FORBIDDEN' }); return true }
+    if (!String(request.headers['content-type'] || '').startsWith('application/json')) { json(response, 415, { error: 'JSON_REQUIRED' }); return true }
+    try {
+      const body = await readBodyLimit(request, 16 * 1024)
+      const service = pluginHost.requireService('generativeUi')
+      const method = { read: 'read', change: 'change', action: 'dispatch' }[url.pathname.split('/').pop()]
+      const { capabilities, ...action } = body
+      const value = method === 'dispatch' ? service.dispatch(pool, action, capabilities) : service[method](pool, body)
+      json(response, method === 'dispatch' && value.started ? 202 : 200, value)
+    } catch (error) { json(response, /CONFLICT|BUSY|REUSED/.test(error.message) ? 409 : 400, { error: error.message }) }
+    return true
+  }
   if (url.pathname === '/api/chat' && request.method === 'POST') {
     // Chat carries history and image attachments; keep small-control APIs at 1 MB.
     const body = await readBodyLimit(request, 40 * 1024 * 1024)
@@ -491,7 +504,9 @@ async function handleApi(request, response, url) {
       json(response, 503, { error: 'POOL_BUSY', maxConcurrentRuns: pool.maxConcurrentRuns })
       return true
     }
-    pool.run(sessionId, text, history, images.length > 0 ? images : undefined, memory)
+    let uiCapabilities
+    try { uiCapabilities = require('../src/main/contracts/generative-ui').negotiate(body.uiCapabilities) } catch (error) { json(response, 400, { error: error.message }); return true }
+    pool.run(sessionId, text, history, images.length > 0 ? images : undefined, memory, undefined, undefined, undefined, uiCapabilities)
       .catch((error) => broadcast(pool.tag(sessionId, { type: 'error', message: error.message })))
     json(response, 202, { ok: true, sessionId: sessionId })
     return true

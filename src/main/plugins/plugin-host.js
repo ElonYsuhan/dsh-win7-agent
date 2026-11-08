@@ -162,7 +162,7 @@ class PluginHost {
   async buildSystemPrompt(base, signal, executionContext, agent) {
     if (!executionContext) await this.ready(signal)
     const prompts = executionContext ? executionContext.prompts : this.requireService('prompts')
-    return prompts.build(base, { workspaceRoot: agent ? agent.workspaceRoot : this.workspaceRoot, settings: agent ? agent.settings : this.settings })
+    return prompts.build(base, { workspaceRoot: agent ? agent.workspaceRoot : this.workspaceRoot, settings: agent ? agent.settings : this.settings, rendererCapabilities: agent ? agent.rendererCapabilities : undefined })
   }
 
   loadBuiltins() {
@@ -209,10 +209,10 @@ class PluginHost {
     return this
   }
 
-  getToolDefinitions() {
+  getToolDefinitions(agent) {
     /* 热插拔：被禁用插件的工具不下发给模型（每轮请求重新取，改设置即时生效） */
     const disabled = this.disabledPlugins()
-    const all = this.tools.definitions()
+    const all = this.tools.definitions({ agent })
     if (disabled.length === 0) return all
     return all.filter((definition) => {
       const tool = this.tools.get(definition.function.name)

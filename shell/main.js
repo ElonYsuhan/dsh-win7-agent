@@ -562,6 +562,41 @@ function applyTitlebarDoubleClick(win, action) {
   return 'maximize'
 }
 
+/* 浏览器验证模式：打包入口也必须先于服务启动识别 --dsh-browser，
+   否则 browser_launch 会误开第二个完整应用窗口。 */
+function browserOnlyTarget() {
+  const index = process.argv.indexOf('--dsh-browser')
+  if (index < 0) return null
+  return process.argv.slice(index + 1).find((arg) => /^https?:\/\//i.test(arg)) || 'about:blank'
+}
+
+function createBrowserOnlyWindow(targetUrl) {
+  const hidden = process.argv.includes('--dsh-browser-hidden')
+  if (hidden && app.dock) app.dock.hide()
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    show: !hidden,
+    skipTaskbar: hidden,
+    paintWhenInitiallyHidden: true,
+    title: 'Browser',
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  })
+  configureWindowMenu(win, { onQuit: () => app.quit(), onHide: () => app.hide() })
+  win.loadURL(targetUrl)
+  win.webContents.setWindowOpenHandler(({ url: target }) => {
+    if (/^https?:\/\//i.test(String(target || ''))) win.loadURL(target)
+    return { action: 'deny' }
+  })
+  return win
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -690,6 +725,11 @@ app.on('before-quit', (event) => {
 })
 
 app.whenReady().then(async () => {
+  const browserOnlyUrl = browserOnlyTarget()
+  if (browserOnlyUrl) {
+    createBrowserOnlyWindow(browserOnlyUrl)
+    return
+  }
   readConfig()
   configureTaskTray()
   applyWindowTheme([], config.theme, nativeTheme)

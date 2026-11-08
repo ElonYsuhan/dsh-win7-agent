@@ -158,7 +158,7 @@
     /* sessionId = 这条消息属于哪条会话。后端是多实例池（一条会话一台 worker），
        所以 send 只认**这条会话**的收尾事件 —— 并发时别的会话的 finished
        不能把这次 send 结掉（否则第二条会话的 promise 会被提前 resolve）。 */
-    send: (text, history, images, memory, sessionId) => {
+    send: (text, history, images, memory, sessionId, uiCapabilities) => {
       return new Promise((resolve, reject) => {
         let settled = false
         let timer = null
@@ -184,12 +184,15 @@
            finished 会在订阅前丢掉，界面会一直停在「思考中」。 */
         waitForEvents().then(() => {
           if (settled) return
-          return request('POST', '/api/chat', { text, history, images, memory, sessionId })
+          return request('POST', '/api/chat', { text, history, images, memory, sessionId, uiCapabilities })
         }).catch((error) => {
           finish(error)
         })
       })
     },
+    generativeUiRead: (payload) => request('POST', '/api/generative-ui/read', payload),
+    generativeUiChange: (payload) => request('POST', '/api/generative-ui/change', payload),
+    generativeUiAction: (payload, capabilities) => waitForEvents().then(() => request('POST', '/api/generative-ui/action', { ...payload, capabilities })),
     stop: (sessionId) => request('POST', '/api/stop', { sessionId }),
     resetChat: (sessionId) => request('POST', '/api/reset', { sessionId }),
     clearChat: (sessionId) => request('POST', '/api/clear', { sessionId }),

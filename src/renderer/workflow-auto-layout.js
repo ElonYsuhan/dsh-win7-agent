@@ -149,6 +149,15 @@
   for(const [id,point]of positions)moved.set(id,[point[0]-bounds.left,point[1]-bounds.top])
   return{positions:moved,bounds:{left:0,top:0,right:bounds.width,bottom:bounds.height,width:bounds.width,height:bounds.height}}
  }
+ /**
+ * @param {{
+ * nodes?: ReadonlyArray<{id: string; width?: number; height?: number}>,
+ * edges?: ReadonlyArray<{from: string; to: string}>,
+ * direction?: string,
+ * viewport?: {width?: number; height?: number},
+ * gap?: {rank?: number; node?: number; band?: number}
+ * }} [options]
+ */
  function plan({nodes,edges,direction='fit',viewport,gap}={}){
   const {list,byId,links}=normalize(nodes,edges)
   if(!list.length)return{positions:new Map(),bounds:{left:0,top:0,right:0,bottom:0,width:0,height:0},direction:'horizontal',scale:1}

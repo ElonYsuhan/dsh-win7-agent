@@ -10,6 +10,7 @@ Previously named DSH Agent, the repository retains the directory name `dsh-win7-
 
 - Streaming conversations, multiple sessions, history, cancellation and context compression.
 - Workspace file reading, writing, editing, search and local commands, subject to permissions and human approval.
+- A project can associate multiple workspace folders. In Edit Workspace, any associated folder opens in the system file manager; non-desktop pages copy the path rather than attempting to open a remote machine folder.
 - Workflow canvas, node configuration, human tasks, execution instances, schedules and artifact archiving.
 - SQLite knowledge bases, document import, retrieval and version records.
 - Built-in document MCP for basic Word and Excel operations, plus trusted local stdio and intranet Streamable HTTP MCP servers.
@@ -24,6 +25,8 @@ The shipped runtime is pinned to **Electron 22.3.27 / Node 16.17.1 / Chromium 10
 
 Target Windows machines do not need Node.js, npm or Python installed. Static compatibility checks, embedded Node tests and tests on real Win7 hardware must be reported separately. A successful build does not prove target-machine compatibility.
 
+See the [TypeScript refactoring plan](docs/TYPESCRIPT-REFACTOR-PLAN.md) for migration phases, compatibility boundaries, and acceptance criteria.
+
 ## Development
 
 Use Node.js 20.19.5 or newer and npm on the build machine. This does not change the embedded target runtime. Initial dependency and packaging-tool setup may require network access; prepare those resources before building offline.
@@ -35,11 +38,32 @@ npm start
 
 Configure the model Base URL, API key and model name in application settings. An example Base URL is `http://SERVER:11434/v1`. An OpenAI-compatible `/v1/chat/completions` endpoint with tool calling is recommended.
 
+### Model networking and proxies
+
+Model catalog, OpenAI-compatible chat and Ollama requests use the network of the **machine hosting the Agent service**. Explicit environment variables take priority, followed by the current user's manual HTTP/HTTPS system proxies on macOS or Windows; Linux uses environment variables. The order is `AGENT_MODEL_PROXY`, `AGENT_HTTPS_PROXY` / `AGENT_HTTP_PROXY`, `HTTPS_PROXY` / `HTTP_PROXY` (and lowercase forms), `AGENT_PROXY`, then `ALL_PROXY` / `all_proxy`. Values may be HTTP or HTTPS proxy URLs; `direct` / `off` explicitly selects direct connections, and empty values are ignored. There is no model proxy setting in the UI. System discovery reads only the proxy host and port; it does not retrieve keychain or integrated proxy credentials. System proxy changes take effect after a short cache period.
+
+Loopback, private IP literals, single-label hostnames, `.local`, `.home.arpa` and entries in `NO_PROXY` / `no_proxy` always connect directly; system proxy exception lists are also honored when using system proxies. Other domains resolving to private addresses are not automatically recognized; add them to the bypass list. Proxy errors, system discovery failures and detected but unsupported PAC/WPAD or SOCKS-only configurations are reported; not every Windows automatic-detection setting can be detected. Configure a trusted HTTP(S) proxy or use a validated system networking solution for those cases. Linux desktop proxies, Windows WinHTTP, MCP/tools/browser traffic and other applications are outside this adapter's scope.
+
+HTTPS model requests use CONNECT and retain target TLS certificate and hostname verification. A proxy can read plaintext HTTP model traffic, so do not use it for sensitive information. Configure trusted intranet proxies, models and certificates; do not disable certificate verification.
+
+### Reconnecting a conversation's model request
+
+Within an Agent conversation, transient connection loss, TLS handshake disconnects, interrupted response streams, timeouts and HTTP 408/502/503/504 trigger up to five automatic retries by default (at most six requests per model step, with waits of 1, 2, 4, 8 and 16 seconds; request durations are additional). The conversation shows reconnect progress and can be stopped. Whole-turn deadlines and unattended request, token and output budgets still apply. Authentication, certificate and proxy configuration errors and HTTP 429 are not automatically retried. Exhausting the limit ends the current turn with a message, while retaining the conversation and completed tool results so work can continue after the network recovers.
+
+Reconnection reissues the **current model request**; it does not resume the server's original byte stream. Incomplete text or tool-call fragments are discarded and completed tool steps are not automatically replayed. OpenAI-compatible SSE must terminate with `[DONE]` or a `finish_reason`, and an Ollama stream must terminate with `done: true`; otherwise it is treated as interrupted. The server may have processed or billed the failed request, so retries can add charges. The model may independently propose another tool call afterwards; this is not an exactly-once guarantee across process crashes. The mechanism covers model requests in the Agent conversation loop, not model catalog, MCP, browser or other application traffic.
+
+### Generative UI
+
+The P0–P4 source path now covers the bounded Surface/Component/State/Action protocol, mixed messages, versioned session facts, Vue/Naive UI/ECharts rendering, durable parameters, unified confirmation, Agent feedback, streamed revisions, cancellation and recovery. Before sending, the normal client advertises the renderer versions and components it supports; the model receives only the matching tools and guidance. Without a renderer the app stays text-only and exposes no `render_ui`/`update_ui`. Legacy v1 messages remain readable; v2 adds filter, table, progress, flow, offline map and sandboxed static page components. Generated HTML/SVG/CSS can render directly in the chat while scripts, forms, links and network access are disabled. Unknown future versions remain opaque and are never executed.
+
+The map uses the explicitly authorized, pinned `cesium@1.104.0` offline bundle. It shows an ellipsoid and place markers without imagery or terrain and ships fixed local IAU data; unavailable WebGL or context loss falls back visibly to a longitude/latitude diagram. Vue, Naive UI, ECharts, Vite, the Vue plugin, TypeScript and Cesium are pinned development dependencies; actual browser code is distributed offline with third-party licenses. The root `@types/node` was restored to `16.18.126` under explicit authorization. Isolated Electron 22.3.27/Node 16.17.1/Chromium 108 tests cover real components, business selections, maps and fallback, narrow-screen touch, CSP and offline resources. Windows 7 hardware, Android WebView, OS input methods and screen readers are not yet accepted. Actions still require a matching server-confirmed definition, saved parameters and an idle session; subsequent tools retain existing permissions and approval. See the [Generative UI protocol](docs/GENERATIVE-UI.md).
+
 ## Validation
 
 ```bash
 npm run check
 npm run check:node16
+npm run typecheck:core
 npm run check:workflows:properties:browser
 npm run check:workflows:canvas:browser
 ```
@@ -64,7 +88,7 @@ npm run build:desktop
 
 The Windows `Agent.exe` is a complete offline installation and launch entry; installed applications use stable locations and shortcuts. A macOS `.app` is a standard application bundle. Linux requires verification of system dependencies and executable permissions.
 
-Each platform directory contains one delivery entry. Shared checksums are stored in `release/desktop/SHA256SUMS.txt`, and intermediate output is stored in `release/.desktop-build/`. Legacy ZIP output is only for explicitly requested internal diagnostics. Routine tasks do not automatically bump versions. Delivery responses provide a clickable absolute link to the containing package directory.
+Each platform directory contains one delivery entry. Shared checksums are stored in `release/desktop/SHA256SUMS.txt`, and intermediate output is stored in `release/.desktop-build/`. Staged candidates and published deliveries have separate audit reports. Legacy ZIP output is only for explicitly requested internal diagnostics. Routine tasks do not automatically bump versions. Delivery responses provide a clickable absolute link to the containing package directory.
 
 The default pipeline includes minification, obfuscation, per-module protection and manifest validation. ASAR is not encryption, and embedded keys cannot guarantee secrecy. Release packages enforce offline licensing; missing license public keys must fail the build. Trusted online updates, signing and rollback require separate acceptance; local package takeover is not proof of a completed online updater.
 
@@ -85,6 +109,7 @@ Skills provide instructions, MCP defines a tool protocol, and plugins implement 
 
 - [Project rules](AGENTS.md): future Git commit subjects and bodies use Chinese, retaining technical identifiers where needed. Maintain both README language versions together.
 - [Architecture](docs/ARCHITECTURE.md)
+- [Generative UI protocol and stage status](docs/GENERATIVE-UI.md)
 - [Win7 compatibility](docs/WIN7-COMPAT.md)
 - [Desktop delivery, updates, source protection and performance](docs/DESKTOP-DELIVERY.md)
 - [Offline extension packages](docs/EXTENSION-PACKAGES.md)
@@ -94,7 +119,7 @@ Skills provide instructions, MCP defines a tool protocol, and plugins implement 
 
 ## Install from the repository
 
-The latest Windows x64 offline installer is committed with the source at [installers/Agent-win-x64/Agent.exe](installers/Agent-win-x64/Agent.exe). Clone or pull the repository to obtain it without a separate attachment upload. See the [installer guide](installers/README.md) for checksum verification and build metadata. Only the latest installer per platform is kept in this directory; Git history retains previous binaries.
+The repository mirror directory contains the [Windows x64 offline installer](installers/Agent-win-x64/Agent.exe) and the [macOS Apple Silicon app](installers/Agent-mac-arm64/Agent.app). Platform builds may have different source states; see the [installer guide and build records](installers/README.md). An Electron file inside the Mac app exceeds GitHub’s per-file limit for ordinary Git pushes, so remote distribution requires a separate solution. This directory does not use LFS pointers.
 
 See [desktop security](docs/DESKTOP-SECURITY.md) for renderer isolation, IPC validation, signed code manifests, and short license request labels. Initialize the separate build signing identity with `node scripts/desktop/release-signing.js init`; its private key stays on the build host and is never shipped. Official platform certificates and trusted online updates still require separate setup and acceptance.
 

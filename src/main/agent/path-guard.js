@@ -41,7 +41,7 @@ function existingRealPath(root, target) {
   }
 }
 
-function ensureParentInside(root, target) {
+function ensureParentInside(root, target, _label) {
   const absolute = assertInside(root, target, 'path')
   let parent = path.dirname(absolute)
   while (not(fs.existsSync(parent)) && parent !== path.dirname(parent)) {

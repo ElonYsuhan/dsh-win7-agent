@@ -87,7 +87,7 @@ class MiniWebSocket {
           return
         }
         this.socket = socket
-        this.buffer = Buffer.isBuffer(head) && head.length ? head : Buffer.alloc(0)
+        this.buffer = Buffer.isBuffer(head) && head.length ? Buffer.from(head) : Buffer.alloc(0)
         socket.setNoDelay(true)
         socket.on('data', (chunk) => this.receive(chunk))
         socket.on('close', () => this.finishClose())

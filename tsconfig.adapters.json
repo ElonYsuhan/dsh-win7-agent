@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "lib": ["ES2020", "DOM"]
+  },
+  "include": [
+    "src/main/agent/cdp-client.js",
+    "src/main/agent/browser-driver.js",
+    "src/main/agent/test-runner.js",
+    "src/main/agent/tools.js",
+    "src/main/agent/validation-ledger.js",
+    "src/main/runtime/context-memory.js",
+    "src/main/runtime/generative-ui-service.js",
+    "server/native-folder.js"
+  ]
+}

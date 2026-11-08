@@ -2,10 +2,13 @@
 
 // Protocol vocabulary is independent of Cordis, IO and concrete implementations.
 const VERSION = 1
+const generativeUI = require('./generative-ui')
+const uiInteraction = require('./generative-ui-interaction')
 const EVENTS = Object.freeze({
   HISTORY: 'history.replaced', MESSAGE: 'message.appended', MEMORY: 'memory.updated',
   START: 'turn.started', STEP: 'step.started', REQUEST: 'request.started', REQUEST_FAILED: 'request.failed', TOOLS_DISABLED: 'model.tools_disabled',
-  TOOL_START: 'tool.started', TOOL_END: 'tool.settled',
+  TOOL_START: 'tool.started', TOOL_END: 'tool.settled', UI_SURFACE: 'ui.surface.published',
+  UI_CHANGE: 'ui.state.changed', UI_ACTION: 'ui.action.accepted', UI_ACTION_ABANDON: 'ui.action.interrupted',
   COMPLETE: 'turn.completed', CANCEL: 'turn.cancelled', FAIL: 'turn.failed',
   EXHAUST: 'turn.exhausted', BLOCK: 'turn.blocked', INTERRUPT: 'turn.interrupted', TIMEOUT: 'turn.timed_out'
 })
@@ -15,6 +18,7 @@ const SERVICES = Object.freeze({
   contracts: ['assertEvent', 'assertModelResult', 'assertTool', 'assertArguments', 'assertDecision', 'assertLimits', 'assertService', 'sanitizeHistory'],
   flow: ['limits', 'retry', 'next', 'normalizeCalls', 'outcome', 'systemPrompt'],
   state: ['initial', 'reduce', 'restore', 'release'],
+  generativeUi: ['read', 'change', 'dispatch'],
   sessions: ['save', 'load', 'append'], llm: ['request'], agentLoop: ['run'],
   tools: ['register', 'execute', 'definitions', 'get', 'list'], prompts: ['add', 'build'],
   skillLibrary: ['list', 'read', 'search', 'prompt'],
@@ -28,6 +32,14 @@ function object(value) { return value !== null && typeof value === 'object' && !
 function assertMessage(message) {
   if (!object(message) || !['system', 'user', 'assistant', 'tool'].includes(message.role)) fail('message.role')
   if (message.content !== undefined && message.content !== null && typeof message.content !== 'string' && !Array.isArray(message.content)) fail('message.content')
+  if (Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (part && part.type === 'ui') {
+        if (message.role !== 'assistant') fail('ui block role')
+        generativeUI.assertBlock(part)
+      }
+    }
+  }
   if (message.role === 'tool' && typeof message.tool_call_id !== 'string') fail('message.tool_call_id')
   if (message.tool_calls !== undefined && !Array.isArray(message.tool_calls)) fail('message.tool_calls')
   return message
@@ -42,10 +54,20 @@ function assertEvent(event) {
     data.messages.forEach(assertMessage)
   }
   if (event.type === EVENTS.MESSAGE) assertMessage(data.message)
+  if (event.type === EVENTS.UI_SURFACE) {
+    if (!['create', 'update'].includes(data.operation) || typeof data.toolCallId !== 'string' || !data.toolCallId || data.toolCallId.length > 256) fail('ui surface operation/tool')
+    if (!Number.isSafeInteger(data.expectedRevision) || data.expectedRevision < 0 || data.expectedRevision > 9999) fail('ui surface expected revision')
+    generativeUI.assertSurface(data.surface)
+    if (data.surface.revision !== data.expectedRevision + 1 || (data.operation === 'create') !== (data.expectedRevision === 0)) fail('ui surface revision')
+  }
+  if (event.type === EVENTS.UI_CHANGE) uiInteraction.assertRequest(data, 'change')
+  if (event.type === EVENTS.UI_ACTION) uiInteraction.assertRequest(data, 'action')
+  if (event.type === EVENTS.UI_ACTION_ABANDON && (Object.keys(data).length !== 2 || typeof data.requestId !== 'string' || !data.requestId || data.requestId.length > 96 || typeof data.reason !== 'string' || data.reason.length > 2000)) fail('ui action interruption')
+  if (event.type === EVENTS.START && data.uiActionId !== undefined && (typeof data.uiActionId !== 'string' || !data.uiActionId || data.uiActionId.length > 96)) fail('turn UI action')
   if (event.type === EVENTS.MEMORY && data.memory !== null && (!object(data.memory) || typeof data.memory.text !== 'string')) fail('memory')
   if (event.type === EVENTS.START && (typeof data.id !== 'string' || !data.id || !Number.isInteger(data.maxSteps) || data.maxSteps < 1)) fail('turn.started')
   if ([EVENTS.TOOL_START, EVENTS.TOOL_END].includes(event.type) && (typeof data.id !== 'string' || typeof data.name !== 'string')) fail('tool identity')
-  if (event.type === EVENTS.REQUEST_FAILED && (typeof data.reason !== 'string' || !['stop', 'compact', 'without-tools'].includes(data.decision))) fail('request.failed')
+  if (event.type === EVENTS.REQUEST_FAILED && (typeof data.reason !== 'string' || !['stop', 'compact', 'without-tools', 'reconnect'].includes(data.decision))) fail('request.failed')
   if (event.type === EVENTS.TOOL_END && !['success', 'denied', 'disabled', 'error', 'cancelled'].includes(data.outcome)) fail('tool outcome')
   if (event.type === EVENTS.MESSAGE && data.message.role === 'assistant' && Array.isArray(data.message.tool_calls)) {
     const ids = new Set()
@@ -73,6 +95,7 @@ function assertModelResult(result) {
 }
 function assertTool(tool) {
   if (!object(tool) || typeof tool.name !== 'string' || !tool.name || typeof tool.execute !== 'function') fail('tool definition')
+  if (tool.available !== undefined && typeof tool.available !== 'function') fail('tool.available')
   if (tool.permission !== undefined && !['read', 'write', 'edit', 'command'].includes(tool.permission)) fail('tool.permission')
   if (tool.parameters !== undefined && !object(tool.parameters)) fail('tool.parameters')
   return tool
@@ -109,6 +132,7 @@ function assertLimits(limits) {
   for (const [name, min, max] of [['maxSteps', 1, 500], ['maxAttempts', 1, 64], ['maxDenied', 1, 64], ['turnTimeoutMs', 0, 86400000]]) {
     if (!Number.isInteger(limits[name]) || limits[name] < min || limits[name] > max) fail('flow limits.' + name)
   }
+  if (limits.reconnectDelaysMs !== undefined && (!Array.isArray(limits.reconnectDelaysMs) || limits.reconnectDelaysMs.length > 63 || limits.reconnectDelaysMs.some((delay) => !Number.isInteger(delay) || delay < 0 || delay > 30000))) fail('flow limits.reconnectDelaysMs')
   return limits
 }
 function assertService(name, service) {

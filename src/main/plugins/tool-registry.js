@@ -31,6 +31,7 @@ class ToolRegistry {
       description: tool.description || '',
       parameters: tool.parameters || { type: 'object', properties: {} },
       execute: tool.execute,
+      available: tool.available,
       permission: tool.permission || 'write',
       plugin: tool.plugin || 'unknown',
       active: true,
@@ -54,8 +55,8 @@ class ToolRegistry {
     return Array.from(this.tools.values())
   }
 
-  definitions() {
-    return this.list().map((tool) => ({
+  definitions(context) {
+    return this.list().filter(tool => !tool.available || tool.available(context || {})).map((tool) => ({
       type: 'function',
       function: {
         name: tool.name,
@@ -106,6 +107,7 @@ class ToolRegistry {
       const reason = require('../flow/unattended-policy').blocked(tool, args || {}, settings)
       if (reason) return 'DENIED: unattended ' + name + ': ' + reason
     }
+    if (tool.available && !tool.available(context || {})) return 'DENIED: ' + name + ': client capability unavailable'
     const mode = settings.permissionMode || 'workspace'
     const permission = tool.permission || 'write'
     // 唯一的权限闸口：deny 直接拒绝，ask 先走审批，allow 才落到工具本体

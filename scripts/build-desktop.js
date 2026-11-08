@@ -627,15 +627,6 @@ function buildDarwin(unpacked, outDir, targetKey) {
   fillAppDir(path.join(contents, 'Resources', 'app'), target.mark, targetKey)
   rmrf(path.join(contents, 'Resources', 'default_app.asar'))
 
-  // 改了 bundle 会让原签名失效，重新做一次 ad-hoc 签名，避免 macOS 直接报「已损坏」
-  if (process.platform === 'darwin' && commandExists('codesign')) {
-    try {
-      run('codesign', ['--force', '--deep', '--sign', '-', path.join(outDir, bundleName)])
-      log('ad-hoc codesign done: ' + bundleName)
-    } catch (error) {
-      log('codesign skipped: ' + (error && error.message))
-    }
-  }
 }
 
 function makeZip(dir, zipPath) {
@@ -666,6 +657,18 @@ async function buildTarget(targetKey, options) {
   else if (targetKey === 'linux-x64' || targetKey === 'linux-arm64') buildLinux(unpacked, outDir, targetKey)
   else buildDarwin(unpacked, outDir, targetKey)
 
+  // Compile on the build host only; target machines never install/download UI
+  // dependencies. Vendor assets and their licenses stay outside obfuscation.
+  const appDir = targetKey.startsWith('mac-')
+    ? path.join(outDir, target.bundle, 'Contents', 'Resources', 'app')
+    : path.join(outDir, 'resources', 'app')
+  await require('./build-generative-ui').stageApp(appDir)
+  if (targetKey.startsWith('mac-') && process.platform === 'darwin' && commandExists('codesign')) {
+    try {
+      run('codesign', ['--force', '--deep', '--sign', '-', path.join(outDir, target.bundle)])
+      log('ad-hoc codesign done: ' + target.bundle)
+    } catch (error) { log('codesign skipped: ' + (error && error.message)) }
+  }
   fs.writeFileSync(path.join(outDir, 'README-DESKTOP.txt'), desktopReadme(targetKey), 'utf8')
 
   log('layout ok: ' + outDir)
@@ -702,6 +705,8 @@ async function main() {
 module.exports = { buildTarget, download, targets: Object.keys(TARGETS), aliases: ALIASES }
 
 if (require.main === module) {
+  // Type boundaries must pass before any application directory is assembled.
+  require('./typecheck-core')
   // Loose Electron directories are internal build inputs, never the default delivery.
   const entry = process.argv.includes('--legacy-zip') ? main : require('./desktop-distribution').main
   entry().catch((error) => {

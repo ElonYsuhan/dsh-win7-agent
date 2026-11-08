@@ -1225,6 +1225,8 @@ button.danger:hover:not(:disabled) {
 }
 /* 引用块与分隔线（模型写摘要时高频使用）：竖线用 --divider —— 深色里 --border
    和 panel-2 同值，浅色里 #eee 又贴在 #f5f5f5 上看不见。 */
+.bubble-body .md-details { margin: 6px 0; }
+.bubble-body .md-details > summary { cursor: pointer; color: var(--text); }
 .bubble-body .md-quote {
   margin: 6px 0;
   padding: 2px 0 2px 12px;
@@ -1350,11 +1352,22 @@ button.danger:hover:not(:disabled) {
   padding: 1px 5px;
 }
 
+.folder-open,
 .folder-remove {
-  width: 26px;
+  flex: 0 0 auto;
   height: 26px;
+  min-height: 26px;
   padding: 0;
   border-radius: 7px;
+  font-size: var(--font-size-caption);
+}
+
+.folder-open {
+  padding: 0 8px;
+}
+
+.folder-remove {
+  width: 26px;
 }
 
 .dir-list {
@@ -7776,3 +7789,8 @@ body.resizing-knowledge-list #knowledgeListResize::after {
   outline-offset: 2px;
 }
 .history-more:disabled { cursor: default; opacity: .8; }
+
+/* Declarative UI slots are owned by the chat adapter, not model HTML. */
+.gui-chat-bubble[hidden], .gui-chat-slot[hidden] { display: none !important; }
+.gui-chat-slot { min-width: 0; margin: 8px 0; }
+.gui-chat-text + .gui-chat-slot, .gui-chat-slot + .gui-chat-text { margin-top: 12px; }

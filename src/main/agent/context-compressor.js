@@ -1,5 +1,7 @@
 'use strict'
 
+const generativeUI = require('../contracts/generative-ui')
+
 const not = (value) => value ? false : true
 const CJK_RE = /[\u2E80-\u9FFF\u3000-\u303F\uFF00-\uFFEF\uAC00-\uD7AF]/
 const IMAGE_TOKENS = 1000
@@ -32,6 +34,7 @@ function estimateContentTokens(content) {
       }
       if (part.type === 'text' || part.type === 'input_text') total += estimateTextTokens(part.text)
       else if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image') total += IMAGE_TOKENS
+      else if (part.type === 'ui') total += estimateTextTokens(generativeUI.summary(part.surface))
       else total += estimateTextTokens(JSON.stringify(part))
     }
     return total
@@ -84,6 +87,7 @@ function contentToText(content, imagePlaceholder) {
       if (not(part)) continue
       if (part.type === 'text' || part.type === 'input_text') parts.push(part.text || '')
       else if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image') parts.push(imagePlaceholder || '[' + String.fromCharCode(0x56fe,0x7247) + ']')
+      else if (part.type === 'ui') parts.push(generativeUI.summary(part.surface))
       else parts.push(JSON.stringify(part))
     }
     return parts.join('\n')
@@ -228,6 +232,10 @@ async function resolveMessage(message, options) {
         parts.push(part)
         continue
       }
+      if (part.type === 'ui') {
+        parts.push({ type: 'text', text: generativeUI.summary(part.surface) })
+        continue
+      }
       if (part.type === 'image' || part.type === 'input_image') {
         let url = ''
         try {
@@ -245,7 +253,11 @@ async function resolveMessage(message, options) {
       }
       parts.push(part)
     }
-    next.content = parts
+    // Some compatible providers only accept a string for assistant content.
+    // UI blocks are internal facts and must never appear in a provider payload.
+    const hadUi = message.content.some(part => part && part.type === 'ui')
+    next.content = message.role === 'assistant' && hadUi && parts.every(part => part && part.type === 'text')
+      ? parts.map(part => part.text || '').join('\n') : parts
     return next
   }
   if (typeof message.content === 'string' && message.content.length > limit) {

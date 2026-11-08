@@ -35,11 +35,32 @@ npm start
 
 在应用设置中配置模型服务的 Base URL、API Key 和模型名称。Base URL 示例为 `http://SERVER:11434/v1`；推荐使用支持工具调用的 OpenAI 兼容 `/v1/chat/completions` 服务。
 
+### 模型网络与代理
+
+模型列表、OpenAI 兼容聊天和 Ollama 请求使用 **Agent 服务所在机器**的网络：优先读取显式环境变量，其次使用 macOS 或 Windows 当前用户的手动 HTTP/HTTPS 系统代理；Linux 使用环境变量。变量依次为 `AGENT_MODEL_PROXY`、`AGENT_HTTPS_PROXY` / `AGENT_HTTP_PROXY`、`HTTPS_PROXY` / `HTTP_PROXY`（及对应小写形式）、`AGENT_PROXY`、`ALL_PROXY` / `all_proxy`。值可为 HTTP 或 HTTPS 代理地址；`direct` / `off` 表示显式直连，空值忽略。无模型界面代理设置；系统代理仅读取主机和端口，不会自动读取系统钥匙串或集成代理认证。系统代理变化在短缓存期后生效。
+
+回环、私有 IP、单标签主机名、`.local`、`.home.arpa` 和 `NO_PROXY` / `no_proxy` 列表始终直连；系统代理的例外列表也会用于系统代理配置。其他解析到私有 IP 的域名不会自动判定为内网，请加入例外列表。代理错误、无法读取系统配置以及已识别但不支持的 PAC/WPAD 或纯 SOCKS 配置会报错，不保证识别 Windows 的所有自动检测设置；这些场景需配置受信任的 HTTP(S) 代理或使用经过验证的系统网络方案。Linux 桌面代理、Windows WinHTTP、MCP/工具/浏览器及其他应用不由此适配器接管。
+
+HTTPS 模型请求经 CONNECT 保留目标服务器的 TLS 证书与主机名验证；HTTP 明文模型请求可能被代理读取，请勿用于传输敏感信息。内网代理与模型服务须自行信任并正确配置证书，不能关闭证书校验。
+
+### 会话中的模型断线重连
+
+Agent 会话中的模型请求遇到临时连接中断、TLS 握手断开、响应流中断、超时及 HTTP 408/502/503/504 时，默认最多自动重试 5 次（每个模型步骤最多 6 次请求，等待间隔依次为 1、2、4、8、16 秒；请求耗时另计）。界面显示重连进度，可随时停止；整轮期限和无人值守任务的请求、令牌、输出预算仍生效。密钥错误、证书错误、代理配置错误、HTTP 429 等不自动重试。达到上限会结束当前轮并提示，但会话和已完成的工具结果保留，可在网络恢复后继续。
+
+重连重新发起**当前模型请求**，不是接续服务器原来的字节流；未完成的正文或工具调用片段会丢弃，不会自动重放已完成的工具步骤。OpenAI 兼容 SSE 须以 `[DONE]` 或 `finish_reason` 完成，Ollama 流须以 `done: true` 完成，否则视为中断。服务端可能已处理或计费失败前的模型请求，重试可能产生额外费用；模型后续仍可能自主提出新工具调用，不能把它当作跨崩溃的严格恰好一次执行保证。此机制只覆盖 Agent 会话内的模型请求，不接管模型列表、MCP、浏览器或其他应用的网络连接。
+
+### 生成式界面
+
+P0–P4 源码已接通：有界 Surface/Component/State/Action 协议、混合消息、版本化会话事实、Vue/Naive UI/ECharts 渲染、交互参数持久化、统一确认、Agent 回传、流式修订、取消与恢复。普通产品在发送前声明当前渲染器支持的版本和组件，模型只会收到对应工具与规范；没有渲染能力时保持纯文本，不暴露 `render_ui`/`update_ui`。旧 v1 消息继续读取，v2 新增筛选器、表格、进度、流程图、离线地图和静态沙箱页面；生成的 HTML/SVG/CSS 可直接显示在聊天消息内，脚本、表单、外链和网络访问被禁用。未知未来版本仍按不透明数据保留且不执行。
+
+地图使用用户明确授权的固定 `cesium@1.104.0` 离线包，仅显示无影像、无地形的椭球和地点标记，并随包固定本地 IAU 数据；WebGL 不可用或上下文丢失时明确降级为经纬度示意图。Vue、Naive UI、ECharts、Vite、Vue 插件、TypeScript 和 Cesium 均为固定开发依赖，实际浏览器代码离线分发并保留第三方许可；根 `@types/node` 已按明确授权恢复为 `16.18.126`。隔离 Electron 22.3.27/Node 16.17.1/Chromium 108 已覆盖真实组件、业务选择、地图与降级、窄屏触控、CSP 和离线资源，但尚未完成 Win7 真机、Android WebView、操作系统输入法及屏幕阅读器验收。交互按钮仍需服务端定义匹配、参数已保存且会话空闲，后续工具沿用原权限与审批。详见 [生成式界面协议](docs/GENERATIVE-UI.md)。
+
 ## 验证
 
 ```bash
 npm run check
 npm run check:node16
+npm run typecheck:core
 npm run check:workflows:properties:browser
 npm run check:workflows:canvas:browser
 ```
@@ -94,7 +115,7 @@ Skill 是操作指引，MCP 是工具协议，插件提供运行时能力，三�
 
 ## 从仓库获取安装程序
 
-最新版 Windows x64 离线安装程序随代码提交，位置为 [installers/Agent-win-x64/Agent.exe](installers/Agent-win-x64/Agent.exe)。通过 Git 拉取仓库后即可安装，无需单独上传安装附件。校验方法与构建记录见 [安装程序说明](installers/README.md)。该目录按平台只保留最新版；历史二进制仍保留在 Git 历史中。
+仓库镜像目录提供 [Windows x64 离线安装程序](installers/Agent-win-x64/Agent.exe)和 [macOS Apple Silicon 应用](installers/Agent-mac-arm64/Agent.app)。各平台构建来源可能不同，以 [安装程序说明和构建记录](installers/README.md)为准。Mac 应用内的 Electron 文件超过 GitHub 普通 Git 推送的单文件大小限制，远程分发需另行解决；本目录不使用 LFS 指针。
 
 桌面三层防护、独立发布代码签名及授权申请短标识的实现与限制见 [桌面安全说明](docs/DESKTOP-SECURITY.md)。构建前需在构建机初始化独立发布签名身份：`node scripts/desktop/release-signing.js init`；私钥仅留在构建机，不进入安装包。正式系统证书签名和可信在线更新仍需单独配置与验收。
 

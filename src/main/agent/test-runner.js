@@ -198,7 +198,7 @@ async function runAssertion(driver, assertion, before) {
  * 跑一个 TestCase → TestReport。
  * before = 跑之前 driver.snapshot()（console/network 的增量 = 这次用例的，不被历史污染）。
  */
-async function runCase(driver, testCase) {
+async function runCase(driver, testCase, _context) {
   const startedAt = Date.now()
   const report = {
     name: String(testCase.name || '(unnamed)'),

@@ -58,6 +58,30 @@ const state = {
 
 let sessionStore = {}
 const syncedAssistantImages = new Set()
+const generativeUiChat = typeof window.createGenerativeUIChat === 'function'
+  ? window.createGenerativeUIChat({
+    sessionId: () => state.currentSessionId,
+    messages: () => { const session = findSessionById(state.currentSessionId); return session && session.messages },
+    theme: () => document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+    interactionHost: {
+      read: request => window.dsh.generativeUiRead(request),
+      change: request => window.dsh.generativeUiChange(request),
+      dispatch: (request, capabilities) => window.dsh.generativeUiAction(request, capabilities),
+      confirm: message => window.appDialogs.confirm(message),
+      requestId: () => window.crypto.randomUUID(),
+      onRun: (sessionId, phase) => {
+        if (sessionId !== state.currentSessionId) return
+        if (phase === 'begin') {
+          endThinking(); addRun(sessionId); state.liveRun = true; applyRunState()
+          beginThinking('正在处理界面参数…'); scheduleWaitingHint()
+        } else {
+          syncRunningState().then(() => {
+            if (sessionId === state.currentSessionId && !currentRunning()) { state.liveRun = false; endThinking(); applyRunState() }
+          }).catch(() => {})
+        }
+      }
+    }
+  }) : null
 
 const ROLE_LABELS = {
   user: '用户',
@@ -154,6 +178,7 @@ function applyRuns(sessions, anyRunning) {
 function applyTheme(theme) {
   const value = theme === 'light' ? 'light' : 'dark'
   document.documentElement.setAttribute('data-theme', value)
+  if (generativeUiChat) generativeUiChat.themeChanged()
   const button = byId('themeToggle')
   const label = byId('themeLabel') || button
   if (label) label.textContent = '\u5207\u6362\u4e3b\u9898'
@@ -849,7 +874,7 @@ function recordProcessTimeline(sessionId, event) {
   if (event.type === 'assistant:message' || event.type === 'finished') flushProcessSaves()
   const session = findSessionById(sessionId)
   if (not(session)) return
-  const processTypes = ['assistant:thinking', 'tool:start', 'tool:result', 'notice', 'capability:missing']
+  const processTypes = ['assistant:thinking', 'assistant:retry', 'tool:start', 'tool:result', 'notice', 'capability:missing']
   const isProcess = processTypes.indexOf(event.type) !== -1
   if (not(isProcess) && event.type !== 'assistant:message' && event.type !== 'finished') return
   if (not(Array.isArray(session.processTimeline))) {
@@ -983,7 +1008,7 @@ function renderOneMessage(ctx, index) {
         if (entry.html) addThinkingBlock(entry.html)
       }
     }
-    if (text) addBubble('assistant', text, { markdown: true })
+    if (text || hasUiBlocks(message)) renderAssistantMessage(ctx, index, text)
     return
   }
   if (message.role === 'user') {
@@ -993,12 +1018,12 @@ function renderOneMessage(ctx, index) {
   if (message.role === 'assistant' && message.content) {
     ctx.toolThinking = null
     const assistantText = Array.isArray(message.content) ? extractUserContent(message.content).text : message.content
-    if (assistantText) {
+    if (assistantText || hasUiBlocks(message)) {
       if (not(ctx.processRendered) && ctx.staticProcessHtml) {
         addThinkingBlock(ctx.staticProcessHtml)
         ctx.processRendered = true
       }
-      addBubble('assistant', assistantText, { markdown: true })
+      renderAssistantMessage(ctx, index, assistantText)
     }
   }
   if (message.role === 'tool' && message.content) {
@@ -1020,6 +1045,45 @@ function renderOneMessage(ctx, index) {
     block.textContent = '\u5de5\u5177\u7ed3\u679c\n' + message.content
     ctx.toolThinking.appendChild(block)
   }
+}
+
+// Keep ordinary replies on their existing rendering path. Mixed messages keep
+// Markdown text and UI blocks in order, without giving model data access to DOM
+// construction or arbitrary scripts. UI-only/mixed message actions stay disabled
+// until message-targeted transitions can safely handle these new block types.
+function hasUiBlocks(message) {
+  return Boolean(message && Array.isArray(message.content) && message.content.some(part => part && part.type === 'ui'))
+}
+function renderAssistantMessage(ctx, index, text) {
+  const message = ctx.list[index]
+  if (!hasUiBlocks(message)) { if (text) addBubble('assistant', text, { markdown: true }); return }
+  const body = addBubble('assistant', '', { markdown: true, noActions: true })
+  const wrapper = body.parentNode
+  wrapper.classList.add('gui-chat-bubble')
+  body.textContent = ''
+  body.dataset.raw = text || ''
+  const group = generativeUiChat && generativeUiChat.group(wrapper, Boolean(text))
+  let pendingText = ''
+  function appendText() {
+    if (!pendingText) return
+    const element = document.createElement('div')
+    element.className = 'gui-chat-text'
+    setBubbleText(element, pendingText, true)
+    body.appendChild(element)
+    pendingText = ''
+  }
+  for (let partIndex = 0; partIndex < message.content.length; partIndex += 1) {
+    const part = message.content[partIndex]
+    if (part && part.type === 'text' && typeof part.text === 'string') { pendingText += part.text; continue }
+    if (!part || part.type !== 'ui') continue
+    appendText()
+    const host = document.createElement('div')
+    host.className = 'gui-chat-slot'
+    body.appendChild(host)
+    if (generativeUiChat && ctx.session && ctx.session.id) generativeUiChat.addSlot(host, group, ctx.session.id, ctx.list, index, partIndex)
+    else { host.setAttribute('role', 'status'); host.textContent = '此界面暂不可用。' }
+  }
+  appendText()
 }
 
 /* 一段消息画完后的收尾：把剩下没定位到的过程块补在最末（仍在离屏目标里画）。 */
@@ -1126,6 +1190,7 @@ function syncHistoryMore() {
 
 function cancelHistoryFill() {
   if (not(historyJob)) return
+  if (generativeUiChat) generativeUiChat.disposeWithin(historyJob.frag)
   historyJob.cancelled = true
   historyJob = null
 }
@@ -2340,6 +2405,7 @@ function messagesContent() {
 }
 
 function clearMessages() {
+  if (generativeUiChat) generativeUiChat.reset(state.currentSessionId)
   renderedConversation = null
   emptyClearedFor = null
   const container = messagesContent()
@@ -2507,7 +2573,7 @@ function addBubble(role, text, options) {
   setBubbleText(body, text, options && options.markdown)
   wrapper.appendChild(label)
   wrapper.appendChild(body)
-  const actionsRow = attachBubbleActions(wrapper, role, body)
+  const actionsRow = options && options.noActions ? null : attachBubbleActions(wrapper, role, body)
   /* 用户消息：气泡+按钮行包进同一个分组，hover 作用在分组上，
      消息容器的大 gap 不会再切断 hover（否则鼠标移向按钮途中按钮就隐藏了） */
   if (actionsRow && role === 'user') {
@@ -2712,6 +2778,21 @@ function beginAssistant() {
   return state.currentAssistant
 }
 
+// A retry starts a new model response, not a continuation of its partial bytes.
+function discardAssistantDraft() {
+  const body = state.currentAssistant
+  if (not(body)) return
+  clearPendingPaint(body)
+  const wrapper = body.parentNode
+  if (wrapper && typeof wrapper.remove === 'function') wrapper.remove()
+  state.currentAssistant = null
+}
+
+function reconcileAssistantAttempt(requestId) {
+  const body = state.currentAssistant
+  if (body && requestId && body.dataset.requestId && body.dataset.requestId !== requestId) discardAssistantDraft()
+}
+
 function endAssistant(finalText) {
   const body = beginAssistant()
   /* 收尾事件没带正文时（被停止 / 报错 / 模型只走了增量），用累积的增量自己渲染一遍，
@@ -2735,6 +2816,8 @@ function addToolResult(name, result) {
 function formatError(message) {
   const value = String(message || '\u672a\u77e5\u9519\u8bef')
   if (value === 'BUSY' || value.includes('BUSY')) return 'Agent \u6b63\u5728\u5904\u7406\u4e0a\u4e00\u6761\u4efb\u52a1\uff0c\u8bf7\u70b9\u51fb\u505c\u6b62\u6216\u7a0d\u540e\u91cd\u8bd5'
+  if (value.startsWith('MODEL_RECONNECT_EXHAUSTED:')) return '模型连接多次中断，自动重连已停止。已完成的工具结果已保留，请检查网络后在当前会话继续。'
+  if (value.startsWith('LLM_TOOL_CALL_INCOMPLETE:')) return '模型输出达到长度限制，工具调用未完成，因此没有执行。请调整模型输出上限后在当前会话继续。'
   if (value.startsWith('LLM_TIMEOUT')) return '\u6a21\u578b\u8bf7\u6c42\u8d85\u65f6\uff0c\u8bf7\u68c0\u67e5\u670d\u52a1\u5730\u5740\u548c\u6a21\u578b\u662f\u5426\u6b63\u5e38\u52a0\u8f7d'
   if (value.startsWith('MODEL_NOT_CONFIGURED:')) return value.slice('MODEL_NOT_CONFIGURED:'.length).trim()
   if (value.startsWith('WORKSPACE_NOT_SET')) return '\u8bf7\u5148\u9009\u62e9\u6216\u65b0\u5efa\u672c\u5730\u5de5\u4f5c\u533a\u76ee\u5f55'
@@ -3091,6 +3174,29 @@ function appendProcessText(target, text) {
   refreshTimeline(target)
 }
 
+function appendProcessRetry(target, event) {
+  if (not(target)) return
+  const active = activeTimelineStep(target)
+  if (active) closeTimelineStep(active, 'interrupted')
+  const count = event.attempt && event.maxAttempts ? '（' + event.attempt + '/' + event.maxAttempts + '）' : ''
+  const title = !event.reason || event.reason === 'reconnect' ? '自动重连模型' + count : '重新生成回复'
+  const step = createTimelineStep(target, 'think', title)
+  step.setAttribute('data-model-retry', 'true')
+  const body = step.querySelector('.tl-body')
+  if (body) body.textContent = event.text || ''
+  refreshTimeline(target)
+}
+
+function finishProcessRetry(target) {
+  const step = target && activeTimelineStep(target)
+  if (step && step.getAttribute('data-model-retry') === 'true') {
+    closeTimelineStep(step, true)
+    refreshTimeline(target)
+    return true
+  }
+  return false
+}
+
 function appendProcessTool(target, name, args) {
   if (not(target)) return
   const running = activeTimelineStep(target)
@@ -3181,7 +3287,11 @@ function recordBackgroundProcess(sessionId, event) {
   const key = String(sessionId || '')
   if (not(key)) return
   if (event.type === 'assistant:thinking') {
-    appendProcessText(processRecord(key), event.text || '')
+    const content = processRecord(key)
+    finishProcessRetry(content)
+    appendProcessText(content, event.text || '')
+  } else if (event.type === 'assistant:retry') {
+    appendProcessRetry(processRecord(key), event)
   } else if (event.type === 'tool:start') {
     appendProcessTool(processRecord(key), event.name, event.args || {})
   } else if (event.type === 'tool:result') {
@@ -3379,10 +3489,16 @@ function settleRun(sessionId, event) {
   dropProcessRecord(targetId)
   const isCurrent = targetId === state.currentSessionId
   if (isCurrent) {
+    const status = byId('statusLine')
+    if (status && /^(模型连接中断，|正在重新连接模型服务|模型已响应，继续执行)/.test(String(status.textContent || ''))) setStatus('ready')
     endThinking(event.execution && event.execution.status === 'cancelled' ? '已停止' : event.execution && event.execution.status === 'failed' ? '执行失败' : '')
     clearWaitingTimer()
-    if (state.liveRun !== true) renderMessages(findSessionById(targetId))
+    // UI notifications are provisional; the finished snapshot is authoritative.
+    // Rebuild only conversations that contain UI, preserving the old fast path.
+    const needsUiReconcile = generativeUiChat && (generativeUiChat.hasLive() || (Array.isArray(event.messages) && event.messages.some(hasUiBlocks)))
+    if (state.liveRun !== true || needsUiReconcile) renderMessages(findSessionById(targetId))
     state.liveRun = false
+    if (generativeUiChat && event.ui) generativeUiChat.interaction(event.ui)
   }
   renderWorkspaceList()
   applyRunState()
@@ -3411,6 +3527,28 @@ async function handleEvent(event) {
      切回去时「思考过程」整块是空的（用户 2026-09-19 报的 bug）。 */
   if (not(isCurrent)) {
     recordBackgroundProcess(eventSessionId, event)
+    return
+  }
+  if (event.type === 'ui:interaction') {
+    if (generativeUiChat && eventSessionId && eventSessionId === state.currentSessionId) generativeUiChat.interaction(event.snapshot)
+    return
+  }
+  if (event.type === 'ui:surface') {
+    // Require the exact session and an active run. A state poll started before
+    // send() can return an older idle snapshot after the local run begins; the
+    // existing live stream flag covers that window without persisting UI data.
+    if (generativeUiChat && eventSessionId && eventSessionId === state.currentSessionId && (isSessionRunning(eventSessionId) || state.liveRun === true)) {
+      generativeUiChat.notification(event, () => {
+        const body = addBubble('assistant', '', { markdown: true, noActions: true })
+        const wrapper = body.parentNode
+        wrapper.classList.add('gui-chat-bubble')
+        body.textContent = ''
+        const host = document.createElement('div')
+        host.className = 'gui-chat-slot'
+        body.appendChild(host)
+        return { host, wrapper }
+      })
+    }
     return
   }
   if (event.type === 'context:compress:start') {
@@ -3451,14 +3589,30 @@ async function handleEvent(event) {
     updateThinking('\n' + approvalText + '\n')
     return
   }
+  if (event.type === 'assistant:retry') {
+    clearWaitingTimer()
+    const body = state.currentAssistant
+    if (body && (!event.requestId || !body.dataset.requestId || body.dataset.requestId === event.requestId)) discardAssistantDraft()
+    const content = beginThinking('')
+    appendProcessRetry(content, event)
+    saveThinkingProcess(content)
+    updateRunStatus()
+    scrollToBottom()
+    setStatus(event.text || '模型连接中断，正在自动重连')
+    return
+  }
   if (event.type === 'assistant:thinking') {
     clearWaitingTimer()
+    finishProcessRetry(state.currentThinking)
     updateThinking(event.text || '')
     return
   }
   if (event.type === 'assistant:delta') {
     clearWaitingTimer()
+    if (finishProcessRetry(state.currentThinking)) saveThinkingProcess(state.currentThinking)
+    reconcileAssistantAttempt(event.requestId)
     const body = beginAssistant()
+    if (event.requestId) body.dataset.requestId = event.requestId
     body.dataset.raw = (body.dataset.raw || '') + (event.text || '')
     scheduleStreamPaint(body)
     scrollToBottom()
@@ -3466,12 +3620,14 @@ async function handleEvent(event) {
   }
   if (event.type === 'assistant:message') {
     clearWaitingTimer()
+    reconcileAssistantAttempt(event.requestId)
     endThinking()
     endAssistant(event.text || '')
     return
   }
   if (event.type === 'tool:start') {
     clearWaitingTimer()
+    reconcileAssistantAttempt(event.requestId)
     if (state.currentAssistant) {
       state.currentAssistant = null
     }
@@ -3502,6 +3658,7 @@ async function handleEvent(event) {
     return
   }
   if (event.type === 'error') {
+    state.liveRun = false
     clearWaitingTimer()
     endThinking('执行失败')
     /* 半截正文也要按 markdown 收一次口，别让它留成源码。 */
@@ -4159,6 +4316,7 @@ async function sendMessage() {
     const scope = projectId ? 'project' : 'recent'
     session = createSession(projectId || (state.settings && state.settings.currentProjectId), undefined, scope)
     state.currentSessionId = session.id
+    if (generativeUiChat) generativeUiChat.reset(session.id)
     state.activeProjectId = scope === 'project' ? session.projectId : ''
     if (scope === 'project') state.expandedProjects[session.projectId] = true
     saveCurrentSessionId(session.id)
@@ -4202,8 +4360,10 @@ async function sendMessage() {
      直接告诉用户把上限调大或稍后再发。 */
   let isBusy = false
   try {
-    await window.dsh.send(workflowText, history, images, memory, sessionId)
+    const uiCapabilities = generativeUiChat ? await generativeUiChat.capabilities() : null
+    await window.dsh.send(workflowText, history, images, memory, sessionId, uiCapabilities)
   } catch (error) {
+    if (state.currentSessionId === sessionId) state.liveRun = false
     const message = error && error.message ? String(error.message) : String(error)
     const isPoolBusy = message.indexOf('POOL_BUSY') !== -1
     isBusy = not(isPoolBusy) && message.indexOf('BUSY') !== -1
@@ -4306,15 +4466,28 @@ async function createWorkspaceAction() {
   }
 }
 
+async function openFolderAction(folder, copiedMessage) {
+  if (not(folder)) return
+  if (window.dsh.isDesktop) {
+    const result = await window.dsh.openPath(folder)
+    if (result) throw new Error(String(result))
+    return
+  }
+  const done = await copyToClipboard(folder)
+  setStatus(done ? copiedMessage : folder)
+}
+
 async function openWorkspaceAction() {
   try {
-    if (not(state.workspacePath)) return
-    if (window.dsh.isDesktop) {
-      await window.dsh.openPath(state.workspacePath)
-      return
-    }
-    const done = await copyToClipboard(state.workspacePath)
-    setStatus(done ? '\u5de5\u4f5c\u533a\u8def\u5f84\u5df2\u590d\u5236' : state.workspacePath)
+    await openFolderAction(state.workspacePath, '\u5de5\u4f5c\u533a\u8def\u5f84\u5df2\u590d\u5236')
+  } catch (error) {
+    addBubble('error', formatError(error && error.message ? error.message : String(error)))
+  }
+}
+
+async function openProjectFolder(folder) {
+  try {
+    await openFolderAction(folder, '\u9879\u76ee\u76ee\u5f55\u8def\u5f84\u5df2\u590d\u5236')
   } catch (error) {
     addBubble('error', formatError(error && error.message ? error.message : String(error)))
   }
@@ -4337,6 +4510,14 @@ function renderProjectFolders() {
       badge.textContent = '\u4e3b\u8981'
       row.appendChild(badge)
     }
+    const open = document.createElement('button')
+    open.type = 'button'
+    open.className = 'folder-open'
+    open.textContent = '\u6253\u5f00'
+    open.title = '\u5728\u7cfb\u7edf\u6587\u4ef6\u7ba1\u7406\u5668\u4e2d\u6253\u5f00'
+    open.setAttribute('aria-label', '\u6253\u5f00\u76ee\u5f55\uff1a' + folder)
+    open.addEventListener('click', () => openProjectFolder(folder))
+    row.appendChild(open)
     const remove = document.createElement('button')
     remove.className = 'folder-remove'
     remove.textContent = 'x'

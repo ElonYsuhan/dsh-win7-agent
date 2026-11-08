@@ -26,6 +26,66 @@ public interfaces remain unchanged. The replaceable build/loader adapter can evo
 runtime-pinned bytecode later without changing business contracts. Offline key extraction
 and runtime inspection remain possible. See docs/DESKTOP-DELIVERY.md for scope and evidence.
 
+## Model network boundary
+
+Model catalog and the selected Cordis model service share the replaceable
+`agent/network-proxy.js` Node-16 IO adapter; the adapter owns no conversation
+state or execution policy. It reads explicit environment configuration before
+macOS or Windows manual user proxies, respects private literals and bypass
+lists, and keeps HTTPS target verification inside a standard CONNECT tunnel.
+Proxy discovery is cached for two seconds; the bounded system-command lookup
+is synchronous (at most one second per uncached lookup). Unsupported detected
+PAC/WPAD and SOCKS-only settings fail visibly rather than silently bypassing the
+proxy. Linux desktop proxy settings, WinHTTP and arbitrary DNS names that resolve
+to private addresses are not automatically interpreted. See the README for
+precedence and limitations.
+
+`scripts/network-proxy-smoke.js` exercises policy, local HTTP/HTTPS proxies,
+TLS and hostname verification, model catalog/chat/Ollama, cancellation,
+midstream disconnects and timeouts without real credentials; `check:node16`
+runs the same script under Electron's embedded Node. These tests are not Win7
+hardware validation. Future platform-specific asynchronous proxy resolution
+or a supported PAC/SOCKS adapter can replace discovery/transport without
+changing model contracts or Cordis assembly.
+
+### Conversation model reconnection
+
+A transient transport failure after completed tools formerly terminated the turn.
+The selected `flow` service now classifies retryable failures and provides bounded
+backoff in its limits; the upper Agent loop commits each request/failure decision
+through the existing versioned journal, waits with the turn's AbortSignal, and
+reissues only the current model request. Limits, timeout, unattended budgets and
+Cordis service selection still apply. Completed tool facts remain in the session;
+there is no automatic replay of a tool or recovery of uncertain side effects.
+
+The Node16 transport treats EOF before the protocol completion marker as an
+incomplete stream rather than a successful partial tool call. Per-request IDs and
+an additive UI retry event separate abandoned streamed drafts from the next
+attempt, including when the UI misses the retry event. Failure remains visible
+after the retry budget, and old snapshots/UI event consumers remain readable.
+The provider may bill a failed request or independently propose a tool again;
+this is not stream resumption or exactly-once execution. `model-reconnect-smoke`
+exercises actual Cordis, a real TLS disconnect, clean/aborted stream endings,
+cancellation, deadline, retry exhaustion and retained tool facts. The isolated
+Chromium and protected-package tests exercise UI and bundled runtime separately;
+none of these substitute for a real Win7 test. A future provider-specific
+idempotent/resumable model adapter can replace request reissue without changing
+the persisted conversation/tool boundary.
+
+## TypeScript boundaries
+
+New compile-time contracts live in `types/` and are checked with `strict: true`
+by `tsconfig.types.json`; they never enter the target application. The core
+JavaScript modules (`contracts`, `flow`, `state`), both preloads, and the pure
+renderer/transport modules are checked with `checkJs` through separate
+`tsconfig` files. This keeps one runtime implementation while giving callers
+typed events, services, flow decisions, reducer state and browser/build
+boundaries. `scripts/typecheck-core.js` also rejects `.ts`/`.tsx` files under
+the shipped paths and type suppressions in non-test declarations. Type
+declarations are erased at build time; runtime validators and Cordis remain
+authoritative. Server, shell and the large renderer entry points remain JS and
+are constrained by declarations until their own migration batches.
+
 ## Four layers and dependency direction
 
 | Layer | Responsibility | Implementation |
@@ -543,3 +603,36 @@ Agent state semantics. See SOFTWARE-LICENSING.md for offline limits and validati
 驳回既可以来自节点配置，也可以是一条独立的画布连线。编辑器把驳回线序列化为 `edges[].kind='reject'`，contracts/workflows 的 `validate` 将这类边从正向 DAG 剥离并转换为 `workflow.rejections=[{from,to}]`；flow/workflow-policy 的 `returnTarget` 优先取目标为人工环节且反向可达的 `rejections`，再兼容旧版 `edge.rejectTo`、节点级 `interaction.returnTo` 与 `previous-human` 兜底。渲染层只做纯图派生：workflow-link-routing 的 `rejectionEdges` 同时读取 `graph.rejections`、边级与节点级目标并去重，用于画标注目标的反向虚线；编辑画布把驳回线作为真实 link 保存与还原。契约与 flow 不含 IO、平台判断或运行时实现，reducer 仍只依赖契约。
 
 不引入新的事件类型、状态迁移或外部重放策略；`node-returned` 事实与外部确认点保持原样。画布工具条把「连接线」与「驳回线」拆成两个图标，**两者共用 LiteGraph 端口拖线**：`canvasModeSet('reject')` 与 `connect` 同样保持 `allow_interaction`，`updatePortHints` 白名单包含二者，落下时由 `onConnectionsChange` 给 link 写 `properties.kind='reject'`，不新建服务或事件，不限制起点与终点类型。线型切换通过右侧面板与右键菜单写入同一份草稿，画布按 `kind` 画琥珀虚线与「驳回」标签。链路合理性不在保存时强拦截，由纯函数 `flow/workflow-simulation` 的 `checkRejectLinks` 在「自测验证」中报告错误与警告；不合理的驳回线运行时被忽略并回退到既有兜底。继续固定 Node16/Chromium108，无新增生产依赖或目标机下载。验证入口为 workflow-interaction-smoke（`rejections` 优先、运行时退回与仿真报告）、workflow-routing-smoke（独立驳回线虚线派生）、workflows-e2e-smoke（线型面板与保存还原）与 workflow-canvas-e2e-smoke（真实鼠标端口拖线创建驳回线）；Win7 真机验证单独进行。
+
+
+### 生成式界面协议 P0（2026-11-07）
+
+为后续交互图表定义独立的有界 Surface / Component / State / Action v1 契约；旧会话可读取，未知未来 surface 作为不透明数据保留且不执行。`ui.surface.published` 经纯 reducer 校验活跃工具、会话内 ID 和乐观修订后写入混合消息；事实由现有会话仓库持久化。原生 Cordis 插件注册测试工具，复用工具权限及生命周期，不保存会话状态；默认应用不启用工具，避免无渲染器时误报成功。模型请求只接收纯文本 UI 摘要，外部供应商不接收自定义内容块；恢复不自动重放工具。协议不是完整 A2UI；P0 阶段本身未实现 Vue/ECharts 渲染、用户交互或回传。
+
+此阶段使用 Node16 内置能力，不增加生产依赖或目标机下载；未来可替换渲染器与平台适配而保留事实协议。架构、边界、版本和回归详见 [生成式界面协议](GENERATIVE-UI.md)。Node16 和静态兼容检查不替代 Win7 真机验证。
+
+
+### 生成式界面 P1 开发基础（2026-11-07）
+
+`ui/generative-ui/src/` 定义 TypeScript 表示、会话内不可变视图、绑定校验、图表/表格数据、显示树和受信任组件注册表，并提供会话绑定的消息投影、可信图表配置、每实例生命周期控制和 Vue 单文件组件。运行时校验复用 P0 唯一 Schema，未发布的 v1 扩展了表单分组、受限单行输入和勾选框；旧客户端不认识新组件时会拒绝，正式开放前须做能力协商。受信任宿主可在挂载前组装并封存白名单注册表，模型不能注册代码。原始 surface 和本地视图 state 分别限长，发布消息的 48,000 字符上限不变。P1 默认视图状态仅驻留内存、按钮禁用；接入后续 P2 可信交互宿主时按下面的交互事实边界运行。聊天适配层按需加载固定本地资源，从权威消息投影历史并将带会话 ID 的流通知作为临时预览；完成时重新对账，切会话及取消历史回填时释放实例。桌面构建编译资源并区分第三方与自研代码，不复制原始 Vue/TypeScript。普通配置仍不启用工具，完整包及阶段尚未验收；未来可替换渲染适配层而不改变事实契约。
+
+已按用户授权安装固定版本的 Vue、Naive UI、ECharts、Vite、Vue 插件及 TypeScript 作为构建期开发依赖；实际浏览器代码仍包含所用运行库并须保留第三方许可。滑块改用原生 range，Naive UI 仍用于其他组件；无法核实完整许可文本的 `vdirs@0.1.8` 未进入当前产物，资源构建对实际包含的代码通过许可检查。隔离 Electron 22/Chromium 108 测试已覆盖真实聊天渲染、合成流通知及真实 Cordis 工具到持久化和聊天的链路、图表、表单、受信任组件注册、键盘输入、模拟组字、主题、历史投影及自研浏览器代码的保护变换；完整桌面包和 Win7 真机尚未验收。其后已按用户明确授权把根 `@types/node` 恢复为 `16.18.126`，并新增固定 `cesium@1.104.0` 开发依赖；详见 [生成式界面协议](GENERATIVE-UI.md)。
+
+
+### 生成式界面 P2 交互事实（2026-11-08）
+
+新增纯交互契约和纯 action prompt 策略，session reducer 从 `ui.surface.published`、`ui.state.changed`、`ui.action.accepted`、中断和已有 turn 迁移归约参数及操作回执。发布默认值与当前已保存参数职责分离；客户端历史不能重定义权威组件或动作。旧服务端快照缺少交互字段时只迁移发布默认值，不伪造旧操作。回执随同原会话仓库快照/日志落盘，不使用插件 Map 或浏览器缓存作为事实来源。
+
+原生 Cordis `generativeUi` 服务注入 sessions/licensing/agentLoop，HTTP 与 IPC 共用该服务；操作先记录、再经既有 AgentPool 调用选定的 agentLoop，无第二个模型循环、工具执行器或服务容器。用户用应用统一确认框提交服务端提取的选定参数；后续业务工具继续使用原 ToolRegistry 的许可、权限、禁用和人工审批。accepted/running 恢复为 interrupted，不重放不确定副作用；相同请求返回原回执，操作回执容量用拒绝而非淘汰处理。
+
+Vue 的可信宿主控制器负责即时视图、串行保存、在途之外的连续同控件调整合并、冲突/错误展示、确认和卸载资源；按钮需服务端定义完全匹配、参数已保存且会话空闲。流只接受完整验证修订，完成后的同修订重画恢复已保存状态，新修订采用显式新默认值。实现仅依赖 Node16/Chromium108 内置能力，未来更换宿主/渲染器不改变交互与事实协议。
+
+验证包括真实 Cordis＋AgentPool＋仓库下的参数恢复、去重、只读与人工审批、提交落盘失败、修订/崩溃边界，及隔离保护浏览器资源下的真实聊天参数保存、统一确认/Esc、Agent 回传、流式更新、停止、页面重载和取消不重放。源码测试不等于完整安装包、Win7 真机、OS 输入法或 Android WebView 验收；普通产品的开放与能力协商见下一小节。详见 [生成式界面协议](GENERATIVE-UI.md)。
+
+### 生成式界面 P3/P4 业务控件与能力协商（2026-11-08）
+
+P3 在协议 v2 增加 filter、table、progress、flow、map 五种声明式组件，并增加 `visual` 静态页面：模型提供 HTML/SVG/CSS，聊天以空 `sandbox` iframe 和文档 CSP 直接显示，脚本、表单、外链、网络和同源访问被阻断；它不是任意前端代码执行环境。它们仍由 contracts 做有界、严格键和引用校验；纯视图只准备数据和不可变选择，Vue 组件负责原生控件、键盘/触控、文字状态和转义显示。表格筛选与选择、流程节点选择和地图点选择都写入原 `ui.state.changed` 事实，没有新增进度账本。progress 与 flow 状态是 Agent 提供的显示数据，不是系统任务或流程的真实执行凭据；选择节点不会启动工作流。地图采用固定 Cesium 1.104.0 离线椭球与点标记，不加载影像、地形、Ion、token、worker 或外部资源；WebGL 不可用时明确降级为可操作的经纬度示意图。
+
+P4 把 `render_ui` / `update_ui` 接入普通产品 profile，但工具是否对模型可见由当前轮客户端声明的渲染能力决定。聊天在本地 UI 资源加载成功后通过既有 send/action 传输附带 `{versions,components}`；服务端仅用其做协商元数据，不写入请求事实、不参与动作幂等比较，也不构成工具授权。`Agent.rendererCapabilities` 只驻留当前轮并在 finally 清空；ToolRegistry 的 `available(context)` 同时过滤模型定义和直接执行，发布前再次 `assertRenderable`。没有声明、未来版本无交集、unattended 或插件被禁用时不提供 UI 工具；直接猜调用返回拒绝且不落 UI 事实。既有许可、权限、审批、取消、预算和选定的 Cordis agentLoop 仍是唯一执行路径。旧 v1 历史继续可读，未知未来版本仍形成不执行、不可绕回的不透明屏障。
+
+隔离 Electron 22/Node 16/Chromium 108 已用真实保护变换后的浏览器代码验证普通 profile 工具、v2 业务选择、真实离线地图/降级、窄屏触控、CSP 与本地资源无 404；普通 profile 契约回归覆盖无能力、v1 子集、v2、未来/畸形协商、逐轮/逐会话隔离、动作幂等、unattended 与禁用路径。真实 Win7、Android WebView、OS 输入法和屏幕阅读器仍未验收；本次受保护载荷已通过加密 Node16 回归、编译包内 v2/离线地图渲染和 30 组性能验收，安装包内端到端 Agent 对话仍单独验收。

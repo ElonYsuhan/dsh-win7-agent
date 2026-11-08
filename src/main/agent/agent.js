@@ -16,6 +16,7 @@ class Agent {
     this.workspaceRoot = settings.workspacePath || ''
     this.abortController = null
     this.disposed = false
+    this.rendererCapabilities = null
     this.assetStore = assetStore || null
     this.ownsPlugins = not(pluginHost)
     this.plugins = pluginHost || new PluginHost({
@@ -171,6 +172,7 @@ class Agent {
   async ensureContextBudget(...args) { return this.service('memory').ensureContextBudget(this, ...args) }
 
   clear() {
+    if (!this.running) this.state = this.service('sessions').load(this)
     this.replaceHistory([])
     this.setMemory(null)
     this.saveSession()
@@ -180,15 +182,26 @@ class Agent {
      否则严格模型服务会拒收（400: role 'tool' must follow a 'tool_calls' message） */
   sanitizeHistory(messages) { return this.service('contracts').sanitizeHistory(messages) }
 
-  async run(userText, history, images, memory) {
+  async run(userText, history, images, memory, uiActionId, signal, uiCapabilities) {
     if (this.disposed) throw new Error('AGENT_DISPOSED: this worker is no longer available')
     if (this.runPending) throw new Error('BUSY: the agent is already running')
-    const pending = this.plugins.ready().then(() => {
+    let onAbort
+    const cancelled = signal && new Promise((_resolve, reject) => {
+      onAbort = () => { this.abort(); reject(new Error('ABORTED')) }
+      signal.addEventListener('abort', onAbort, { once: true })
+      if (signal.aborted) onAbort()
+    })
+    const ready = this.plugins.ready()
+    const pending = (cancelled ? Promise.race([ready, cancelled]) : ready).then(() => {
+      if (signal && signal.aborted) throw new Error('ABORTED')
       if (this.disposed) throw new Error('AGENT_DISPOSED: this worker is no longer available')
-      return this.plugins.requireService('agentLoop').run(this, userText, history, images, memory)
+      const ui = require('../contracts/generative-ui')
+      const test = this.plugins.requireService('agentConfig').enableGenerativeUiProtocolForTests === true
+      this.rendererCapabilities = ui.negotiate(uiCapabilities === undefined && test ? ui.capabilities() : uiCapabilities)
+      return this.plugins.requireService('agentLoop').run(this, userText, history, images, memory, uiActionId)
     })
     this.runPending = pending
-    try { return await pending } finally { this.runPending = null }
+    try { return await pending } finally { this.rendererCapabilities = null; this.runPending = null; if (signal && onAbort) signal.removeEventListener('abort', onAbort) }
   }
 
 }

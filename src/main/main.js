@@ -183,9 +183,13 @@ function browserOnlyTarget() {
 }
 
 function createBrowserOnlyWindow(targetUrl) {
+  const hidden = process.argv.includes('--dsh-browser-hidden')
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    show: !hidden,
+    skipTaskbar: hidden,
+    paintWhenInitiallyHidden: true,
     title: 'Browser',
     backgroundColor: '#ffffff',
     webPreferences: {
@@ -195,6 +199,7 @@ function createBrowserOnlyWindow(targetUrl) {
       webSecurity: true
     }
   })
+  if (hidden && app.dock) app.dock.hide()
   configureWindowMenu(win, { onQuit: () => app.quit(), onHide: () => app.hide() })
   win.loadURL(targetUrl)
   /* 调试页里的新窗口/跳转留在当前窗口，不再 shell.openExternal 一直弹系统浏览器。 */
@@ -367,13 +372,17 @@ licensedHandle('workspace:clear', () => {
   return ''
 })
 
+for (const [channel, method] of [['read', 'read'], ['change', 'change'], ['action', 'dispatch']]) {
+  licensedHandle('generative-ui:' + channel, (_event, request, capabilities) => pluginHost.requireService('generativeUi')[method](pool, request, capabilities))
+}
+
 licensedHandle('chat:send', async (_event, payload) => {
   const text = typeof payload === 'string' ? payload : String(payload && payload.text ? payload.text : '')
   const sessionId = typeof payload === 'string' ? '' : String((payload && payload.sessionId) || '')
   const history = payload && Array.isArray(payload.history) ? payload.history : undefined
   const images = payload && Array.isArray(payload.images) ? payload.images : undefined
   const memory = payload && payload.memory ? payload.memory : undefined
-  await pool.run(sessionId, text, history, images, memory)
+  await pool.run(sessionId, text, history, images, memory, undefined, undefined, undefined, payload && payload.uiCapabilities)
   return true
 })
 

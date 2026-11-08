@@ -23,7 +23,26 @@ function safeJsonParse(text) {
   }
 }
 
-async function run(userText, history, images, memory) {
+// Waiting is part of the active turn, and must drain immediately on stop/deadline.
+function waitForReconnect(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve(false)
+    let settled = false
+    let timer = null
+    const finish = () => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve(!signal.aborted)
+    }
+    signal.addEventListener('abort', finish, { once: true })
+    timer = setTimeout(finish, ms)
+    if (signal.aborted) finish()
+  })
+}
+
+async function run(userText, history, images, memory, uiActionId) {
   if (this.disposed) {
     throw new Error('AGENT_DISPOSED: this worker is no longer available')
   }
@@ -50,10 +69,14 @@ async function run(userText, history, images, memory) {
     maxIterations = limits.maxSteps
     this.state = this.service('sessions').load(this)
     if (this.running) this.record(EVENTS.INTERRUPT, { reason: 'recovered unfinished turn' })
+    for (const [requestId, receipt] of Object.entries(this.state.ui.receipts)) {
+      if (receipt.status === 'accepted' && requestId !== uiActionId) this.record(EVENTS.UI_ACTION_ABANDON, { requestId, reason: 'previous action was not started; automatic replay is forbidden' })
+    }
     if (Array.isArray(history)) this.replaceHistory(this.sanitizeHistory(history))
     if (memory !== undefined || Array.isArray(history)) this.adoptMemory(memory)
-    this.record(EVENTS.START, { id: 'turn_' + Date.now().toString(36) + '_' + (this.state.sequence + 1), maxSteps: maxIterations })
+    this.record(EVENTS.START, { id: 'turn_' + Date.now().toString(36) + '_' + (this.state.sequence + 1), maxSteps: maxIterations, ...(uiActionId ? { uiActionId } : {}) })
     started = true
+    if (this.sessionId && Object.keys(this.state.ui.surfaces).length) this.emit({ type: 'ui:interaction', snapshot: require('../contracts/generative-ui-interaction').snapshot(this.state, this.sessionId) })
     if (limits.turnTimeoutMs > 0) deadline = setTimeout(() => { timedOut = true; this.abort() }, limits.turnTimeoutMs)
     const systemContent = await this.plugins.buildSystemPrompt(this.systemPrompt(), signal, this.executionContext, this)
     const preparedHistory = this.messages.slice()
@@ -80,12 +103,13 @@ async function run(userText, history, images, memory) {
       let streamedThinking = ''
       let streamedContent = ''
       let dsmlSuppressed = false
+      let requestId = ''
       while (this.state.execution.attempt < limits.maxAttempts) {
         const attempt = this.state.execution.attempt
         if (!unattended) await this.ensureContextBudget(systemContent, signal)
         if (signal.aborted) break
         const requestMessages = await this.buildRequestMessages(systemContent)
-        const requestTools = this.state.execution.toolsEnabled ? this.plugins.getToolDefinitions().filter(t => !unattended || unattended.tools.includes(t.function.name)) : []
+        const requestTools = this.state.execution.toolsEnabled ? this.plugins.getToolDefinitions(this).filter(t => !unattended || unattended.tools.includes(t.function.name)) : []
         if (unattended) {
           const reserved = Buffer.byteLength(JSON.stringify(requestMessages), 'utf8') + Buffer.byteLength(JSON.stringify(requestTools), 'utf8') + Number(this.settings.data.maxTokens) + 1024
           if (++taskRequests > unattended.maxRequests || reserved > remainingTokens) throw new Error('TASK_BUDGET_EXCEEDED: request/token budget')
@@ -93,6 +117,7 @@ async function run(userText, history, images, memory) {
         }
         try {
           this.record(EVENTS.REQUEST, {})
+          requestId = this.state.execution.id + ':' + this.state.execution.step + ':' + this.state.execution.attempt
           result = await this.service('llm').request({
             settings: this.settings.data,
             messages: requestMessages,
@@ -110,29 +135,54 @@ async function run(userText, history, images, memory) {
                   dsmlSuppressed = true
                   this.emit({ type: 'status', text: 'malformed tool-call text detected; cleaning up' })
                 }
-                if (not(dsmlSuppressed)) this.emit({ type: 'assistant:delta', text: delta.text })
+                if (not(dsmlSuppressed)) this.emit({ type: 'assistant:delta', requestId, text: delta.text })
               }
               if (delta.type === 'thinking') {
                 streamedThinking += delta.text
-                this.emit({ type: 'assistant:thinking', text: delta.text })
+                this.emit({ type: 'assistant:thinking', requestId, text: delta.text })
               }
             }
           })
           if (unattended && Buffer.byteLength(JSON.stringify(result), 'utf8') > unattended.outputBytes) throw new Error('TASK_OUTPUT_LIMIT')
           contracts.assertModelResult(result)
+          if (attempt > 0) this.emit({ type: 'status', text: '模型已响应，继续执行' })
           lastError = null
           break
         } catch (error) {
           result = null
           lastError = error
-          const retry = unattended ? 'stop' : contracts.assertDecision(flow.retry({ error: error.message, toolsEnabled: this.state.execution.toolsEnabled, attempt, aborted: signal.aborted, contextLengthError: this.contextService.isContextLengthError(error) }), ['stop', 'without-tools', 'compact'])
-          this.record(EVENTS.REQUEST_FAILED, { reason: String(error.message || error), decision: retry })
+          const proposed = contracts.assertDecision(flow.retry({ error: error && error.message, code: error && error.code, toolsEnabled: this.state.execution.toolsEnabled, attempt, aborted: signal.aborted, contextLengthError: this.contextService.isContextLengthError(error) }), ['stop', 'without-tools', 'compact', 'reconnect'])
+          // Unattended runs retain their request/token budgets and only retry network errors.
+          let retry = unattended && proposed !== 'reconnect' ? 'stop' : proposed
+          if (unattended && retry === 'reconnect' && taskRequests >= unattended.maxRequests) {
+            lastError = new Error('TASK_BUDGET_EXCEEDED: request/token budget')
+            retry = 'stop'
+          }
+          if (attempt + 1 >= limits.maxAttempts) {
+            if (retry === 'reconnect') lastError = new Error('MODEL_RECONNECT_EXHAUSTED: ' + String(error && error.message || error))
+            retry = 'stop'
+          }
+          this.record(EVENTS.REQUEST_FAILED, { reason: String(error && error.message || error), decision: retry })
+          if (retry === 'stop') break
+          const delayMs = retry === 'reconnect' ? ((limits.reconnectDelaysMs || [])[attempt] || 0) : 0
+          const text = retry === 'reconnect'
+            ? '模型连接中断，' + (delayMs ? (delayMs / 1000 + ' 秒后') : '即将') + '自动重连（第 ' + (attempt + 2) + '/' + limits.maxAttempts + ' 次）；不会重放已完成的工具步骤。'
+            : (retry === 'without-tools' ? '模型不支持工具调用，正在重新生成本次回复。' : '正在调整上下文并重新生成本次回复。')
+          // Uncommitted output belongs to the failed request, never to the next one.
+          this.emit({ type: 'assistant:retry', requestId, reason: retry, text, attempt: attempt + 2, maxAttempts: limits.maxAttempts, delayMs })
+          streamedThinking = ''
+          streamedContent = ''
+          dsmlSuppressed = false
+          if (retry === 'reconnect') {
+            if (not(await waitForReconnect(delayMs, signal))) break
+            this.emit({ type: 'status', text: '正在重新连接模型服务（第 ' + (attempt + 2) + '/' + limits.maxAttempts + ' 次）' })
+            continue
+          }
           if (retry === 'without-tools') {
             this.record(EVENTS.TOOLS_DISABLED, {})
             this.emit({ type: 'status', text: 'model does not support tools; continuing without tools' })
             continue
           }
-          if (retry !== 'compact') break
           const changed = await this.compact({ force: true, aggressive: attempt > 0, signal, systemContent })
           if (not(changed)) {
             const hardChanged = await this.compact({ force: true, aggressive: true, hard: true, signal, systemContent })
@@ -170,7 +220,7 @@ async function run(userText, history, images, memory) {
       /* 关键：assistant 必须携带 tool_calls，否则下一轮请求里 role:'tool' 消息没有前置 tool_calls，模型服务返回 400 */
       if (calls.length > 0) assistant.tool_calls = calls.slice()
       this.appendMessage(assistant)
-      if (assistant.content) this.emit({ type: 'assistant:message', text: assistant.content })
+      if (assistant.content) this.emit({ type: 'assistant:message', requestId, text: assistant.content })
       const action = contracts.assertDecision(flow.next({ phase: 'assistant', execution: this.state.execution, calls, deniedCount: this.state.execution.deniedCount, maxDenied: limits.maxDenied, aborted: signal.aborted }), ['cancel', 'complete', 'tools', 'blocked'])
       if (action === 'cancel') { flowCancelled = true; break }
       if (action === 'blocked') {
@@ -181,10 +231,10 @@ async function run(userText, history, images, memory) {
       if (action === 'complete') {
         const finalText = assistant.content || streamedThinking || ''
         if (not(assistant.content) && streamedThinking) {
-          this.emit({ type: 'assistant:message', text: streamedThinking })
+          this.emit({ type: 'assistant:message', requestId, text: streamedThinking })
         }
         if (not(assistant.content) && not(streamedThinking)) {
-          this.emit({ type: 'assistant:message', text: 'The model returned no final content. Check the tool results or try again.' })
+          this.emit({ type: 'assistant:message', requestId, text: 'The model returned no final content. Check the tool results or try again.' })
         }
         this.record(EVENTS.COMPLETE, {})
         this.saveSession()
@@ -196,7 +246,7 @@ async function run(userText, history, images, memory) {
         const name = call.function.name
         const args = safeJsonParse(call.function.arguments)
         this.record(EVENTS.TOOL_START, { id: call.id, name })
-        this.emit({ type: 'tool:start', id: call.id, name, args: args || {} })
+        this.emit({ type: 'tool:start', requestId, id: call.id, name, args: args || {} })
         let toolResult = ''
         if (unattended && unattended.maxToolCalls && ++taskToolCalls > unattended.maxToolCalls) {
           toolResult = 'DENIED: unattended tool call limit reached'
@@ -210,7 +260,8 @@ async function run(userText, history, images, memory) {
               settings: this.settings.data,
               signal,
               approve: this.approve,
-              agent: this
+              agent: this,
+              toolCallId: call.id
             })
             this.plugins.events.emit('tool:after', { name, args, result: toolResult, agent: this })
           } catch (error) {
@@ -280,7 +331,7 @@ async function run(userText, history, images, memory) {
     const completedMessages = this.messages
     const completedMemory = this.memory
     this.emit(started
-      ? { type: 'finished', messages: completedMessages, memory: completedMemory, execution: this.state.execution }
+      ? { type: 'finished', messages: completedMessages, memory: completedMemory, execution: this.state.execution, ui: require('../contracts/generative-ui-interaction').snapshot(this.state, this.sessionId || '') }
       : { type: 'finished' })
     /* 完整历史由渲染层持有，并会在下一次 run 重新传入。空闲 worker 只需要保留
        浏览器等会话资源；继续攥着几 MB 的消息数组会让 maxWorkers 倍增常驻内存。 */

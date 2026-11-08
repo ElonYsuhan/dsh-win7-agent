@@ -453,10 +453,12 @@ sandbox.window.dsh = {
   onEvent() {},
   listServerDir: async () => ({ path: '/', parent: null, dirs: [] }),
   mkdirServerDir: async () => ({}),
-  openPath: async () => {},
+  openPath: async (target) => { sandbox.__openedPaths.push(String(target)); return '' },
   openExternal: async (target) => { sandbox.__openedExternally.push(String(target)); return 'OK' }
 }
 sandbox.__openedExternally = []
+sandbox.__openedPaths = []
+sandbox.window.__openedPaths = sandbox.__openedPaths
 sandbox.__reloads = 0
 sandbox.__clipboard = []
 
@@ -824,9 +826,9 @@ const concurrencyStatic = {
   mainUsesPool: mainSrc.indexOf('new AgentPool(') !== -1 && mainSrc.indexOf('new Agent(') === -1
     && mainSrc.indexOf('pool.listPlugins()') !== -1,
   /* 两条入口都把 sessionId 带下去 */
-  preloadCarriesSessionId: preloadSrc.indexOf('{ text, history, images, memory, sessionId }') !== -1
+  preloadCarriesSessionId: preloadSrc.indexOf('{ text, history, images, memory, sessionId, uiCapabilities }') !== -1
     && preloadSrc.indexOf("invoke('chat:stop', sessionId)") !== -1,
-  bridgeCarriesSessionId: bridgeSrc.indexOf('{ text, history, images, memory, sessionId }') !== -1
+  bridgeCarriesSessionId: bridgeSrc.indexOf('{ text, history, images, memory, sessionId, uiCapabilities }') !== -1
     && bridgeSrc.indexOf('/api/chat') !== -1
     && bridgeSrc.indexOf("String(event.sessionId) !== String(sessionId)") !== -1,
   bridgeStopBySession: bridgeSrc.indexOf("request('POST', '/api/stop', { sessionId })") !== -1,
@@ -869,7 +871,7 @@ const concurrencyStatic = {
     && appSrc.indexOf('state.approvalCurrentId') !== -1
     && appSrc.indexOf('expireApproval(event.id)') !== -1
     && appSrc.indexOf('state.approvalBusy = false') !== -1,
-  rendererSendCarriesSessionId: appSrc.indexOf('window.dsh.send(workflowText, history, images, memory, sessionId)') !== -1 && appSrc.indexOf('workflowChat.textFor(session,text)') !== -1,
+  rendererSendCarriesSessionId: appSrc.indexOf('window.dsh.send(workflowText, history, images, memory, sessionId, uiCapabilities)') !== -1 && appSrc.indexOf('workflowChat.textFor(session,text)') !== -1,
   rendererStopIsPerSession: appSrc.indexOf('window.dsh.stop(sessionId)') !== -1
     && appSrc.indexOf('resetChat(sessionId)') !== -1,
   rendererQueueIsPerSession: appSrc.indexOf('sessionId: state.currentSessionId,') !== -1
@@ -1042,6 +1044,17 @@ const checks = `
   ok('编辑弹窗标题', document.getElementById('projectModalTitle').textContent === '编辑工作区', document.getElementById('projectModalTitle').textContent)
   ok('编辑预填名称', document.getElementById('projectName').value === 'Alpha2', document.getElementById('projectName').value)
   ok('编辑预填工作目录', JSON.stringify(state.projectFolders) === JSON.stringify(['/ws/a']), JSON.stringify(state.projectFolders))
+  const folderOpen = document.getElementById('projectFolderList').querySelector('.folder-open')
+  ok('关联目录提供打开操作', folderOpen && folderOpen.textContent === '打开' && folderOpen.getAttribute('aria-label') === '打开目录：/ws/a')
+  window.dsh.isDesktop = true
+  folderOpen.click()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  ok('打开关联目录转交原生路径桥接', JSON.stringify(window.__openedPaths) === JSON.stringify(['/ws/a']), JSON.stringify(window.__openedPaths))
+  window.dsh.isDesktop = false
+  window.__clipboard.length = 0
+  folderOpen.click()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  ok('非桌面形态复制关联目录路径', JSON.stringify(window.__clipboard) === JSON.stringify(['/ws/a']), JSON.stringify(window.__clipboard))
   state.projectFolders.push('/ws/b')
   renderProjectFolders()
   ok('目录列表渲染两行', document.getElementById('projectFolderList').children.length === 2)
@@ -2923,6 +2936,13 @@ const checks = `
       && appSrc.indexOf('const STREAM_PAINT_LONG_CHARS = 20000') !== -1
       && appSrc.indexOf('if (streamPaints.has(body)) return') !== -1)
 
+  const detailsHtml = renderMarkdown('<details>\\n<summary>更多（3 行）</summary>\\n\\n|名称|值|\\n|---|---|\\n|甲|1|\\n\\n</details>')
+  ok('安全的 details/summary 折叠块直接渲染，正文不出现 HTML 标签源码',
+    detailsHtml.indexOf('<details class="md-details">') !== -1
+      && detailsHtml.indexOf('<summary>更多（3 行）</summary>') !== -1
+      && detailsHtml.indexOf('<table>') !== -1
+      && detailsHtml.indexOf('&lt;details') === -1 && detailsHtml.indexOf('&lt;/details') === -1,
+    detailsHtml.slice(0, 160))
   const streamPrevSession = state.currentSessionId
   const streamProject = Object.keys(sessionStore)[0] || 'p-stream'
   if (!Array.isArray(sessionStore[streamProject])) sessionStore[streamProject] = []
@@ -2958,6 +2978,36 @@ const checks = `
     streamBody().innerHTML.slice(0, 100))
   ok('同一次报错只多一条可读的错误提示',
     document.getElementById('messagesInner').querySelectorAll('.bubble.error').length === 1)
+
+  sessionStore[streamProject].push({ id: 'reconnect-stream', title: '重连流式', messages: [], processTimeline: [] })
+  sessionStore[streamProject].push({ id: 'reconnect-background', title: '后台重连', messages: [], processTimeline: [] })
+  state.currentSessionId = 'reconnect-stream'
+  state.runs = {}; addRun('reconnect-stream'); applyRunState()
+  renderMessages(findSessionById('reconnect-stream'))
+  await handleEvent({ type: 'tool:start', sessionId: 'reconnect-stream', requestId: 'turn:1:1', name: 'write_file', args: { path: 'done.txt' } })
+  await handleEvent({ type: 'tool:result', sessionId: 'reconnect-stream', name: 'write_file', outcome: 'success', result: '已写入' })
+  await handleEvent({ type: 'assistant:delta', sessionId: 'reconnect-stream', requestId: 'turn:2:1', text: '不能拼接的旧片段' })
+  await handleEvent({ type: 'assistant:retry', sessionId: 'reconnect-stream', requestId: 'turn:2:1', text: '模型连接中断，1 秒后自动重连' })
+  flushProcessSaves()
+  ok('重连保留已完成的工具过程并移除未完成正文',
+    currentRunning() && streamBody() === null && findSessionById('reconnect-stream').processHtml.indexOf('done.txt') !== -1
+      && findSessionById('reconnect-stream').processHtml.indexOf('自动重连') !== -1)
+  ok('重连时状态提示可见且仍能停止',
+    document.getElementById('statusLine').textContent.indexOf('自动重连') !== -1 && !document.getElementById('stop').classList.contains('hidden'))
+  await handleEvent({ type: 'assistant:delta', sessionId: 'reconnect-stream', requestId: 'turn:2:2', text: '新的回复' })
+  ok('重连后的正文不拼接旧请求片段', streamBody() && streamBody().dataset.raw === '新的回复')
+  await handleEvent({ type: 'assistant:retry', sessionId: 'reconnect-background', requestId: 'other:2:1', text: '后台自动重连' })
+  ok('后台会话重连不删除当前会话正文且过程各自记录',
+    streamBody() && streamBody().dataset.raw === '新的回复' && findSessionById('reconnect-background').processHtml.indexOf('后台自动重连') !== -1)
+  await handleEvent({ type: 'assistant:delta', sessionId: 'reconnect-stream', requestId: 'turn:2:3', text: '错过重连事件后的新回复' })
+  ok('即使重连事件丢失，请求标识变化也不会拼接旧片段',
+    streamBody() && streamBody().dataset.raw === '错过重连事件后的新回复'
+      && document.getElementById('messagesInner').querySelectorAll('.bubble.assistant').length === 1)
+  await handleEvent({ type: 'tool:start', sessionId: 'reconnect-stream', requestId: 'turn:2:4', name: 'read_file', args: { path: 'done.txt' } })
+  ok('错过重连事件后新工具步骤也会清理旧半截正文', streamBody() === null)
+  await handleEvent({ type: 'finished', sessionId: 'reconnect-stream', execution: { status: 'completed' }, messages: [] })
+  ok('重连会话结束后清理重连状态', document.getElementById('statusLine').textContent === '')
+
   state.currentSessionId = streamPrevSession
   state.runs = {}
   window.__dshRunningSessions = []

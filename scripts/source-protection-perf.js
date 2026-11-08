@@ -15,7 +15,7 @@ async function sample(bundle, cycles) {
   fs.writeFileSync(path.join(userData,'agent-home/licensing/state.json'),JSON.stringify({version:1,lastSeenAt:Date.now(),trial:null,license:license.text,sequences:{[license.claims.licenseId]:license.claims.sequence}}))
   fs.writeFileSync(path.join(userData, 'config.json'), JSON.stringify({ mode: 'local', theme: 'light' }))
   const environment = { ...process.env }; delete environment.ELECTRON_RUN_AS_NODE
-  const begin = Date.now(), child = cp.spawn(path.join(bundle, 'Contents/MacOS/Electron'), ['--user-data-dir='+userData, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port='+debug], { env: environment, stdio: ['ignore','pipe','pipe'] })
+  const begin = Date.now(), child = cp.spawn(path.join(bundle, 'Contents/MacOS/Electron'), ['--user-data-dir='+userData, '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--remote-debugging-address=127.0.0.1', '--remote-debugging-port='+debug], { env: environment, stdio: ['ignore','pipe','pipe'] })
   let log = '', socket, firstPage = null
   for (const stream of [child.stdout,child.stderr]) stream.on('data', d => { log = (log + d).slice(-4000) })
   try {
@@ -30,7 +30,7 @@ async function sample(bundle, cycles) {
     assert(target, 'application renderer: '+log)
     socket = new MiniWebSocket();const url=new URL(target.webSocketDebuggerUrl);await socket.connect(url.hostname,Number(url.port),url.pathname)
     const cdp=new CdpSession(socket)
-    async function evaluate(expression) { const r=await cdp.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value }
+    async function evaluate(expression) { for(let attempt=0;attempt<2;attempt++){try{const r=await cdp.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},90000);if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value}catch(error){if(attempt===1||!/CDP_TIMEOUT/.test(error.message))throw error} } }
     let ready=false
     for(let i=0;i<500;i++){try{ready=await evaluate("typeof state!=='undefined'&&!!state.runPoll&&!!window.workflowUI&&!!window.knowledgeUI&&!!window.extensionUI&&window.licensingUI&&!window.licensingUI.isLocked()")}catch(_){}if(ready)break;await sleep(20)}
     assert(ready,'UI ready: '+log)

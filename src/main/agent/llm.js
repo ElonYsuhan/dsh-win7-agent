@@ -1,7 +1,6 @@
 'use strict'
 
-const http = require('http')
-const https = require('https')
+const { request: networkRequest } = require('./network-proxy')
 
 const not = (value) => value ? false : true
 
@@ -49,7 +48,6 @@ function requestChat(options) {
   const onDelta = options.onDelta || (() => undefined)
   const url = buildChatUrl(settings.baseURL)
   const parsed = new URL(url)
-  const transport = parsed.protocol === 'https:' ? https : http
   const payload = {
     model: settings.model,
     messages,
@@ -89,7 +87,10 @@ function requestChat(options) {
     const onAbort = () => {
       request.destroy(new Error('ABORTED'))
     }
-    const request = transport.request({
+    const emitDelta = (delta) => {
+      try { onDelta(delta); return !settled } catch (error) { finish(error); return false }
+    }
+    const request = networkRequest(parsed, {
       protocol: parsed.protocol,
       hostname: parsed.hostname,
       port: parsed.port,
@@ -97,6 +98,8 @@ function requestChat(options) {
       method: 'POST',
       headers
     }, (response) => {
+      response.on('error', (error) => finish(error))
+      response.on('aborted', () => finish(new Error('LLM_RESPONSE_ABORTED')))
       if (response.statusCode >= 400) {
         let errorBody = ''
         /* 必须先 setEncoding：Node 默认给 Buffer，直接 toString('utf8') 会在
@@ -113,8 +116,6 @@ function requestChat(options) {
       const toolCalls = []
       let raw = ''
       let buffer = ''
-    let responseRef = null
-      let responseEnded = false
       const consumeLine = (line) => {
         if (settled) return
         const trimmed = line.trim()
@@ -123,7 +124,7 @@ function requestChat(options) {
         const data = trimmed.slice(5).trim()
         if (data === '[DONE]') {
           finish(null, { content: content.join(''), toolCalls })
-          if (responseRef && typeof responseRef.destroy === 'function') responseRef.destroy()
+          if (typeof response.destroy === 'function') response.destroy()
           return
         }
         const parsedLine = safeJsonParse(data)
@@ -133,20 +134,21 @@ function requestChat(options) {
         const delta = choice.delta || {}
         if (delta.content) {
           content.push(delta.content)
-          onDelta({ type: 'content', text: delta.content })
+          if (!emitDelta({ type: 'content', text: delta.content })) return
         }
         const reasoning = delta.reasoning_content || delta.reasoning
         if (reasoning) {
-          onDelta({ type: 'thinking', text: reasoning })
+          if (!emitDelta({ type: 'thinking', text: reasoning })) return
         }
         if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
           for (const toolDelta of delta.tool_calls) {
             appendToolCall(toolCalls, toolDelta)
-            onDelta({ type: 'tool_call_delta', delta: toolDelta })
+            if (!emitDelta({ type: 'tool_call_delta', delta: toolDelta })) return
           }
         }
         if (choice.finish_reason) {
-          finish(null, { content: content.join(''), toolCalls })
+          if (choice.finish_reason === 'length' && toolCalls.length > 0) finish(new Error('LLM_TOOL_CALL_INCOMPLETE: token limit interrupted a tool call'))
+          else finish(null, { content: content.join(''), toolCalls })
           if (typeof response.destroy === 'function') response.destroy()
         }
       }
@@ -155,14 +157,15 @@ function requestChat(options) {
         response.on('data', (chunk) => { if (acceptChunk(chunk)) raw += chunk })
         response.on('end', () => {
           if (settled) return
-          responseEnded = true
           const parsedBody = safeJsonParse(raw)
           if (not(parsedBody)) return finish(new Error('LLM_BAD_JSON: ' + raw.slice(0, 800)))
-          const message = parsedBody.choices && parsedBody.choices[0] && parsedBody.choices[0].message
+          const choice = parsedBody.choices && parsedBody.choices[0]
+          const message = choice && choice.message
           if (not(message)) return finish(new Error('LLM_BAD_RESPONSE: ' + raw.slice(0, 800)))
-          if (message.content) onDelta({ type: 'content', text: message.content })
+          if (choice.finish_reason === 'length' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) return finish(new Error('LLM_TOOL_CALL_INCOMPLETE: token limit interrupted a tool call'))
+          if (message.content && !emitDelta({ type: 'content', text: message.content })) return
           const reasoning = message.reasoning_content || message.reasoning
-          if (reasoning) onDelta({ type: 'thinking', text: reasoning })
+          if (reasoning && !emitDelta({ type: 'thinking', text: reasoning })) return
           if (message.tool_calls) {
             for (const call of message.tool_calls) appendToolCall(toolCalls, call)
           }
@@ -183,8 +186,7 @@ function requestChat(options) {
       response.on('end', () => {
         if (settled) return
         if (buffer.length) consumeLine(buffer)
-        responseEnded = true
-        finish(null, { content: content.join(''), toolCalls })
+        if (!settled) finish(new Error('LLM_STREAM_INCOMPLETE: stream ended before completion marker'))
       })
     })
     request.on('error', (error) => finish(error))
@@ -269,7 +271,6 @@ function requestOllamaChat(options) {
   const onDelta = options.onDelta || (() => undefined)
   const url = buildOllamaChatUrl(settings.baseURL)
   const parsed = new URL(url)
-  const transport = parsed.protocol === 'https:' ? https : http
   const payload = {
     model: settings.model,
     messages: toNativeMessages(options.messages),
@@ -308,6 +309,9 @@ function requestOllamaChat(options) {
       else resolve(value)
     }
     const onAbort = () => { request.destroy(new Error('ABORTED')) }
+    const emitDelta = (delta) => {
+      try { onDelta(delta); return !settled } catch (error) { finish(error); return false }
+    }
     let responseRef = null
     const consumeLine = (line) => {
       if (settled) return
@@ -320,10 +324,10 @@ function requestOllamaChat(options) {
         return
       }
       const message = parsedLine.message || {}
-      if (message.thinking) onDelta({ type: 'thinking', text: message.thinking })
+      if (message.thinking && !emitDelta({ type: 'thinking', text: message.thinking })) return
       if (message.content) {
         content.push(message.content)
-        onDelta({ type: 'content', text: message.content })
+        if (!emitDelta({ type: 'content', text: message.content })) return
       }
       if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
         const normalized = normalizeOllamaToolCalls(message.tool_calls)
@@ -331,11 +335,12 @@ function requestOllamaChat(options) {
         for (const call of normalized) toolCalls.push(call)
       }
       if (parsedLine.done === true) {
-        finish(null, { content: content.join(''), toolCalls })
+        if (parsedLine.done_reason === 'length' && toolCalls.length > 0) finish(new Error('LLM_TOOL_CALL_INCOMPLETE: token limit interrupted a tool call'))
+        else finish(null, { content: content.join(''), toolCalls })
         if (responseRef && typeof responseRef.destroy === 'function') responseRef.destroy()
       }
     }
-    const request = transport.request({
+    const request = networkRequest(parsed, {
       protocol: parsed.protocol,
       hostname: parsed.hostname,
       port: parsed.port,
@@ -344,7 +349,15 @@ function requestOllamaChat(options) {
       headers
     }, (response) => {
       responseRef = response
+      response.on('error', (error) => finish(error))
+      response.on('aborted', () => finish(new Error('LLM_RESPONSE_ABORTED')))
       response.setEncoding('utf8')
+      if (response.statusCode >= 400) {
+        let errorBody = ''
+        response.on('data', (chunk) => { if (acceptChunk(chunk)) errorBody += chunk.slice(0, Math.max(0, 1200 - errorBody.length)) })
+        response.on('end', () => finish(new Error('LLM_HTTP_' + response.statusCode + ': ' + errorBody.slice(0, 1200))))
+        return
+      }
       response.on('data', (chunk) => {
         if (!acceptChunk(chunk)) return
         buffer += chunk
@@ -355,7 +368,7 @@ function requestOllamaChat(options) {
       response.on('end', () => {
         if (settled) return
         if (buffer.length > 0) consumeLine(buffer)
-        finish(null, { content: content.join(''), toolCalls })
+        if (!settled) finish(new Error('LLM_STREAM_INCOMPLETE: stream ended before completion marker'))
       })
     })
     request.on('error', (error) => finish(error))

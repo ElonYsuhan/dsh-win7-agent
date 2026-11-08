@@ -134,6 +134,47 @@ async function streamLifecycleCase(mode,large){
   }finally{if(interval)clearInterval(interval);await new Promise(r=>server.close(r))}
 }
 
+async function interruptedCase(mode, kind) {
+  const server = http.createServer((request, response) => {
+    request.resume()
+    request.on('end', () => {
+      if (kind === 'http401') {
+        response.writeHead(401, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'unauthorized' }))
+        return
+      }
+      if (kind === 'json-length') {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: null, tool_calls: [{ id: 'partial', function: { name: 'write_file', arguments: '{}' } }] } }] }))
+        return
+      }
+      response.writeHead(200, { 'content-type': mode === 'ollama' ? 'application/x-ndjson' : 'text/event-stream' })
+      const partial = mode === 'ollama'
+        ? JSON.stringify({ message: { content: '半截', tool_calls: [{ function: { name: 'write_file', arguments: { path: 'x', content: 'partial' } } }] }, done: false }) + '\n'
+        : 'data: ' + JSON.stringify({ choices: [{ delta: { content: '半截', tool_calls: [{ index: 0, id: 'partial', function: { name: 'write_file', arguments: '{\"path\":\"x\"}' } }] } }] }) + '\n\n'
+      response.write(partial)
+      if (kind === 'aborted') setTimeout(() => response.destroy(), 10)
+      else if (kind === 'length') response.end(mode === 'ollama'
+        ? JSON.stringify({ done: true, done_reason: 'length' }) + '\n'
+        : 'data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] }) + '\n\n')
+      else response.end()
+    })
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    let error = null
+    try {
+      await requestChat({
+        settings: { baseURL: 'http://127.0.0.1:' + server.address().port + (mode === 'ollama' ? '/11434' : '/v1'), model: 'mock' },
+        messages: [{ role: 'user', content: 'test' }],
+        onDelta: kind === 'callback' ? () => { throw new Error('TASK_OUTPUT_LIMIT') } : undefined
+      })
+    } catch (caught) { error = caught }
+    const expected = kind === 'eof' ? /LLM_STREAM_INCOMPLETE/ : kind === 'http401' ? /LLM_HTTP_401/ : kind === 'callback' ? /TASK_OUTPUT_LIMIT/ : (kind === 'length' || kind === 'json-length') ? /LLM_TOOL_CALL_INCOMPLETE/ : /aborted|ECONNRESET/i
+    check(mode + '：' + kind + ' 不把半截流当成功', Boolean(error && (expected.test(error.message) || expected.test(error.code || ''))), error && error.message)
+  } finally { await new Promise(resolve => server.close(resolve)) }
+}
+
 async function main() {
   console.log('llm stream smoke, node ' + process.version)
   console.log('---')
@@ -144,6 +185,8 @@ async function main() {
   await streamLifecycleCase('openai',false)
   await streamLifecycleCase('ollama',false)
   await streamLifecycleCase('openai',true)
+  for (const mode of ['openai', 'ollama']) for (const kind of ['eof', 'aborted', 'http401', 'callback', 'length']) await interruptedCase(mode, kind)
+  await interruptedCase('openai', 'json-length')
   const cmdOut = await spawnChunkedCommand()
   check('命令输出：中文被 chunk 切断也不产生 U+FFFD',
     cmdOut.indexOf('\uFFFD') === -1 && cmdOut === COMMAND_OUT,

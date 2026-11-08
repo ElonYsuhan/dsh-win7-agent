@@ -78,7 +78,7 @@
       }
       if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text)
       else {
-        const previous=doc.activeElement,area=el('textarea');area.value=text;area.style.position='fixed';area.style.opacity='0';doc.body.appendChild(area);area.select()
+        const previous = /** @type {HTMLElement|null} */ (doc.activeElement),area=el('textarea');area.value=text;area.style.position='fixed';area.style.opacity='0';doc.body.appendChild(area);area.select()
         const copied=doc.execCommand('copy');area.remove();if(previous)previous.focus();if(!copied)throw new Error('COPY_FAILED')
       }
       notify('已复制')
@@ -104,7 +104,7 @@
   function enlarge(svg) {
     const overlay = el('div','artifact-overlay'), card = el('section','artifact-viewer')
     overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-label','图形预览')
-    const previous = doc.activeElement, close = button('关闭预览', () => { overlay.remove(); if (previous) previous.focus() })
+    const previous = /** @type {HTMLElement|null} */ (doc.activeElement), close = button('关闭预览', () => { overlay.remove(); if (previous) previous.focus() })
     card.appendChild(close); card.appendChild(svg.cloneNode(true)); overlay.appendChild(card); doc.body.appendChild(overlay); close.focus()
     overlay.addEventListener('click', e => { if (e.target === overlay) close.click() })
     overlay.addEventListener('keydown', e => { if(e.key==='Escape'){e.stopPropagation();close.click()} if(e.key==='Tab'){e.preventDefault();close.focus()} })
@@ -195,7 +195,7 @@
   }
   function composerMenu() {
     const modal=el('div','artifact-overlay'), card=el('section','quick-menu');modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');modal.setAttribute('aria-label','输入辅助')
-    let restore=doc.activeElement
+    let restore = /** @type {HTMLElement|null} */ (doc.activeElement)
     const close=()=>{modal.remove();if(restore)restore.focus()}
     const add=(text,fn)=>card.appendChild(button(text,()=>{close();fn()}))
     add('引用文件 @',()=>filePicker())
@@ -206,20 +206,20 @@
     add('选择工作目录',()=>host.workspace())
     for(const [command,text] of [['/analyze','分析当前仓库结构，指出主要模块'],['/fix','定位以下报错并提出修复：'],['/review','检查当前代码的问题，给出具体文件和验证建议']])add(command+' · '+text,()=>{host.setInput(text);doc.getElementById('input').focus()})
     add('关闭',()=>{})
-    modal.appendChild(card);doc.body.appendChild(modal);card.querySelector('button').focus()
+    modal.appendChild(card);doc.body.appendChild(modal);/** @type {HTMLElement} */ (card.querySelector('button')).focus()
     modal.addEventListener('click',e=>{if(e.target===modal)close()})
-    modal.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();close()}if(e.key==='Tab'){const all=Array.from(card.querySelectorAll('button'));const i=all.indexOf(doc.activeElement);if(e.shiftKey&&i===0){e.preventDefault();all[all.length-1].focus()}else if(!e.shiftKey&&i===all.length-1){e.preventDefault();all[0].focus()}}})
+    modal.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();close()}if(e.key==='Tab'){const all=Array.from(card.querySelectorAll('button'));const i=all.indexOf(/** @type {Element} */ (doc.activeElement));if(e.shiftKey&&i===0){e.preventDefault();all[all.length-1].focus()}else if(!e.shiftKey&&i===all.length-1){e.preventDefault();all[0].focus()}}})
   }
   async function filePicker() {
     if(!root.dsh||typeof root.dsh.fsRoots!=='function'){notify('当前宿主不支持文件引用');return}
     const overlay=el('div','artifact-overlay'),card=el('section','quick-menu'),list=el('div','reference-list'),search=el('input');search.placeholder='筛选当前目录';search.setAttribute('aria-label','筛选文件')
     overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','选择引用文件')
-    const previous=doc.activeElement,close=()=>{overlay.remove();if(previous)previous.focus()}
+    const previous = /** @type {HTMLElement|null} */ (doc.activeElement),close=()=>{overlay.remove();if(previous)previous.focus()}
     card.appendChild(button('返回项目根目录',()=>load('')));card.appendChild(search);card.appendChild(list);card.appendChild(button('关闭',close));overlay.appendChild(card);doc.body.appendChild(overlay);search.focus()
     let items=[]
     const render=()=>{list.textContent='';for(const item of items.filter(x=>x.name.toLowerCase().includes(search.value.toLowerCase())))list.appendChild(button((item.dir?'目录 · ':'文件 · ')+item.name,()=>{if(item.dir)load(item.path);else{const current=host.input().replace(/@\s*$/,'');host.setInput(current+' @'+JSON.stringify(item.path)+' ');close()}}))}
-    async function load(target){try{list.textContent='正在读取…';search.value='';const data=target?await root.dsh.fsTree(target,1):await root.dsh.fsRoots();items=target?(data.entries||[]):(data.roots||[]).map(x=>({name:x.name||x.path,path:x.path,dir:true}));render()}catch(error){list.textContent=error.message}}
-    search.addEventListener('input',render);overlay.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();close()}if(e.key==='Tab'){const all=Array.from(card.querySelectorAll('button,input'));const i=all.indexOf(doc.activeElement);if(e.shiftKey&&i===0){e.preventDefault();all[all.length-1].focus()}else if(!e.shiftKey&&i===all.length-1){e.preventDefault();all[0].focus()}}});overlay.addEventListener('click',e=>{if(e.target===overlay)close()});await load('')
+    async function load(target){try{list.textContent='正在读取…';search.value='';if(target){const data=await root.dsh.fsTree(target,1);items=(data.entries||[]).slice()}else{const data=await root.dsh.fsRoots();items=(data.roots||[]).map(x=>({name:x.name||x.path,path:x.path,dir:true}))}render()}catch(error){list.textContent=error.message}}
+    search.addEventListener('input',render);overlay.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();close()}if(e.key==='Tab'){const all=Array.from(card.querySelectorAll('button,input'));const i=all.indexOf(/** @type {Element} */ (doc.activeElement));if(e.shiftKey&&i===0){e.preventDefault();all[all.length-1].focus()}else if(!e.shiftKey&&i===all.length-1){e.preventDefault();all[0].focus()}}});overlay.addEventListener('click',e=>{if(e.target===overlay)close()});await load('')
   }
   api.connection=function(connected,message){
     const status=doc.getElementById('serviceConnection'),alert=doc.getElementById('connectionAlert'),retry=doc.getElementById('statusRetry')
@@ -259,6 +259,6 @@
   }
   api.menu=composerMenu
   let initialized=false
-  api.init=function(callbacks){host=callbacks;if(initialized)return;initialized=true;const input=doc.getElementById('input');input.addEventListener('input',e=>{if(e.isComposing)return;const text=host.input();if(text==='/'||text==='@'){if(text==='@')filePicker();else composerMenu()}});doc.getElementById('statusRetry').addEventListener('click',()=>host.retry());doc.getElementById('statusLogs').addEventListener('click',()=>host.logs())}
+  api.init=function(callbacks){host=callbacks;if(initialized)return;initialized=true;const input=doc.getElementById('input');input.addEventListener('input',e=>{const event=/** @type {InputEvent} */ (e);if(event.isComposing)return;const text=host.input();if(text==='/'||text==='@'){if(text==='@')filePicker();else composerMenu()}});doc.getElementById('statusRetry').addEventListener('click',()=>host.retry());doc.getElementById('statusLogs').addEventListener('click',()=>host.logs())}
   root.agentUI=api
 })(typeof window==='undefined'?null:window)

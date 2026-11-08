@@ -5,6 +5,7 @@ const crypto = require('crypto')
 const vm = require('vm')
 const terser = require('terser')
 const obfuscator = require('javascript-obfuscator')
+const guiManifest = require('./generative-ui-manifest')
 const ROOT = path.resolve(__dirname, '../..')
 const POLICY = 'agent-source-v1'
 const TOOLS = { terser: '5.31.0', 'javascript-obfuscator': '4.1.1' }
@@ -69,6 +70,7 @@ async function protect(appDir, options = {}) {
   const publicKey = crypto.createPublicKey(signingKey).export({ type: 'spki', format: 'pem' })
   for (const [tool, version] of Object.entries(TOOLS)) if (require(tool + '/package.json').version !== version) throw Error('SOURCE_TOOL_VERSION: ' + tool)
   if (fs.existsSync(path.join(appDir, 'source-protection.json'))) throw Error('SOURCE_ALREADY_PROTECTED')
+  const guiBefore = guiManifest.exists(appDir) ? guiManifest.verify(appDir) : null
   const notices = path.join(appDir, 'source-protection-licenses'); fs.mkdirSync(notices, { recursive: true })
   for (const [tool, name] of [['terser', 'LICENSE'], ['javascript-obfuscator', 'LICENSE.BSD']]) fs.copyFileSync(path.join(path.dirname(require.resolve(tool + '/package.json')), name), path.join(notices, tool + '.txt'))
   const key = crypto.randomBytes(32), records = []
@@ -90,7 +92,9 @@ async function protect(appDir, options = {}) {
   if (!records.some(record => record.path === 'main.js' && record.mode === 'aes-256-gcm') || !records.some(record => record.path === 'service/index.js') || !records.some(record => record.path === 'src/renderer/app.js')) throw Error('SOURCE_PROTECTION_COVERAGE')
   const template = fs.readFileSync(path.join(__dirname, 'source-loader.js'), 'utf8')
   fs.writeFileSync(path.join(appDir, 'source-loader.js'), await transform(template.replace('__AGENT_SOURCE_KEY__', key.toString('base64')).replace('__AGENT_RELEASE_PUBLIC_KEY__', Buffer.from(publicKey).toString('base64')), 'node', false)); key.fill(0)
-  const report = { formatVersion: 1, policy: POLICY, tools: TOOLS, runtime: { electron: '22.3.27', node: '16.17.1', chromium: '108' }, loaderSha256: hash(fs.readFileSync(path.join(appDir, 'source-loader.js'))), limitations: 'Offline loader carries extractable key; browser/preload obfuscation is not encryption; no bytecode protection; embedded trust root still requires OS code signing against local patching.', records }
+  const guiAfter = guiBefore ? guiManifest.verify(appDir, records) : null
+  if (guiBefore && JSON.stringify(guiBefore) !== JSON.stringify(guiAfter)) throw Error('GENERATIVE_UI_STAGE_CHANGED')
+  const report = { formatVersion: 1, policy: POLICY, tools: TOOLS, runtime: { electron: '22.3.27', node: '16.17.1', chromium: '108' }, generativeUi: guiAfter, loaderSha256: hash(fs.readFileSync(path.join(appDir, 'source-loader.js'))), limitations: 'Offline loader carries extractable key; browser/preload obfuscation is not encryption; no bytecode protection; embedded trust root still requires OS code signing against local patching.', records }
   fs.writeFileSync(path.join(appDir, 'source-protection.json'), JSON.stringify(report, null, 2) + '\n')
   const entries = {}
   function inventory(dir) {
@@ -113,6 +117,10 @@ function verify(appDir, publicKey = require('./release-signing').readPublic()) {
   const report = JSON.parse(fs.readFileSync(path.join(appDir, 'source-protection.json'), 'utf8'))
   if (report.policy !== POLICY || report.formatVersion !== 1 || !report.records.length) throw Error('SOURCE_PROTECTION_MANIFEST')
   if (report.loaderSha256 !== hash(fs.readFileSync(path.join(appDir, 'source-loader.js')))) throw Error('SOURCE_LOADER_INTEGRITY')
+  if (guiManifest.exists(appDir) || report.generativeUi) {
+    const gui = guiManifest.verify(appDir, report.records)
+    if (JSON.stringify(gui) !== JSON.stringify(report.generativeUi)) throw Error('GENERATIVE_UI_MANIFEST_INTEGRITY')
+  }
   const known = new Set(report.records.map(record => record.path))
   for (const relative of files(appDir)) {
     if (/\.map$/.test(relative)) throw Error('SOURCE_MAP_IN_DELIVERY')

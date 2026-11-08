@@ -207,7 +207,7 @@ class AgentPool {
   /* 执行一条会话。同会话重入 → SESSION_BUSY；池满 → POOL_BUSY。
      两个都是**调用方该看到的错误**，所以 Server 侧会先探一次（拿得到 HTTP 状态码），
      这里的判断是二道闸，防止两个请求同时挤进同一个入口。 */
-  async run(sessionId, text, history, images, memory, unattended) {
+  async run(sessionId, text, history, images, memory, unattended, uiActionId, signal, uiCapabilities) {
     const key = keyOf(sessionId)
     if (this.running.has(key)) {
       throw new Error('SESSION_BUSY: this session is already running')
@@ -231,8 +231,9 @@ class AgentPool {
     this.running.set(key, ticket)
     try {
       if (!unattended && this.pluginHost) { const knowledge=this.pluginHost.get('knowledge');if(knowledge){const context=await knowledge.sessionContext(key);worker.knowledgeBound=Boolean(context);if(context)worker.workspaceRoot=context.workspaceRoot} }
+      if (signal && signal.aborted) throw new Error('ABORTED')
       if(not(worker.workspaceRoot))throw new Error('WORKSPACE_NOT_SET: choose a local workspace directory first')
-      await worker.run(text, history, images, memory)
+      await worker.run(text, history, images, memory, uiActionId, signal, unattended ? null : uiCapabilities)
     } finally {
       if (this.running.get(key) === ticket) this.running.delete(key)
       finishRun()
