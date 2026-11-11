@@ -2,6 +2,8 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
+See [Agent Service documentation](docs/AGENT-SERVICE.md) for HESYN local read-only integration and its limitations. Real models and target environments require separate validation.
+
 A local Agent built on the actual Cordis runtime for offline intranet use, with Windows 7 SP1 x64 as the minimum supported Windows platform. Models can run on an intranet server; workspace, file and command operations execute on the machine hosting the Agent service.
 
 Previously named DSH Agent, the repository retains the directory name `dsh-win7-agent`. See the delivery documentation for legacy data migration and preservation rules.
@@ -32,6 +34,12 @@ The shipped runtime is pinned to **Electron 22.3.27 / Node 16.17.1 / Chromium 10
 Target Windows machines do not need Node.js, npm or Python installed. Static compatibility checks, embedded Node tests and tests on real Win7 hardware must be reported separately. A successful build does not prove target-machine compatibility.
 
 See the [TypeScript refactoring plan](docs/TYPESCRIPT-REFACTOR-PLAN.md) for migration phases, compatibility boundaries, and acceptance criteria.
+
+## Standalone Agent Service (in progress)
+
+See the [Agent Service documentation](docs/AGENT-SERVICE.md) for the initial implementation and acceptance status. Remote session history uses browser IndexedDB; clearing browser storage, changing origin, or a service restart before events are saved may make history unrecoverable. It is not production-ready: integration with an authorized model and real HESYN, and testing on actual Win7 hardware, remain outstanding. A test Host is not HESYN acceptance.
+
+The local development entry for the embeddable `AgentPanel` is `http://127.0.0.1:18090/panel/1.0.8/` (component file `agent-panel.js`); loopback HTTP is only for explicitly enabled local testing, and remote deployments require HTTPS. The transport call ID is not a stable business operationId; business operation status queries and lossless Host SSE disconnect recovery are not implemented. Never automatically replay side effects with uncertain outcomes. The host injects the Service endpoint, a short-lived credential, its own IndexedDB storage adapter and an optional Host connector. The component uses no iframe and creates no second IndexedDB. Its composer matches the desktop app, and when the Service enables `allowPanelSettings` it offers model switching and model settings (keys stay in the Service and are never echoed). See the [AgentPanel documentation](docs/AGENT-PANEL.md) for the contract, lifecycle, CORS/CSP and version digests.
 
 ## Development
 
@@ -140,6 +148,7 @@ Skills provide instructions, MCP defines a tool protocol, and plugins implement 
 - [Plugin development](docs/PLUGINS.md)
 - [Software licensing](docs/SOFTWARE-LICENSING.md)
 - [Standalone service deployment](server/README.md)
+- [AgentPanel embeddable component](docs/AGENT-PANEL.md)
 
 ## Install from the repository
 

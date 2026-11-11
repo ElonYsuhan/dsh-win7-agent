@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 本机示例；宿主 Origin 需加入 Service 的 panelOrigins，远程部署需改用 HTTPS Origin。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' http://127.0.0.1:18090; connect-src 'self' http://127.0.0.1:18090; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>AgentPanel 最小集成示例</title>
+  <style>html, body { margin: 0; min-height: 100%; background: #1f1f1f; } #agent { max-width: 900px; margin: 24px auto; }</style>
+</head>
+<body>
+  <div id="agent"></div>
+  <script type="module" src="./host.js"></script>
+</body>
+</html>

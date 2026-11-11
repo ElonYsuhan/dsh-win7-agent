@@ -67,8 +67,11 @@ function fullSevenZip() {
     }
   }
   const banner = command(executable, ['i'], { stdio: 'pipe', encoding: 'utf8' })
+  const linuxFull7zip = process.platform === 'linux' && process.arch === 'x64' &&
+    !!process.env.AGENT_FULL_7ZIP && banner.includes('7-Zip (z) 24.09 (x64)') &&
+    hashFile(executable) === '9a556170350dafb60a97348b86a94b087d97fd36007760691576cac0d88b132b'
   const expected = process.platform === 'win32' ? '7-Zip ' + WINDOWS_7ZIP.version + ' (x64)' : 'p7zip Version 17.05'
-  if (!banner.includes(expected) || !banner.includes('SquashFS') || !banner.includes('Nsis')) throw new Error('FULL_7ZIP_REQUIRED: ' + expected)
+  if ((!banner.includes(expected) && !linuxFull7zip) || !banner.includes('SquashFS') || !banner.includes('Nsis')) throw new Error('FULL_7ZIP_REQUIRED: ' + expected)
   return executable
 }
 
@@ -161,7 +164,26 @@ async function prepare(target) {
     }
     const platform = target === 'win-x64' ? builder.Platform.WINDOWS : builder.Platform.LINUX
     const arch = target.endsWith('arm64') ? builder.Arch.arm64 : builder.Arch.x64
-    await builder.build({ projectDir: ROOT, prepackaged: input, config, targets: platform.createTarget(target === 'win-x64' ? 'nsis' : 'AppImage', arch), publish: 'never' })
+    // The pinned builder already has a pure NSIS uninstaller reader for hosts
+    // that cannot execute Windows code. Reuse it on Linux; never fake a Wine run.
+    const wine = target === 'win-x64' && process.platform === 'linux' ? require('app-builder-lib/out/wine') : null
+    const originalExecWine = wine && wine.execWine
+    if (wine) {
+      const installer = path.join(config.directories.output, 'Agent.exe')
+      const uninstaller = path.join(config.directories.output, '__uninstaller-nsis-' + require('../package.json').name + '.exe')
+      const reader = require('app-builder-lib/out/targets/nsis/nsisUtil').UninstallerReader
+      wine.execWine = async (file, file64, args) => {
+        if (path.resolve(file) !== path.resolve(installer) || file64 != null || !Array.isArray(args) || args.length) throw new Error('UNEXPECTED_NSIS_WINE_COMMAND')
+        await reader.exec(installer, uninstaller)
+        const bytes = fs.readFileSync(uninstaller)
+        if (bytes.length < 64 || bytes.toString('ascii', 0, 2) !== 'MZ') throw new Error('INVALID_NSIS_UNINSTALLER')
+      }
+    }
+    try {
+      await builder.build({ projectDir: ROOT, prepackaged: input, config, targets: platform.createTarget(target === 'win-x64' ? 'nsis' : 'AppImage', arch), publish: 'never' })
+    } finally {
+      if (wine) wine.execWine = originalExecWine
+    }
     fs.copyFileSync(path.join(config.directories.output, entryName(target)), path.join(staged, entryName(target)))
     if (imageRuntime) {
       // Keep the generated filesystem, replace only the obsolete dynamic ELF stub.
@@ -176,7 +198,7 @@ async function prepare(target) {
   const delivery = inventory(staged)
   const report = { formatVersion: 1, target, version: VERSION, sourceCommit, buildMetadata, licensing, sourceProtection: { policy: protection.policy, tools: protection.tools, encrypted: protection.records.filter(r => r.mode === 'aes-256-gcm').length, obfuscated: protection.records.filter(r => r.mode === 'obfuscated').length },
     runtime: { electron: '22.3.27', node: '16.17.1', chromium: '108' },
-    tools: { electronBuilder: '24.13.3', appBuilder: '4.0.0', nsis: '3.0.4.1', appimage: '12.0.1', appimageRuntime: APPIMAGE_RUNTIME.version, full7zip: process.platform === 'win32' ? { name: '7-Zip', ...WINDOWS_7ZIP } : 'p7zip 17.06 (17.05 banner)' },
+    tools: { electronBuilder: '24.13.3', appBuilder: '4.0.0', nsis: '3.0.4.1', appimage: '12.0.1', appimageRuntime: APPIMAGE_RUNTIME.version, full7zip: process.platform === 'win32' ? { name: '7-Zip', ...WINDOWS_7ZIP } : process.platform === 'linux' && process.env.AGENT_FULL_7ZIP && hashFile(process.env.AGENT_FULL_7ZIP) === '9a556170350dafb60a97348b86a94b087d97fd36007760691576cac0d88b132b' ? { name: '7-Zip (z)', version: '24.09', sha256: hashFile(process.env.AGENT_FULL_7ZIP), source: '7zip-bin-full@5.2.0/linux/x64/7zz' } : 'p7zip 17.06 (17.05 banner)' },
     payload, delivery, verification: 'payload byte comparison and platform headers passed',
     targetMachineTest: target === 'mac-' + process.arch && process.platform === 'darwin' ? 'embedded runtime checked separately' : 'not performed' }
   return { target, staged, report }

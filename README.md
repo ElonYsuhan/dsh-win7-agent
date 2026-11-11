@@ -2,6 +2,8 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
+HESYN 本机只读联调的启动方法和限制见 [Agent Service 文档](docs/AGENT-SERVICE.md)；真实模型与目标环境需分别验证。
+
 基于真实 Cordis 运行时的本地 Agent，面向离线内网使用，最低支持 Windows 7 SP1 x64。模型可部署在内网服务器；文件、命令和工作区操作由 Agent 服务所在机器执行。
 
 产品原名为 DSH Agent，仓库目录沿用 `dsh-win7-agent`。旧用户目录迁移与数据保护规则见交付文档。
@@ -30,6 +32,12 @@ MCP、Skill 和插件是否可用取决于启用状态、权限、运行环境�
 交付运行时固定为 **Electron 22.3.27 / Node 16.17.1 / Chromium 108**。不得自动升级、增加未经授权的生产依赖或在目标机下载运行组件。客户端资源随包分发，模型和外部工具服务使用配置的可信内网地址。
 
 目标 Windows 机器无需安装 Node.js、npm 或 Python。静态兼容检查、内嵌 Node 测试和 Win7 真机验收必须分别报告，通过构建不代表通过真机验收。
+
+## 独立 Agent Service（建设中）
+
+独立服务及 Host Integration Protocol 的首期实现和验收状态见 [Agent Service 文档](docs/AGENT-SERVICE.md)。远程会话历史使用浏览器 IndexedDB；浏览器存储被清除、Origin 变化或服务重启前事件未保存时，历史可能不可恢复。当前不提供生产部署保证：真实授权模型、真实 HESYN 和 Win7 真机联调尚未完成；测试 Host 不代表 HESYN 验收。
+
+可嵌入的 `AgentPanel` 本机开发入口为 `http://127.0.0.1:18090/panel/1.0.8/`（组件文件为 `agent-panel.js`；回环 HTTP 仅用于显式启用的本机测试，远程须使用 HTTPS）。当前传输调用 ID 不是稳定业务 operationId，业务状态查询及 Host SSE 断线无损恢复尚未实现；不得自动重放结果不确定的副作用。宿主只需注入 Service 地址、短期票据、自身 IndexedDB 存储适配器和可选 Host 连接器；组件不使用 iframe，也不自行创建第二套 IndexedDB。聊天输入区与桌面端一致，并在 Service 开启 `allowPanelSettings` 时提供模型切换与模型设置（密钥只保存在 Service、不回显）。接口、生命周期、CORS/CSP 与版本摘要见 [AgentPanel 文档](docs/AGENT-PANEL.md)。
 
 ## 开发
 
@@ -138,6 +146,7 @@ Skill 是操作指引，MCP 是工具协议，插件提供运行时能力，三�
 - [插件开发](docs/PLUGINS.md)
 - [软件授权](docs/SOFTWARE-LICENSING.md)
 - [独立服务部署](server/README.md)
+- [AgentPanel 嵌入组件](docs/AGENT-PANEL.md)
 
 ## 从仓库获取安装程序
 

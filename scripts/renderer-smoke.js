@@ -467,6 +467,7 @@ const context = vm.createContext(sandbox)
 vm.runInContext(readRenderer('icons.js'), context, { filename: 'icons.js' })
 vm.runInContext(readRenderer('markdown.js'), context, { filename: 'markdown.js' })
 vm.runInContext(readRenderer('highlight.js'), context, { filename: 'highlight.js' })
+vm.runInContext(readRenderer('shared-message-view.js'), context, { filename: 'shared-message-view.js' })
 vm.runInContext(readRenderer('app.js'), context, { filename: 'app.js' })
 /* 右侧文件面板。它 init() 里第一件事就是 getElementById('filePanel') —— shim 里没有这个
    元素，会直接 return，所以能安全地在这里加载（只是把纯函数和 window.filePanel 挂上）。 */

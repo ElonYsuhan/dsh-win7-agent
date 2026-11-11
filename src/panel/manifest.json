@@ -1,0 +1,12 @@
+{
+  "name": "@agent/panel",
+  "version": "1.0.21",
+  "description": "可跨源嵌入的 Agent 聊天组件；会话历史由宿主 IndexedDB 持久化。",
+  "entry": "agent-panel.js",
+  "dependencies": [],
+  "runtime": {
+    "electron": "22.3.27",
+    "node": "16.17.1",
+    "chromium": "108"
+  }
+}

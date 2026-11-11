@@ -67,7 +67,7 @@ function checkDraftComponents() {
   assert.deepStrictEqual(names, ['ButtonNode.vue', 'ChartNode.vue', 'CheckboxNode.vue', 'ContainerNode.vue', 'FilterNode.vue', 'FlowNode.vue', 'FormNode.vue', 'InputNode.vue', 'MapNode.vue', 'ProgressNode.vue', 'SliderNode.vue', 'SurfaceNode.vue', 'SurfaceRenderer.vue', 'TableNode.vue', 'TextNode.vue', 'UIMessageRenderer.vue', 'VisualNode.vue'])
   for (const name of names) {
     const file = path.join(folder, name), source = fs.readFileSync(file, 'utf8')
-    const script = /^<script setup lang="ts">\n([\s\S]*?)\n<\/script>/m.exec(source)
+    const script = /^<script setup lang="ts">\r?\n([\s\S]*?)\r?\n<\/script>/m.exec(source)
     assert(script, name + ' requires TypeScript script setup')
     checkTemplateTags(source, name)
     const tree = ts.createSourceFile(name + '.ts', script[1], ts.ScriptTarget.ES2020, true, ts.ScriptKind.TS)
@@ -105,7 +105,7 @@ function typecheckDraftScripts() {
   for (const name of fs.readdirSync(path.join(from, 'components'))) {
     if (!name.endsWith('.vue')) continue
     const source = fs.readFileSync(path.join(from, 'components', name), 'utf8')
-    const match = /<script setup lang="ts">\n([\s\S]*?)\n<\/script>/.exec(source)
+    const match = /<script setup lang="ts">\r?\n([\s\S]*?)\r?\n<\/script>/.exec(source)
     assert(match)
     const file = path.join(components, name.replace(/\.vue$/, '.script.ts'))
     fs.writeFileSync(file, match[1]); inputs.push(file)

@@ -3,11 +3,12 @@
 // Application composition only. Cordis owns plugin activation and lifecycle.
 const { foundation } = require('./plugins/foundation')
 function defaultProfile(options) {
-  return [
+  const plugins = [
     ...foundation(options),
     require('./plugins/licensing'),
     require('./plugins/skill-library'),
     require('./plugins/model'),
+    require('./plugins/telemetry'),
     require('./plugins/plans'),
     require('./plugins/generative-ui'),
     require('./plugins/mcp'),
@@ -28,5 +29,7 @@ function defaultProfile(options) {
     require('./plugins/adaptive'),
     require('./plugins/workflow-tools')
   ]
+  if (options && options.serviceRepository) plugins.push(require('./plugins/host-connector'))
+  return plugins
 }
 module.exports = { defaultProfile }

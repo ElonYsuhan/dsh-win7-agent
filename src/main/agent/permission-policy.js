@@ -92,8 +92,57 @@ function decideToolPermission(permission, mode, args, settings) {
   return 'allow'
 }
 
+const CAPABILITY_LABELS = {
+  'entity.create': '新增一个实体',
+  'entity.update': '修改实体属性',
+  'entity.delete': '删除一个实体',
+  'entity.list': '查看实体列表',
+  'entity.get': '查看实体信息',
+  'animation.get': '查看动画工程',
+  'animation.track.create': '添加动画轨道',
+  'animation.track.update': '修改动画轨道',
+  'animation.track.remove': '删除动画轨道',
+  'animation.clip.add': '添加动画片段',
+  'animation.clip.update': '修改动画片段',
+  'animation.clip.remove': '删除动画片段',
+  'animation.keyframe.update': '修改动画关键帧',
+  'animation.preset.add': '添加动画效果',
+  'animation.project.update': '修改动画工程',
+}
+function sceneActionLabel(capabilityId) {
+  if (CAPABILITY_LABELS[capabilityId]) return CAPABILITY_LABELS[capabilityId]
+  const value = String(capabilityId || '')
+  if (value.startsWith('camera.')) return '调整推演镜头'
+  if (value.startsWith('animation.camera')) return '调整推演镜头'
+  if (value.startsWith('animation.')) return '修改动画'
+  if (value.startsWith('entity.')) return '修改场景实体'
+  if (value.startsWith('resource.')) return '使用场景资源'
+  if (value.startsWith('knowledge.')) return '修改知识库'
+  return '修改当前场景'
+}
+// 审批提示面向最终用户：用一句话说明将要发生的业务动作，技术参数只放在可展开详情里。
 function buildApprovalRequest(permission, args, toolName) {
   const level = normalizeLevel(permission)
+  if (String(toolName || '') === 'hesyn_call') {
+    const capabilityId = String((args && args.capabilityId) || '')
+    return {
+      kind: 'command',
+      signature: 'hesyn:' + (capabilityId || 'scene'),
+      program: '',
+      title: '需要你的确认',
+      description: 'AI 准备' + sceneActionLabel(capabilityId) + '。确认后才会写入当前场景，你可以先拒绝再让它调整方案。',
+      detail: JSON.stringify(args || {}, null, 2)
+    }
+  }
+  if (String(toolName || '').startsWith('host__')) {
+    return {
+      kind: level === 'command' ? 'command' : (level === 'edit' ? 'edit' : 'write'),
+      signature: 'host:' + toolName,
+      title: '需要确认宿主操作：' + toolName,
+      description: 'AI 准备调用宿主工具并可能修改宿主数据。确认后才会执行。',
+      detail: JSON.stringify(args || {}, null, 2)
+    }
+  }
   if (level === 'command') {
     const command = String((args && args.command) || '')
     const program = commandProgram(command)
@@ -101,16 +150,18 @@ function buildApprovalRequest(permission, args, toolName) {
       kind: 'command',
       signature: program ? 'command:' + program : 'command',
       program,
-      title: command ? 'Run command' : '工具操作：' + String(toolName || 'command'),
+      title: '需要你的确认',
+      description: command ? 'AI 准备在你的电脑上执行命令。' : 'AI 准备执行一项需要授权的操作。',
       detail: command ? 'cwd=' + String((args && args.cwd) || '.') + '\n' + command : JSON.stringify(args || {}, null, 2)
     }
   }
   if (level === 'edit') {
-    return { kind: 'edit', signature: 'edit', title: 'Edit file', detail: String((args && args.path) || '') }
+    const editPath = String((args && args.path) || '')
+    return { kind: 'edit', signature: 'edit', title: '需要你的确认', description: editPath ? 'AI 准备修改文件：' + editPath : 'AI 准备修改一个文件。', detail: editPath }
   }
-  return { kind: 'write', signature: 'write', title: 'Write file', detail: String((args && args.path) || '') }
+  const writePath = String((args && args.path) || '')
+  return { kind: 'write', signature: 'write', title: '需要你的确认', description: writePath ? 'AI 准备写入文件：' + writePath : 'AI 准备写入一个文件。', detail: writePath }
 }
-
 module.exports = {
   commandProgram,
   isDangerousCommand,

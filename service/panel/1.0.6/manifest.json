@@ -1,0 +1,26 @@
+{
+  "name": "@agent/panel",
+  "version": "1.0.6",
+  "description": "可跨源嵌入的 Agent 聊天组件；会话历史由宿主 IndexedDB 持久化。",
+  "entry": "agent-panel.js",
+  "module": "esm",
+  "dependencies": [],
+  "runtime": {
+    "electron": "22.3.27",
+    "node": "16.17.1",
+    "chromium": "108"
+  },
+  "entryUrlPath": "/panel/1.0.6/agent-panel.js",
+  "files": [
+    {
+      "path": "agent-panel.js",
+      "bytes": 94706,
+      "sha256": "f31ab2f0df7fa5727efe977e07015c630a77295a90a2cdc953c14ecec2ce765d"
+    },
+    {
+      "path": "host-storage.js",
+      "bytes": 5992,
+      "sha256": "50fa1d43093b6c561808e9a86e4190483b2699e4dec128dc035cf982c925f964"
+    }
+  ]
+}

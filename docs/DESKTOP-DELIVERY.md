@@ -69,6 +69,14 @@ Windows 工具固定来源与 SHA256 见 `scripts/desktop/7zip-win-x64.json`，�
 `release/.desktop-tools/7zip-23.01-win-x64/`，执行前校验 7z.exe 与 7z.dll 摘要。
 可通过 `AGENT_FULL_7ZIP` 指定路径，仍须满足固定版本、摘要与能力检查。
 此为构建平台适配，不增加 npm 生产依赖或目标机下载；未来可独立替换，不影响业务契约。
+2026-11-09：Linux x64 构建机可通过 `AGENT_FULL_7ZIP` 显式指定完整 7-Zip 24.09，
+固定取自 `7zip-bin-full@5.2.0/linux/x64/7zz`，SHA256 为
+`9a556170350dafb60a97348b86a94b087d97fd36007760691576cac0d88b132b`。
+入口同时校验版本、文件摘要和 NSIS/SquashFS 能力，并在审计清单记录实际工具；
+原有 p7zip 17.06 和 Windows 7-Zip 23.01 支持不变。Linux 构建 Windows NSIS 时，
+复用锁定 electron-builder 24.13.3 内置的 `UninstallerReader` 提取真正的卸载器，
+仅适配当前构建的确切安装器路径，结束或失败后恢复 Wine 调用入口；不执行或伪造 Wine，
+也不改写第三方源码。封装与逐字节校验不替代 Windows 安装、卸载、离线业务或 Win7 真机验收。
 首次构建所需工具可由 electron-builder 下载到构建缓存，离线构建需要事先准备缓存。
 静态启动头的固定文件缓存在 `release/.desktop-tools/appimage-20251108/`，仅构建机
 在缓存缺失时下载，目标机没有下载流程。系统组件 LGPL 等许可仍按上游要求保留。

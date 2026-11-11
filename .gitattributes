@@ -1,0 +1,2 @@
+# License fallback hashes are pinned to upstream bytes; preserve LF on Windows.
+ui/generative-ui/licenses/**/LICENSE text eol=lf

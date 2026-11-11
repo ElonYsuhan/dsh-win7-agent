@@ -11,13 +11,13 @@ class TaskRepository {
     try { this.fd = fs.openSync(this.lock, 'wx'); this.locked = true } catch (error) {
       if (error.code !== 'EEXIST') throw error
       let owner
-      try { owner = JSON.parse(fs.readFileSync(this.lock, 'utf8')); process.kill(owner.pid, 0) } catch (e) {
+      try { owner = JSON.parse(fs.readFileSync(this.lock, 'utf8')); if (!require('../persistence/process-owner').alive(owner)) { fs.unlinkSync(this.lock); return this.open() } } catch (e) {
         if (e.code !== 'ESRCH') throw new Error('TASK_OWNER_LOCKED: ' + this.dir)
         fs.unlinkSync(this.lock); return this.open()
       }
       throw new Error('TASK_OWNER_LOCKED: ' + this.dir)
     }
-    fs.writeFileSync(this.fd, JSON.stringify({ pid: process.pid, version: 1 }))
+    fs.writeFileSync(this.fd, JSON.stringify({ ...require('../persistence/process-owner').record(), version: 1 }))
     try {
       if (fs.existsSync(this.snapshot)) {
         let data

@@ -118,6 +118,7 @@ class AgentPool {
     const existing = this.workers.get(key)
     if (existing) {
       this.touch(key)
+      this.reportSession('telemetry.session.activated', key)
       return existing
     }
     const self = this
@@ -136,8 +137,18 @@ class AgentPool {
     worker.workspaceRoot = (this.settings && this.settings.data && this.settings.data.recentWorkspacePath) || this.workspacePath()
     this.workers.set(key, worker)
     this.touch(key)
+    this.reportSession('telemetry.session.created', key)
     this.evictIfNeeded(key)
     return worker
+  }
+
+  /* telemetry：池子本身不发事件，这里补会话生命周期埋点。插件不在就静默跳过。 */
+  reportSession(type, key) {
+    try {
+      const telemetry = this.pluginHost && this.pluginHost.get && this.pluginHost.get('telemetry')
+      if (not(telemetry)) return
+      telemetry.record({ type: type, sessionId: key, at: Date.now(), workerCount: this.workers.size })
+    } catch (error) { /* 采集失败不得影响会话 */ }
   }
 
   tag(sessionId, event) {
@@ -229,7 +240,11 @@ class AgentPool {
     }
     this.running.set(key, ticket)
     try {
-      if (!unattended && this.pluginHost) { const knowledge=this.pluginHost.get('knowledge');if(knowledge){const context=await knowledge.sessionContext(key);worker.knowledgeBound=Boolean(context);if(context)worker.workspaceRoot=context.workspaceRoot} }
+      // Host-bound Service sessions use their explicit workspace and Host tools, not the
+      // desktop knowledge/session database. Opening it here both crosses that boundary
+      // and makes unrelated Host requests depend on local SQLite write permissions.
+      if (worker.serviceBinding) worker.knowledgeBound = false
+      if (!unattended && !worker.serviceBinding && this.pluginHost) { const knowledge=this.pluginHost.get('knowledge');if(knowledge){const context=await knowledge.sessionContext(key);worker.knowledgeBound=Boolean(context);if(context)worker.workspaceRoot=context.workspaceRoot} }
       if (signal && signal.aborted) throw new Error('ABORTED')
       if(not(worker.workspaceRoot))throw new Error('WORKSPACE_NOT_SET: choose a local workspace directory first')
       await worker.run(text, history, images, memory, uiActionId, signal, unattended ? null : uiCapabilities)

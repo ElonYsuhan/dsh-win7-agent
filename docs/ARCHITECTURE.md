@@ -16,6 +16,32 @@ are implemented by upper-layer plugins. Cordis itself does not define them.
 或不可测试的实现。重要变更必须记录问题、边界、兼容方案、验证证据与替换路径。
 完整长期规则见仓库根目录 `AGENTS.md`；平台约束见 `docs/WIN7-COMPAT.md`。
 
+## Agent Service conversation boundary (development)
+
+The local HESYN development bridge reuses the existing HostConnector and Cordis
+service; it owns only short-lived, read-only snapshots and an in-memory session-to-window
+binding. The Node 16 adapter is limited to loopback and uses an explicitly isolated
+data directory. It is not a production authentication boundary. Snapshot delay,
+real-model and target-machine validation limits are recorded in `AGENT-SERVICE.md`.
+
+Remote conversation history belongs to the browser's IndexedDB at a stable origin,
+not to the Service's disk. The Service injects an in-memory implementation of the
+existing Cordis `sessions` service and still uses the Agent reducer and execution
+loop; desktop persistence remains unchanged. The Service keeps bounded per-session
+transient events and durable identity, authorization, receipt and audit metadata.
+Existing Service history files are neither automatically deleted nor exposed by the
+new API. Service shared long-term memory is disabled; client-supplied compressed
+memory is not promoted into a system prompt.
+
+This adapter uses Node 16 and browser IndexedDB without new production dependencies.
+Node 16 integration tests cover worker rebinding and Service/Host restart using a
+simulated Host and model; actual IndexedDB recovery and Win7 hardware are unverified.
+Events not committed to the browser before a crash can be lost, and pending or
+missing results must not trigger automatic external side-effect replay. Future
+replaceable adapters need secure bounded context restoration, multi-tab coordination
+and explicit reconciliation without changing the Agent execution contracts. See
+`docs/HOST-INTEGRATION-PROTOCOL.md` for current limits and the unconfirmed protocol.
+
 ## Desktop source protection boundary
 
 The desktop build transforms its staging copy only. Native CommonJS modules use per-module

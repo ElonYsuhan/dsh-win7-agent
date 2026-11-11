@@ -113,13 +113,13 @@ class MemoryRepository {
     try { this.fd = fs.openSync(this.lock, 'wx') } catch (error) {
       if (error.code !== 'EEXIST') throw error
       let owner
-      try { owner = JSON.parse(fs.readFileSync(this.lock, 'utf8')); process.kill(owner.pid, 0) } catch (e) {
+      try { owner = JSON.parse(fs.readFileSync(this.lock, 'utf8')); if (!require('../persistence/process-owner').alive(owner)) { fs.unlinkSync(this.lock); return this.open() } } catch (e) {
         if (e.code === 'ESRCH') { fs.unlinkSync(this.lock); return this.open() }
         throw new Error('MEMORY_OWNER_LOCKED')
       }
       throw new Error('MEMORY_OWNER_LOCKED')
     }
-    fs.writeFileSync(this.fd, JSON.stringify({ pid: process.pid }))
+    fs.writeFileSync(this.fd, JSON.stringify(require('../persistence/process-owner').record()))
     this.opened = true
     try {
       const engine = await this.raw('SELECT sqlite_version() AS version;')

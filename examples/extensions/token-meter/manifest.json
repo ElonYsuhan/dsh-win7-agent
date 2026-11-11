@@ -1,0 +1,19 @@
+{
+  "formatVersion": 1,
+  "publisher": "dsh",
+  "name": "token-meter",
+  "displayName": "Token 用量计",
+  "description": "挂在模型请求出口，统计每次请求的输入/输出/思考 token 估算、上下文占用与延迟，提供文本/JSON/SVG 三种报表。全部为估算值：宿主未解析模型返回的 usage 字段，因此不含缓存命中与实际计费。零生产依赖、零网络、零运行时下载。",
+  "version": "1.0.0",
+  "type": "plugin",
+  "engines": {
+    "extensionApi": 1,
+    "node": "16",
+    "electron": "22",
+    "chromium": "108"
+  },
+  "targets": [
+    "any"
+  ],
+  "entry": "index.cjs"
+}

@@ -2553,9 +2553,7 @@ function setBubbleText(body, text, markdown) {
   const value = String(text === undefined || text === null ? '' : text)
   clearPendingPaint(body)
   if (markdown && typeof window.renderMarkdown === 'function') {
-    body.dataset.raw = value
-    body.innerHTML = window.renderMarkdown(value)
-    body.__paintedRaw = value
+    window.agentMessageView.setContent(body, value, true)
     syncAssistantImages(body)
     if (window.agentUI) window.agentUI.artifacts(body)
     return
@@ -3298,16 +3296,7 @@ function appendProcessToolResult(target, name, result, executionOutcome) {
     closeTimelineStep(step, executionOutcome === 'cancelled' ? 'cancelled' : ['error','denied','disabled'].indexOf(executionOutcome) !== -1 ? false : not(failed))
     const body = step.querySelector('.tl-body')
     if (body && value !== '') {
-      const output = document.createElement('details')
-      output.className = 'tl-detail'
-      const summary = document.createElement('summary')
-      summary.textContent = '输出 · ' + value.split('\n').length + ' 行'
-      const pre = document.createElement('pre')
-      pre.className = 'tl-output'
-      pre.textContent = value
-      output.appendChild(summary)
-      output.appendChild(pre)
-      body.appendChild(output)
+      body.appendChild(window.agentMessageView.toolOutput(value))
     }
     if (window.agentUI) window.agentUI.diffPreview(step, name, step._toolArgs || {}, value)
   } else {

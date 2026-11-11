@@ -55,8 +55,15 @@ class ToolRegistry {
     return Array.from(this.tools.values())
   }
 
+  permitted(tool, context) {
+    const agent = context && context.agent
+    const policy = agent && agent.serviceToolPolicy
+    const serviceMode = agent && agent.plugins && agent.plugins.options && agent.plugins.options.serviceRepository
+    return serviceMode ? Boolean(agent.serviceBinding && policy && policy(tool)) : (!policy || policy(tool))
+  }
+
   definitions(context) {
-    return this.list().filter(tool => !tool.available || tool.available(context || {})).map((tool) => ({
+    return this.list().filter(tool => this.permitted(tool, context) && (!tool.available || tool.available(context || {}))).map((tool) => ({
       type: 'function',
       function: {
         name: tool.name,
@@ -75,6 +82,7 @@ class ToolRegistry {
       if (unattended) return 'DENIED: unattended ' + name + ': tool unavailable'
       throw new Error('UNKNOWN_TOOL: ' + name)
     }
+    if (!this.permitted(tool, context)) return 'DENIED: ' + name + ': outside session tool policy'
     if (unattended && unattended.toolContracts && unattended.toolContracts[name] !== JSON.stringify({name:tool.name,permission:tool.permission,plugin:tool.plugin,parameters:tool.parameters})) return 'DENIED: tool definition changed during workflow execution'
     if (unattended && unattended.skillIds && name === 'load_skill' && !unattended.skillIds.includes(args && args.name)) return 'DENIED: skill is not bound to this workflow node'
     const controller = new AbortController()
@@ -111,7 +119,8 @@ class ToolRegistry {
     const mode = settings.permissionMode || 'workspace'
     const permission = tool.permission || 'write'
     // 唯一的权限闸口：deny 直接拒绝，ask 先走审批，allow 才落到工具本体
-    const decision = this.policy.decideToolPermission(permission, mode, args || {}, settings)
+    let decision = this.policy.decideToolPermission(permission, mode, args || {}, settings)
+    if (decision === 'allow' && permission !== 'read' && context && context.agent && context.agent.serviceBinding) decision = 'ask'
     if (decision === 'deny') {
       return 'DENIED: ' + name + ' is blocked by read-only permission'
     }
@@ -124,13 +133,16 @@ class ToolRegistry {
         const abort = () => reject(new Error('ABORTED'))
         if (context.signal.aborted) return abort()
         context.signal.addEventListener('abort', abort, { once: true })
-        Promise.resolve().then(() => context.approve(this.policy.buildApprovalRequest(permission, args || {}, name))).then(resolve, reject)
+        // 同一措辞面向普通用户：说明将要发生的业务动作，技术参数仅在折叠详情中展示。
+        const request = this.policy.buildApprovalRequest(permission, args || {}, name)
+        Promise.resolve().then(() => context.approve(request)).then(resolve, reject)
           .finally(() => context.signal.removeEventListener('abort', abort))
       })
       if (not(approved)) return 'DENIED: ' + name + ' was not approved'
     }
     if (context.signal.aborted) throw new Error('ABORTED')
     if (!tool.active) return 'DISABLED: ' + name + ' was unloaded while awaiting approval'
+    if (!this.permitted(tool, context)) return 'DENIED: ' + name + ': session tool policy changed'
     this.authorize() // Recheck after a potentially long permission prompt.
     try { return await tool.execute(args || {}, context || {}) } catch (error) {
       if (settings.unattended && /PATH_ESCAPE|COMMAND_BLOCKED/.test(error.message)) return 'DENIED: unattended ' + name + ': ' + error.message

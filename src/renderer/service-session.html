@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <link rel="stylesheet" href="/renderer/typography.css">
+  <link rel="stylesheet" href="/renderer/style.css">
+  <link rel="stylesheet" href="/renderer/service-session.css">
+  <title>Agent 远程会话</title>
+</head>
+<body class="service-page">
+  <header class="service-header">
+    <div><strong>Agent</strong><span class="service-header-sub">远程会话</span></div>
+    <button id="themeToggle" class="service-button" type="button" aria-label="切换主题">切换主题</button>
+  </header>
+  <main class="service-main">
+    <p id="pageError" class="service-error" role="alert" hidden></p>
+    <div id="panelHost"></div>
+  </main>
+  <script src="/renderer/service-session-db.js"></script>
+  <script type="module" src="/renderer/service-session.js"></script>
+</body>
+</html>

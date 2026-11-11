@@ -68,6 +68,13 @@ async function run(userText, history, images, memory, uiActionId) {
     limits = contracts.assertLimits(flow.limits(this.settings.data))
     maxIterations = limits.maxSteps
     this.state = this.service('sessions').load(this)
+    /* telemetry：首次从磁盘装载且带历史 → session.restored（只报一次，
+       每轮 load 都报会把恢复数刷成轮次数）。 */
+    if (this.state.sequence > 0 && !this.telemetryRestoredReported) {
+      this.telemetryRestoredReported = true
+      const telemetry = this.plugins.get('telemetry')
+      if (telemetry) telemetry.record({ type: 'telemetry.session.restored', sessionId: String(this.sessionId || 'default'), at: Date.now(), restoredMessages: this.state.messages.length, restoredSequence: this.state.sequence })
+    }
     if (this.running) this.record(EVENTS.INTERRUPT, { reason: 'recovered unfinished turn' })
     for (const [requestId, receipt] of Object.entries(this.state.ui.receipts)) {
       if (receipt.status === 'accepted' && requestId !== uiActionId) this.record(EVENTS.UI_ACTION_ABANDON, { requestId, reason: 'previous action was not started; automatic replay is forbidden' })
@@ -133,6 +140,9 @@ async function run(userText, history, images, memory, uiActionId) {
             settings: this.settings.data,
             messages: requestMessages,
             tools: requestTools,
+            /* telemetry：真实会话/轮次/请求标识随请求带下去供 waterfall 关联。
+               buildBody 是白名单构造，本字段不会进 HTTP body。 */
+            telemetry: { sessionId: String(this.sessionId || 'default'), turnId: String(this.state.execution.id || ''), requestId: requestId, step: this.state.execution.step, attempt: this.state.execution.attempt, model: this.settings.data.model },
             signal,
             onDelta: (delta) => {
               if (unattended) {
@@ -174,6 +184,8 @@ async function run(userText, history, images, memory, uiActionId) {
             retry = 'stop'
           }
           this.record(EVENTS.REQUEST_FAILED, { reason: String(error && error.message || error), decision: retry })
+          /* telemetry：决策在抛错之后才算出，回填到已记录的失败请求上 */
+          { const telemetry = this.plugins.get('telemetry'); if (telemetry && telemetry.collector) telemetry.collector.recordRetryDecision(String(this.sessionId || 'default'), requestId, retry) }
           if (retry === 'stop') break
           const delayMs = retry === 'reconnect' ? ((limits.reconnectDelaysMs || [])[attempt] || 0) : 0
           const text = retry === 'reconnect'

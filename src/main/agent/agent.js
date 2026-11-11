@@ -151,7 +151,7 @@ class Agent {
     return this.contextService.buildPayloadMessages({
       systemContent,
       messages: this.messages,
-      memory: this.memory,
+      memory: this.serviceBinding ? null : this.memory,
       resolveImage: (part) => this.resolveImage(part),
       toolResultChars: 60000
     })

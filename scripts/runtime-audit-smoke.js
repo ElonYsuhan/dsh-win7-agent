@@ -91,7 +91,7 @@ async function main() {
     const mainSource = fs.readFileSync(path.join(__dirname, '../src/main/main.js'), 'utf8')
     assert(mainSource.includes('show: !hidden') && mainSource.includes("process.argv.includes('--dsh-browser-hidden')"), 'browser-only window must honor the hidden mode')
     assert(mainSource.includes('app.dock.hide()'), 'hidden browser-only launches must not add a Dock entry')
-    const shellMain = fs.readFileSync(path.join(__dirname, '../shell/main.js'), 'utf8')
+    const shellMain = fs.readFileSync(path.join(__dirname, '../shell/main.js'), 'utf8').replace(/\r\n/g, '\n')
     assert(shellMain.includes('function browserOnlyTarget()') && shellMain.includes('function createBrowserOnlyWindow('), 'packaged shell must recognize browser-only mode')
     assert(shellMain.includes('show: !hidden') && shellMain.includes('app.dock.hide()'), 'packaged browser-only window must honor hidden mode')
     assert(shellMain.indexOf('app.whenReady().then(async () => {\n  const browserOnlyUrl = browserOnlyTarget()') !== -1, 'packaged browser-only mode must run before service boot')

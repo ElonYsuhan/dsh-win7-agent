@@ -3,3 +3,5 @@ release/
 dist/
 *.log
 .DS_Store
+/.build-tools/
+/.worktrees/
