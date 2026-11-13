@@ -218,8 +218,8 @@
     syncUnitControlLater()
     $('capTabTasks').addEventListener('click',()=>{refresh().catch(()=>{})})
     /* 打开系统设置的「执行环境」页时刷新执行机器与两个桌面开关 */
-    const envTab=document.querySelector('[data-settings-tab="environment"]')
-    if(envTab)envTab.addEventListener('click',()=>{lifecycle().catch(e=>notice(e.message))})
+    const settingsBtn=document.getElementById('openSettings')
+    if(settingsBtn)settingsBtn.addEventListener('click',()=>{lifecycle().catch(e=>notice(e.message))})
     for(const id of ['taskKeepRunning','taskLaunchAtLogin'])$(id).addEventListener('change',async()=>{try{const prefs=await window.shell.taskPreferences({keepRunning:$('taskKeepRunning').checked,launchAtLogin:$('taskLaunchAtLogin').checked});$('taskKeepRunning').checked=prefs.keepRunning;$('taskLaunchAtLogin').checked=prefs.launchAtLogin;notice('桌面后台运行设置已更新')}catch(e){notice(e.message);lifecycle().catch(()=>{})}})
   }}
 })()

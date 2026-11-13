@@ -1580,13 +1580,13 @@ const checks = `
   ok('运行记录是紧凑列表行，整行可点（不再是大卡片）',
     tasksSrc.indexOf('task-run-row') !== -1 && tasksSrc.indexOf("setAttribute('role','button')") !== -1
       && tasksSrc.indexOf('openRunConversation') !== -1)
-  ok('执行环境与后台运行挪进系统设置，且排在模型模块下面',
-    htmlSrc.indexOf('data-settings-panel="environment"') !== -1
-      && htmlSrc.indexOf('data-settings-tab="environment"') !== -1
-      && /data-settings-panel="model"[^]{0,6000}data-settings-panel="environment"/.test(htmlSrc)
-      && htmlSrc.indexOf('id="taskServiceSettings"') !== -1)
+  ok('执行环境并入「通用」设置面板，不再单独占一个标签页',
+    htmlSrc.indexOf('data-settings-panel="environment"') === -1
+      && htmlSrc.indexOf('data-settings-tab="environment"') === -1
+      && /data-settings-panel="general"[^]{0,20000}id="taskServiceSettings"/.test(htmlSrc)
+      && /data-settings-panel="general"[^]{0,20000}id="agentServiceToggle"/.test(htmlSrc))
   /* 五点反馈（2026-10-17 19:45）：能力中心改名与排版 / 两处滚动 / 气泡不溢出 / 空状态按项目给建议 */
-  ok('设置里的模块改叫「能力中心」', htmlSrc.indexOf('data-settings-tab="environment"') !== -1
+  ok('设置里的模块改叫「能力中心」', htmlSrc.indexOf('id="taskServiceSettings"') !== -1
     && htmlSrc.indexOf('\u6267\u884c\u73af\u5883') === -1)
   ok('能力中心的每个标签页自己滚动（内容长时不撑破窗口）',
     cssSrc.indexOf('.capability-center { display:flex') !== -1

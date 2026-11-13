@@ -12,6 +12,7 @@ const { fetchModelList } = require('./agent/model-list')
 const { AssetStore } = require('./agent/asset-store')
 const { PluginHost } = require('./plugins/plugin-host')
 const { UiStore } = require('../../server/ui-store')
+const { AgentService } = require('./agent-service')
 
 const { assertSender, trustedSender, attachWebSecurity } = require('../../shell/ipc-security')
 const ipcFiles = [path.join(__dirname, '..', 'renderer', 'index.html')]
@@ -24,6 +25,10 @@ let pool = null
 let assetStore = null
 let uiStore = null
 let pluginHost = null
+let agentService = null
+/* 第三阶段：telemetry 只读门面与节流推送（见 telemetry/query-api.js） */
+let telemetryQuery = null
+let telemetryPush = null
 
 function sendEvent(event) {
   if (not(mainWindow) || mainWindow.isDestroyed()) return
@@ -138,6 +143,7 @@ async function createAgent() {
      存储点；打包壳走的是 service 子进程的 HTTP /api/ui-store（server/ui-store.js），
      两边落盘行为一致，只是目录不同：这边 userData/，那边 userData/agent-home/。 */
   uiStore = new UiStore(userData)
+  agentService = new AgentService({ root: path.join(__dirname, '..', '..'), home: path.join(userData, 'agent-service'), settingsHome: path.join(userData, 'agent-home') })
   pluginHost = new PluginHost({
     workspaceRoot: settings.data.workspacePath || '',
     settings
@@ -171,6 +177,26 @@ async function createAgent() {
   })
   pluginHost.get('workflowAgent').attach(pool)
   pluginHost.get('tasks').attach({ pool, home: userData, emit: sendEvent })
+
+  /* ── Telemetry 只读门面（第三阶段 UI）──────────────────────
+     UI 只能经这条门面取数：query-api 只暴露只读方法，Collector 的
+     record / drop / dispose / recordRetryDecision 不透出，渲染层拿不到，
+     也就无法反向影响采集与执行链路。
+     推送走独立通道 telemetry:event，不复用 agent:event，避免污染既有事件路由。 */
+  const { createTelemetryQuery, createThrottledPush } = require('./telemetry/query-api')
+  const readTelemetry = () => { try { return pluginHost && pluginHost.get('telemetry') } catch (error) { return null } }
+  telemetryQuery = createTelemetryQuery(readTelemetry)
+  telemetryPush = createThrottledPush({
+    getTelemetry: readTelemetry,
+    push: (payload) => {
+      if (not(mainWindow) || mainWindow.isDestroyed()) return
+      mainWindow.webContents.send('telemetry:event', payload)
+    }
+  })
+  try {
+    const tele = pluginHost.get('telemetry')
+    if (tele && typeof tele.collector.on === 'function') tele.collector.on(() => telemetryPush.schedule())
+  } catch (error) { /* 采集插件不在就不推，UI 自己显示 — */ }
 }
 
 /* 内置浏览器调试以 --dsh-browser <url> 复用本应用的 Electron 内核。
@@ -243,6 +269,7 @@ app.on('before-quit', (event) => {
     try { if (pool) await pool.dispose() } catch (error) { console.error(error) }
     try { if (pluginHost) await pluginHost.dispose() } catch (error) { console.error(error) }
     try { if (terminalApiModule) terminalApiModule.teardownAll() } catch (error) { console.error(error) }
+    try { if (agentService) await agentService.stop() } catch (error) { console.error(error) }
     runtimeQuitReady = true
     app.quit()
   })()
@@ -409,6 +436,15 @@ licensedHandle('chat:reset', async (_event, sessionId) => {
 licensedHandle('chat:clear', (_event, sessionId) => {
   pool.clear(sessionId)
   return true
+})
+
+/* Telemetry 只读查询（第三阶段 UI）。只接受白名单只读动作，
+   写动作在 query-api 里就被拒；门面不在时返回 available:false，
+   UI 显示 — 而不是报错或伪造 0。 */
+licensedHandle('telemetry:request', async (_event, action, data) => {
+  if (not(telemetryQuery)) return { available: false, reason: 'telemetry not initialized' }
+  try { return await telemetryQuery.read(String(action || ''), data) }
+  catch (error) { return { available: false, reason: String(error && error.message || error) } }
 })
 
 licensedHandle('asset:save', (_event, payload) => {
@@ -653,3 +689,11 @@ licensedHandle('tasks:request', async (_event, action, data) => {
 })
 
 licensedHandle('licensing:request',(_event,action,data)=>{const service=pluginHost.requireService('licensing');if(!['status','request','activate','trial'].includes(action))throw Error('LICENSE_ACTION_INVALID');return action==='trial'?service.startTrial():service[action](data||{})})
+
+licensedHandle('service:request', async (_event, action) => {
+  if (!agentService) throw new Error('AGENT_SERVICE_UNAVAILABLE')
+  if (action === 'status') return agentService.status()
+  if (action === 'start') return agentService.start()
+  if (action === 'stop') return agentService.stop()
+  throw new Error('SERVICE_ACTION_INVALID')
+})

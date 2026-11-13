@@ -107,7 +107,7 @@ function builderConfig(target, output) {
     directories: { output, buildResources: path.join(ROOT, 'assets', 'icons') },
     win: { executableName: 'Agent', icon: path.join(ROOT, 'assets', 'icons', 'icon.ico'), signAndEditExecutable: false, artifactName: 'Agent.exe' },
     nsis: {
-      oneClick: true, perMachine: false, allowElevation: false, allowToChangeInstallationDirectory: false,
+      oneClick: false, perMachine: false, allowElevation: false, allowToChangeInstallationDirectory: true,
       createDesktopShortcut: true, createStartMenuShortcut: true,
       shortcutName: 'Agent', runAfterFinish: true, deleteAppDataOnUninstall: false,
       differentialPackage: false, installerLanguages: ['zh_CN', 'en_US'],

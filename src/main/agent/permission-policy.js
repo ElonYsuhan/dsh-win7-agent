@@ -135,11 +135,17 @@ function buildApprovalRequest(permission, args, toolName) {
     }
   }
   if (String(toolName || '').startsWith('host__')) {
+    const action = {
+      host__hesyn__entity_create: '在当前场景部署装备',
+      host__hesyn__entity_update: '修改当前场景的装备',
+      host__hesyn__entity_delete: '删除当前场景的装备',
+      host__hesyn__hesyn_call: '调用 HESYN 能力'
+    }[toolName]
     return {
       kind: level === 'command' ? 'command' : (level === 'edit' ? 'edit' : 'write'),
       signature: 'host:' + toolName,
       title: '需要确认宿主操作：' + toolName,
-      description: 'AI 准备调用宿主工具并可能修改宿主数据。确认后才会执行。',
+      description: action ? 'AI 准备' + action + '。确认后才会执行。' : 'AI 准备调用宿主工具并可能修改宿主数据。确认后才会执行。',
       detail: JSON.stringify(args || {}, null, 2)
     }
   }

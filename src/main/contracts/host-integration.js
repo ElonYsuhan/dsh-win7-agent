@@ -2,7 +2,13 @@
 
 const VERSION = 1
 const NAME = /^(?!.*__)[A-Za-z][A-Za-z0-9_-]{0,23}$/
-function fail(message) { const error = new Error(message); error.status = 400; throw error }
+/** @param {string} message */
+function fail(message) {
+  /** @type {Error & { status?: number }} */
+  const error = new Error(message)
+  error.status = 400
+  throw error
+}
 function tools(value) {
   if (!Array.isArray(value) || value.length > 64) fail('HOST_TOOLS_INVALID')
   const names = new Set()

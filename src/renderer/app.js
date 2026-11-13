@@ -1411,6 +1411,7 @@ async function selectSession(sessionId) {
     return
   }
   state.currentSessionId = sessionId
+  if (window.telemetryUI) window.telemetryUI.setSession()
   saveCurrentSessionId(sessionId)
   /* 换会话前先丢掉上一个会话留下的「思考中」引用（它们是上一个会话的 DOM 节点，
      留着会让 beginThinking 复用到一个已经不在文档里的块）。 */
@@ -2464,7 +2465,7 @@ function byId(id) {
   return document.getElementById(id)
 }
 
-function renderModelInfo() { if (window.agentUI) window.agentUI.context(currentSession(), state.settings) }
+function renderModelInfo() { if (window.agentUI) window.agentUI.context(currentSession(), state.settings); if (window.telemetryUI) window.telemetryUI.refresh() }
 function setStatus(text) {
   const statusLine = byId('statusLine')
   if (statusLine) {
@@ -4276,10 +4277,58 @@ function openSettings() {
   fillSettingsForm()
   showSettingsTab('general')
   byId('settingsModal').classList.remove('hidden')
+  refreshAgentService()
 }
 
 function closeSettings() {
   byId('settingsModal').classList.add('hidden')
+}
+
+/* ---------------- Agent Service：启动、停止与地址展示 ---------------- */
+let agentServiceState = null
+function cleanIpcError(error) {
+  return String((error && error.message) || error).replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, '')
+}
+async function refreshAgentService(showError) {
+  if (not(window.dsh) || not(window.dsh.serviceRequest)) return
+  try { agentServiceState = await window.dsh.serviceRequest('status'); renderAgentService() }
+  catch (error) { if (showError) { agentServiceState = { running: false, error: cleanIpcError(error) }; renderAgentService() } }
+}
+function renderAgentService() {
+  const stateValue = agentServiceState || { running: false }
+  const running = Boolean(stateValue.running)
+  const address = running && (stateValue.connectUrl || stateValue.address) ? (stateValue.connectUrl || stateValue.address) : ''
+  byId('agentServiceToggle').textContent = running ? '停止' : '启动'
+  byId('agentServiceState').textContent = (running ? '服务运行中' : '服务未启动') + (stateValue.error ? '：' + stateValue.error : '')
+  byId('agentServiceAddressRow').hidden = not(address)
+  byId('agentServiceAddress').hidden = not(address)
+  byId('agentServiceAddress').textContent = address ? '连接地址：' + address : ''
+  byId('copyAgentServiceAddress').hidden = not(address)
+  if (not(address)) byId('copyAgentServiceAddress').textContent = '复制'
+}
+async function setupAgentService() {
+  if (not(window.dsh) || not(window.dsh.serviceRequest)) { byId('agentServiceToggle').hidden = true; return }
+  byId('agentServiceToggle').addEventListener('click', async () => {
+    const button = byId('agentServiceToggle')
+    const wasRunning = Boolean(agentServiceState && agentServiceState.running)
+    button.disabled = true
+    byId('agentServiceState').textContent = wasRunning ? '正在停止…' : '正在启动…'
+    try { agentServiceState = await window.dsh.serviceRequest(wasRunning ? 'stop' : 'start') }
+    catch (error) { agentServiceState = { running: false, error: cleanIpcError(error) } }
+    button.disabled = false
+    renderAgentService()
+  })
+  byId('copyAgentServiceAddress').addEventListener('click', async () => {
+    const address = agentServiceState && (agentServiceState.connectUrl || agentServiceState.address)
+    if (not(address)) return
+    const button = byId('copyAgentServiceAddress')
+    try {
+      if (!await copyToClipboard(address)) throw Error('剪贴板不可用')
+      button.textContent = '已复制'
+      setTimeout(() => { button.textContent = '复制' }, 1200)
+    } catch (error) { byId('agentServiceState').textContent = '复制失败：' + cleanIpcError(error) }
+  })
+  await refreshAgentService(true)
 }
 
 let settingsSaveTimer = null
@@ -5293,6 +5342,7 @@ async function init() {
   })
   setupTitleAlignment()
   setupCapabilityCenter()
+  setupAgentService()
   byId('openSettings').addEventListener('click', openSettings)
   byId('closeSettings').addEventListener('click', closeSettings)
   const settingsAutoSaveIds = ['maxIterations', 'maxConcurrentRuns', 'maxTokens', 'contextWindowTokens', 'keepRecentMessages', 'requestTimeoutSeconds', 'contextAutoCompress']
@@ -5335,6 +5385,14 @@ async function init() {
 
 window.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('keydown', handleGlobalKeydown)
+  /* Telemetry UI：纯展示层，只读现有会话与设置，不持有会话状态。
+     挂载失败不影响聊天主流程（composer 没就绪就什么都不做）。 */
+  try {
+    if (window.telemetryUI) window.telemetryUI.mount({
+      getSessionId: () => state.currentSessionId,
+      getSettings: () => state.settings || {}
+    })
+  } catch (error) { /* 展示层异常不外溢 */ }
   init().catch((error) => { if (window.agentUI) window.agentUI.connection(false, error.message); addBubble('error', formatError(error.message)) })
 })
 

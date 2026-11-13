@@ -55,7 +55,8 @@ const sseClients = new Set()
 const pendingApprovals = new Map()
 const pluginHost = new PluginHost({
   workspaceRoot: settingsStore.data.workspacePath,
-  settings: settingsStore
+  settings: settingsStore,
+  enableAgentService: true
 })
 pluginHost.loadBuiltins()
 pluginHost.loadFromDirectory(path.join(AGENT_HOME, 'plugins'))
@@ -270,6 +271,18 @@ async function handleApi(request, response, url) {
   }
   const safe=['/api/ui-store','/api/stop','/api/reset','/api/shutdown','/api/tasks/stop','/api/workflows/stop','/api/workflows/pause','/api/workflows/cancelDesign','/api/term/kill']
   if(!['GET','HEAD'].includes(request.method)&&!safe.includes(url.pathname))pluginHost.requireService('licensing').assert('all')
+  if (url.pathname === '/api/agent-service' && request.method === 'POST') {
+    if (!isLoopbackAddress(request.socket && request.socket.remoteAddress)) { json(response, 403, { error: 'FORBIDDEN' }); return true }
+    let host
+    try { host = new URL('http://' + request.headers.host).hostname.replace(/^\[|\]$/g, '') } catch (_) { host = '' }
+    if (host !== 'localhost' && !isLoopbackAddress(host)) { json(response, 403, { error: 'FORBIDDEN_HOST' }); return true }
+    if (!String(request.headers['content-type'] || '').startsWith('application/json')) { json(response, 415, { error: 'JSON_REQUIRED' }); return true }
+    try {
+      const body = await readBodyLimit(request, 1024)
+      json(response, 200, await pluginHost.requireService('agentService').request(body && body.action))
+    } catch (error) { json(response, 400, { error: error.message }) }
+    return true
+  }
   if (await require('./extension-api').handleExtensionApi(request,response,url,{extensions:pluginHost.get('extensions'),json,readBodyLimit}))return true
   if (await require('./task-api').handleTaskApi(request, response, url, { tasks: pluginHost.get('tasks'), json, readBody })) return true
   if (await require('./workflow-api').handleWorkflowApi(request,response,url,{workflows:pluginHost.get('workflows'),json,readBody,emit:broadcast}))return true

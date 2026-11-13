@@ -117,7 +117,7 @@ npm run build:desktop
 | Linux x64 | `release/desktop/Agent-linux-x64/Agent.AppImage` |
 | Linux ARM64 | `release/desktop/Agent-linux-arm64/Agent.AppImage` |
 
-The Windows `Agent.exe` is a complete offline installation and launch entry; installed applications use stable locations and shortcuts. A macOS `.app` is a standard application bundle. Linux requires verification of system dependencies and executable permissions.
+The Windows `Agent.exe` is a complete offline installation entry. The current build configuration uses an installation wizard that allows choosing the application directory; user data remains separate. The wizard and directory migration require real installation validation, and existing releases may still use the old one-click installer. A macOS `.app` is a standard application bundle. Linux requires verification of system dependencies and executable permissions.
 
 Each platform directory contains one delivery entry. Shared checksums are stored in `release/desktop/SHA256SUMS.txt`, and intermediate output is stored in `release/.desktop-build/`. Staged candidates and published deliveries have separate audit reports. Legacy ZIP output is only for explicitly requested internal diagnostics. Routine tasks do not automatically bump versions. Delivery responses provide a clickable absolute link to the containing package directory.
 

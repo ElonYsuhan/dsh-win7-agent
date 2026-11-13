@@ -561,6 +561,8 @@ class AgentPanelElement extends HTMLElement {
 
   _renderModelLabel() {
     if (this._modelButton) {
+      // 模型由桌面 Agent 统一配置；服务未开放设置时不展示配置入口，避免误导。
+      this._modelButton.hidden = !this._modelSettings
       const current = this._modelSettings && this._modelSettings.models.find(model => model.id === this._modelSettings.currentModelId)
       this._modelLabel.textContent = modelDisplayName(current)
       this._modelButton.title = this._modelSettings ? '切换模型' : '配置模型'
@@ -574,7 +576,7 @@ class AgentPanelElement extends HTMLElement {
     if (!this._modelSettings) {
       const note = document.createElement('p')
       note.className = 'panel-model-note'
-      note.textContent = '服务未开放模型设置，请联系管理员配置。'
+      note.textContent = '模型配置请在 Agent 桌面端设置，服务会自动使用。'
       this._modelMenu.appendChild(note)
       return
     }

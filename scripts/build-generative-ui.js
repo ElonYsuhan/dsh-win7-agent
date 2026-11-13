@@ -92,17 +92,23 @@ function renderedSourceHashes(modules) {
 // to the exact pinned, hashed upstream file; never modify node_modules itself.
 function lodashCspPlugin(transforms) {
   const target = path.join(NODE_MODULES, 'lodash-es', '_root.js')
+  const commonjsTarget = path.join(NODE_MODULES, 'lodash', '_root.js')
+  const commonjsHash = '32ea714f25057679fdd3099c2693cb6be437252e78eea3a5a7882a1282078348'
   const before = "var root = freeGlobal || freeSelf || Function('return this')();"
   const after = "var root = freeGlobal || freeSelf;\nif (!root) throw new Error('GENERATIVE_UI_GLOBAL_UNAVAILABLE');"
   return {
     name: 'agent-gui-lodash-csp',
     enforce: 'pre',
     transform(code, id) {
-      if (path.resolve(id.split('?')[0]) !== target) return null
-      const manifest = readPackage('lodash-es')
-      if (manifest.version !== '4.18.1' || sha256(code) !== LODASH_ROOT_SHA256 || code.split(before).length !== 2) throw new Error('GENERATIVE_UI_CSP_TRANSFORM_MISMATCH: lodash-es/_root.js')
+      const normalize = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value)
+      const resolved = normalize(id.split('?')[0])
+      if (resolved !== normalize(target) && resolved !== normalize(commonjsTarget)) return null
+      const packageName = resolved === normalize(target) ? 'lodash-es' : 'lodash'
+      const expectedHash = resolved === normalize(target) ? LODASH_ROOT_SHA256 : commonjsHash
+      const manifest = readPackage(packageName)
+      if (manifest.version !== '4.18.1' || sha256(code) !== expectedHash || code.split(before).length !== 2) throw new Error('GENERATIVE_UI_CSP_TRANSFORM_MISMATCH: ' + packageName + '/_root.js')
       const result = code.replace(before, after)
-      transforms.push({ package: 'lodash-es', version: manifest.version, path: '_root.js', inputSha256: LODASH_ROOT_SHA256, outputSha256: sha256(result), reason: 'remove unsafe-eval global fallback for the Chromium renderer' })
+      transforms.push({ package: packageName, version: manifest.version, path: '_root.js', inputSha256: expectedHash, outputSha256: sha256(result), reason: 'remove unsafe-eval global fallback for the Chromium renderer' })
       return { code: result, map: null }
     }
   }
@@ -122,7 +128,7 @@ function assertNoDynamicExecution(buffer, label) {
       if (ts.isIdentifier(expression)) name = expression.text
       else if (ts.isPropertyAccessExpression(expression)) name = expression.name.text
       else if (ts.isElementAccessExpression(expression) && ts.isStringLiteral(expression.argumentExpression)) name = expression.argumentExpression.text
-      if (expression.kind === ts.SyntaxKind.ImportKeyword || name === 'eval' || name === 'Function') throw new Error('GENERATIVE_UI_DYNAMIC_CODE: ' + label + ' ' + (name || 'import'))
+      if (expression.kind === ts.SyntaxKind.ImportKeyword || name === 'eval' || name === 'Function') throw new Error('GENERATIVE_UI_DYNAMIC_CODE: ' + label + ' ' + (name || 'import') + ' near ' + node.getText(tree).slice(0, 180))
     }
     ts.forEachChild(node, visit)
   }

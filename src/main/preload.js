@@ -197,6 +197,16 @@ contextBridge.exposeInMainWorld('dsh', {
   knowledgeUpload: async (raw, bytes) => { if (bytes.byteLength > 8 * 1024 * 1024) throw new Error('KNOWLEDGE_FILE_LIMIT'); return ipcRenderer.invoke('knowledge:request', 'import', { ...raw, bytes }) },
   extensionRequest: (action, data) => ipcRenderer.invoke('extensions:request', action, data),
   mcpRequest: (action, data) => ipcRenderer.invoke('mcp:request', action, data),
+  serviceRequest: (action) => ipcRenderer.invoke('service:request', action),
+  /* Telemetry 只读接口：只能查，改不了采集，也碰不到执行链路。
+     onTelemetry 走独立通道 telemetry:event，与 agent:event 分开。 */
+  telemetryRequest: (action, data) => ipcRenderer.invoke('telemetry:request', action, data),
+  onTelemetry: (callback) => {
+    if (typeof callback !== 'function') return () => {}
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('telemetry:event', listener)
+    return () => ipcRenderer.removeListener('telemetry:event', listener)
+  },
   isDesktop: true,
   getState: () => ipcRenderer.invoke('app:get-state'),
   /* 原生剪贴板：渲染层的 navigator.clipboard 需要文档焦点，Electron 里经常直接失败 */

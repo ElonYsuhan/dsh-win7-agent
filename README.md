@@ -115,7 +115,7 @@ npm run build:desktop
 | Linux x64 | `release/desktop/Agent-linux-x64/Agent.AppImage` |
 | Linux ARM64 | `release/desktop/Agent-linux-arm64/Agent.AppImage` |
 
-Windows 的 `Agent.exe` 是完整离线安装运行入口，安装后使用稳定的程序位置和快捷方式。macOS 的 `.app` 为标准应用包。Linux 需要相应系统依赖与执行权限验证。
+Windows 的 `Agent.exe` 是完整离线安装入口；当前构建配置使用安装向导，允许选择程序安装目录，用户数据仍使用独立目录。安装向导与目录迁移须通过实际安装验证；已有发布包可能仍使用旧的一键安装方式。macOS 的 `.app` 为标准应用包。Linux 需要相应系统依赖与执行权限验证。
 
 每个平台目录仅保留一个交付入口；统一校验文件为 `release/desktop/SHA256SUMS.txt`，中间产物位于 `release/.desktop-build/`。旧 ZIP 仅用于显式指定的内部排查。日常任务不自动递增版本，最终回复提供安装包所在文件夹的可点击绝对路径链接。
 

@@ -426,8 +426,7 @@ async function main() {
     await taskApi('delete', { id: mine[0] && mine[0].id })
 
     /* ---- 五点反馈真机复验：能力中心排版 / 两处滚动 / 气泡不溢出 / 空状态按项目推荐 ---- */
-    await evalJs('(function(){ if(window.closeSettings) window.closeSettings(); openSettings();'
-      + 'var t=document.querySelector(\'[data-settings-tab="environment"]\'); if(t) t.click(); return true })()')
+    await evalJs('(function(){ if(window.closeSettings) window.closeSettings(); openSettings(); return true })()')
     await sleep(700)
     const capLayout = JSON.parse(String(await evalJs(
       '(function(){'
@@ -442,11 +441,11 @@ async function main() {
       + '  var last=labels[labels.length-1];if(!last)return true;var r=last.getBoundingClientRect();'
       + '  return r.bottom<=b.bottom+2})(),'
       + ' tabName:(()=>{var t=document.querySelector(\'[data-settings-tab="environment"]\');'
-      + '  return t?t.textContent.trim():""})()});'
+      + '  return t?t.textContent.trim():"(已并入通用)"})()});'
       + '})()'
     )))
-    ok('设置里模块叫「能力中心」，两个开关都是一行且没被裁',
-      capLayout.tabName === '能力中心' && capLayout.count === 2 && capLayout.inline === true
+    ok('能力中心已并入「通用」，两个开关都是一行且没被裁',
+      capLayout.tabName === '(已并入通用)' && capLayout.count === 2 && capLayout.inline === true
         && capLayout.lastVisible === true, JSON.stringify(capLayout))
     await evalJs('(function(){ if(window.closeSettings) window.closeSettings(); return true })()')
     await sleep(300)
@@ -515,25 +514,24 @@ async function main() {
     )))
     ok('运行记录不再是大卡片（.task-run 为 0）', runProbe.oldCards === 0, JSON.stringify(runProbe))
 
-    /* 执行环境在系统设置的「模型」下面 */
+    /* 执行环境与 Agent Service 都在「通用」面板里 */
     const envProbe = JSON.parse(String(await evalJs(
       '(function(){'
       + 'closeSettings();openSettings();'
-      + 'var tab=document.querySelector(\'[data-settings-tab="environment"]\');'
-      + 'if(!tab)return "{}";'
-      + 'tab.click();'
-      + 'var panel=document.querySelector(\'[data-settings-panel="environment"]\');'
+      + 'var panel=document.querySelector(\'[data-settings-panel="general"]\');'
       + 'var host=document.getElementById("taskHost");'
       + 'var cs=panel?getComputedStyle(panel):null;'
       + 'var tabs=Array.from(document.querySelectorAll("[data-settings-tab]")).map(function(b){return b.dataset.settingsTab});'
       + 'return JSON.stringify({shown:!!(cs&&cs.display!=="none"&&!panel.classList.contains("hidden")),'
       + ' hostText:host?host.textContent.slice(0,28):"", order:tabs.join(","),'
-      + ' keepRunning:!!document.getElementById("taskKeepRunning")});'
+      + ' keepRunning:!!document.getElementById("taskKeepRunning"),'
+      + ' serviceToggle:!!document.getElementById("agentServiceToggle")});'
       + '})()'
     )))
-    ok('执行环境是系统设置里的独立模块，排在模型下面',
-      envProbe.shown === true && envProbe.order === 'general,model,environment,license'
-        && envProbe.keepRunning === true && envProbe.hostText.indexOf('执行机器') === 0,
+    ok('执行环境与 Agent Service 都在「通用」面板里',
+      envProbe.shown === true && envProbe.order === 'general,model,memory,license'
+        && envProbe.keepRunning === true && envProbe.serviceToggle === true
+        && envProbe.hostText.indexOf('执行机器') === 0,
       JSON.stringify(envProbe))
     await evalJs('(function(){ closeSettings(); return true })()')
 

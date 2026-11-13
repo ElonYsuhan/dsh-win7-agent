@@ -51,6 +51,26 @@ async function main() {
     console.log((pass ? 'PASS  ' : 'FAIL  ') + name + ' -> ' + got + (pass ? '' : ' (want ' + want + ')'))
   }
 
+  /* ---- 宿主审批文案不改变授权范围或类型 ---- */
+  const hostActions = [
+    ['entity_create', '在当前场景部署装备'],
+    ['entity_update', '修改当前场景的装备'],
+    ['entity_delete', '删除当前场景的装备'],
+    ['hesyn_call', '调用 HESYN 能力']
+  ]
+  for (const [name, label] of hostActions) {
+    for (const kind of ['write', 'edit', 'command']) {
+      const fullName = 'host__hesyn__' + name
+      const request = policy.buildApprovalRequest(kind, { value: 1 }, fullName)
+      if (request.kind !== kind || request.signature !== 'host:' + fullName) throw new Error('host approval kind/signature changed: ' + fullName)
+      if (!request.title.includes(fullName) || !request.description.includes(label) || !request.detail.includes('"value": 1')) throw new Error('host approval details missing: ' + fullName)
+    }
+  }
+  const otherHost = policy.buildApprovalRequest('edit', {}, 'host__other__entity_create')
+  if (otherHost.signature !== 'host:host__other__entity_create' || otherHost.kind !== 'edit' || !otherHost.description.includes('宿主工具')) throw new Error('other hosts must retain generic approval')
+  const unknownHost = policy.buildApprovalRequest('write', {}, 'host__hesyn__unknown')
+  if (!unknownHost.description.includes('宿主工具')) throw new Error('unknown host tools must retain generic approval')
+
   /* ---- 真实插件宿主集成 ---- */
   const roWrite = await host.executeTool('write_file', { path: 'a.txt', content: 'x' }, baseCtx('readonly'))
   console.log('readonly write_file   :', roWrite)

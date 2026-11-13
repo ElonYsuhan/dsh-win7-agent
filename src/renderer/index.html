@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="workflow-ribbon.css">
   <link rel="stylesheet" href="workflow-execution-designer.css">
   <link rel="stylesheet" href="workflow-simulation.css">
+  <link rel="stylesheet" href="telemetry-ui.css">
   <link rel="stylesheet" href="vendor/litegraph/litegraph.css">
 </head>
 <body>
@@ -456,7 +457,6 @@
 
                 <button class="settings-nav-item" data-settings-tab="model"><span class="icon" data-icon="model"></span><span>&#27169;&#22411;</span></button>
                 <button class="settings-nav-item" data-settings-tab="memory"><span class="icon" data-icon="library-books"></span><span>记忆</span></button>
-                <button class="settings-nav-item" data-settings-tab="environment"><span class="icon" data-icon="plugin"></span><span>能力中心</span></button>
 
         <button class="settings-nav-item" data-settings-tab="license"><span class="icon" data-icon="shield-check" aria-hidden="true"></span><span>软件授权</span></button>
       </aside>
@@ -535,6 +535,19 @@
             <button id="clearApprovalAllow" class="settings-value-button">全部清除</button>
           </div>
           <div id="approvalAllowList" class="approval-allow-list"></div>
+          <div id="taskServiceSettings" class="settings-block"><summary>后台任务</summary><p id="taskHost" class="muted"></p><div id="taskDesktopOptions" hidden><p class="muted">以下设置仅作用于当前桌面应用。</p><label><input id="taskKeepRunning" type="checkbox">关闭窗口后保持托盘运行</label><label><input id="taskLaunchAtLogin" type="checkbox">开机自启</label></div></div>
+          <div class="settings-row">
+            <div class="settings-row-label"><div class="settings-row-title">服务</div><div class="settings-row-desc">启动 Agent Service，供宿主页面、AgentPanel 与本地集成连接</div></div>
+            <button id="agentServiceToggle" class="settings-value-button" type="button">启动</button>
+          </div>
+          <div id="agentServicePanel" class="settings-block">
+            <p id="agentServiceState" class="muted" role="status">服务未启动</p>
+            <div class="settings-row" id="agentServiceAddressRow" hidden>
+              <div class="settings-row-label"><div class="settings-row-title">连接地址</div><div class="settings-row-desc">复制后粘贴到 HESYN 的 AI 助手设置</div></div>
+              <button id="copyAgentServiceAddress" class="settings-value-button" type="button" hidden>复制</button>
+            </div>
+            <p id="agentServiceAddress" class="muted" hidden></p>
+          </div>
         </div>
         <div class="settings-panel hidden" data-settings-panel="model">
           <div class="model-hint">&#22635;&#20837;&#21508;&#25552;&#20379;&#26041;&#30340; API &#23494;&#38053;&#21363;&#21487;&#20351;&#29992;&#20854;&#27169;&#22411;&#12290;</div>
@@ -566,8 +579,6 @@
                 <div id="memoryList" class="memory-list"></div>
               </section>
             </div>
-            <div class="settings-panel" data-settings-panel="environment">
-              <div id="taskServiceSettings" class="settings-block"><summary>能力中心</summary><p id="taskHost" class="muted"></p><div id="taskDesktopOptions" hidden><p class="muted">以下设置仅作用于当前桌面应用。</p><label><input id="taskKeepRunning" type="checkbox">关闭窗口后保持托盘运行</label><label><input id="taskLaunchAtLogin" type="checkbox">开机自启</label></div></div>
             </div>
 
 
@@ -588,6 +599,7 @@
   <script src="tasks.js"></script>
   <script src="licensing.js"></script>
   <script src="generative-ui-chat.js"></script>
+  <script src="telemetry-ui.js"></script>
   <script src="app.js"></script>
   <script src="memory.js"></script>
   <script src="dialogs.js"></script>

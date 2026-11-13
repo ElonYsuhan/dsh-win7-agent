@@ -115,6 +115,7 @@
     "files": [
       "src/**/*",
       "server/**/*",
+      "service/**/*",
       "shell/menu.js",
       "shell/window-chrome.js",
       "shell/navigation-guard.js",

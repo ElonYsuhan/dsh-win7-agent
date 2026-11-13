@@ -3,6 +3,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const vm = require('vm')
+const { spawnSync } = require('child_process')
 const terser = require('terser')
 const obfuscator = require('javascript-obfuscator')
 const guiManifest = require('./generative-ui-manifest')
@@ -15,9 +16,11 @@ const shellBrowser = new Set(['settings.js', 'loading.js', 'offline.js', 'update
 const shellNames = new Set(fs.readdirSync(path.join(ROOT, 'shell')).filter(name => name.endsWith('.js')))
 function mode(name) {
   if (name.split('/').some(part => ['vendor', 'md-skills', 'node_modules'].includes(part)) || name.startsWith('plugins/examples/')) return null
+  // AgentPanel 是浏览器 ES 模块，保持可执行分发（与 src/panel 一致），不作为 Node 加密载荷。
+  if (name.startsWith('agent-service/panel/')) return null
   if (name === 'preload.js' || name === 'src/main/preload.js') return 'sandbox'
   if (shellBrowser.has(name) || name.startsWith('src/renderer/') && name.endsWith('.js')) return 'browser'
-  if (shellNames.has(name) || name.startsWith('service/') || name.startsWith('src/main/')) return name.endsWith('.js') ? 'node' : null
+  if (shellNames.has(name) || name.startsWith('service/') || name.startsWith('src/main/') || name.startsWith('agent-service/') || name.startsWith('server/')) return name.endsWith('.js') ? 'node' : null
   return null
 }
 function files(root) {
@@ -55,7 +58,12 @@ async function transform(source, kind, cache = true) {
     stringArrayShuffle: true, identifierNamesGenerator: 'hexadecimal',
     sourceMap: false
   }).getObfuscatedCode()
-  new vm.Script(code)
+  // 浏览器 ES 模块（面板、服务会话页）不能被 vm.Script 当 CommonJS 解析；
+  // 用构建机 Node 的模块语法检查验证，不执行模块代码。
+  if (/(?:^|[\n;])\s*(?:import\s|export\s)/.test(code)) {
+    const check = spawnSync(process.execPath, ['--check', '--input-type=module'], { input: code, encoding: 'utf8' })
+    if (check.status !== 0) throw Error('SOURCE_MODULE_SYNTAX: ' + String(check.stderr || '').split('\n').slice(0, 3).join(' '))
+  } else new vm.Script(code)
   if (cache) { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(cached, JSON.stringify({ sha256: hash(code), code })) }
   return code
 }
@@ -89,7 +97,9 @@ async function protect(appDir, options = {}) {
     } else fs.writeFileSync(file, code)
     record.entrySha256 = hash(fs.readFileSync(file)); records.push(record)
   }
-  if (!records.some(record => record.path === 'main.js' && record.mode === 'aes-256-gcm') || !records.some(record => record.path === 'service/index.js') || !records.some(record => record.path === 'src/renderer/app.js')) throw Error('SOURCE_PROTECTION_COVERAGE')
+  const has = unit => records.some(record => record.path === unit)
+  const agentService = fs.existsSync(path.join(appDir, 'agent-service/index.js'))
+  if (!records.some(record => record.path === 'main.js' && record.mode === 'aes-256-gcm') || !has('service/index.js') || !has('src/renderer/app.js') || (agentService && !records.some(record => record.path === 'agent-service/index.js' && record.mode === 'aes-256-gcm'))) throw Error('SOURCE_PROTECTION_COVERAGE')
   const template = fs.readFileSync(path.join(__dirname, 'source-loader.js'), 'utf8')
   fs.writeFileSync(path.join(appDir, 'source-loader.js'), await transform(template.replace('__AGENT_SOURCE_KEY__', key.toString('base64')).replace('__AGENT_RELEASE_PUBLIC_KEY__', Buffer.from(publicKey).toString('base64')), 'node', false)); key.fill(0)
   const guiAfter = guiBefore ? guiManifest.verify(appDir, records) : null

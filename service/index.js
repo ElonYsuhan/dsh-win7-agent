@@ -69,7 +69,21 @@ function cookie(req, name) {
   return found && found[1] || ''
 }
 async function createService(options) {
-  const config = options.config
+  let config = options.config
+  const directKey = typeof config.directKey === 'string' && config.directKey.length >= 16 ? config.directKey : ''
+  if (directKey) {
+    // 地址 + 密钥直连：密钥只在请求时校验，不写入会话或日志。
+    const user = { id: 'direct', tokenHash: hash('direct:' + directKey), hosts: ['hesyn'] }
+    const tools = {
+      get_context: 'read', list_equipment: 'read', get_selected_entity: 'read', entity_list: 'read',
+      resource_search: 'read', entity_create: 'write', entity_update: 'write', entity_delete: 'write',
+      hesyn_capabilities: 'read', hesyn_call: 'command'
+    }
+    const host = { id: 'hesyn', tokenHash: hash('hesyn:' + directKey), users: ['direct'], tools }
+    config = { ...config,
+      users: [...(config.users || []).filter(item => item && item.id !== 'direct'), user],
+      hosts: [...(config.hosts || []).filter(item => item && item.id !== 'hesyn'), host] }
+  }
   const messageBodyMaxBytes = config.messageBodyMaxBytes === undefined ? 64 * 1024 * 1024 : config.messageBodyMaxBytes
   if (!Number.isSafeInteger(messageBodyMaxBytes) || messageBodyMaxBytes < 131072 || messageBodyMaxBytes > 256 * 1024 * 1024) throw Error('SERVICE_MESSAGE_BODY_LIMIT_INVALID')
   const users = validateEntries(config.users, 'user'), hosts = validateEntries(config.hosts, 'host')
@@ -77,13 +91,23 @@ async function createService(options) {
   if (publicUrl.origin !== config.publicOrigin || !['http:', 'https:'].includes(publicUrl.protocol)) throw Error('SERVICE_PUBLIC_ORIGIN_INVALID')
   const local = ['127.0.0.1', 'localhost', '[::1]'].includes(publicUrl.hostname)
   if (publicUrl.protocol === 'http:' && !local) throw Error('SERVICE_HTTPS_REQUIRED')
-  const panelOrigins = (config.panelOrigins || []).map(origin => {
+  const rawPanelOrigins = Array.isArray(config.panelOrigins) ? config.panelOrigins : []
+  // '*' 表示对所有来源放行：AgentPanel 是公开静态资源，调用仍需会话票据。
+  const allowAnyPanelOrigin = rawPanelOrigins.includes('*')
+  const panelOrigins = rawPanelOrigins.filter(origin => origin !== '*').map(origin => {
     const value = new URL(origin)
     if (value.origin !== origin || !['http:', 'https:'].includes(value.protocol)) throw Error('SERVICE_PANEL_ORIGIN_INVALID')
     if (value.protocol === 'http:' && !['127.0.0.1', 'localhost', '[::1]'].includes(value.hostname)) throw Error('SERVICE_PANEL_HTTPS_REQUIRED')
     return value.origin
   })
-  const panelOrigin = origin => typeof origin === 'string' && panelOrigins.includes(origin)
+  const loopbackOrigin = origin => {
+    try {
+      const value = new URL(origin)
+      return value.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(value.hostname)
+    } catch (_) { return false }
+  }
+  // 按键直连模式只接受本机回环页面；普通 Service 仍按配置白名单。
+  const panelOrigin = origin => typeof origin === 'string' && (allowAnyPanelOrigin || panelOrigins.includes(origin) || (Boolean(directKey) && loopbackOrigin(origin)))
   function applyCors(req, res) {
     const origin = req.headers.origin
     if (!panelOrigin(origin)) return
@@ -94,9 +118,10 @@ async function createService(options) {
   if (publicUrl.protocol === 'http:' && !['127.0.0.1', '::1', 'localhost'].includes(listenHost)) throw Error('SERVICE_HTTP_LOOPBACK_ONLY')
   const home = path.resolve(options.home)
   const repo = new ServiceRepository(home, { eventBufferMaxBytes: messageBodyMaxBytes * 2 + 4 * 1024 * 1024 })
-  const settings = new SettingsStore(home)
+  // 桌面交付与主应用共享模型设置，数据目录仍保持独立。
+  const settings = new SettingsStore(config.settingsHome ? path.resolve(config.settingsHome) : home)
   const assets = new AssetStore(path.join(home, 'assets'))
-  const plugins = new PluginHost({ settings, workspaceRoot: settings.data.workspacePath, serviceRepository: repo, corePlugins: {
+  const plugins = new PluginHost({ settings, workspaceRoot: settings.data.workspacePath, serviceRepository: repo, ...(config.licensingHome ? { licensing: { home: config.licensingHome } } : {}), corePlugins: {
     'core/sessions': require('../src/main/service/memory-sessions'),
     'core/memory-store': { name: 'core/memory-store', apply() {} }
   } })
@@ -163,6 +188,78 @@ async function createService(options) {
     const { hesynWorkflowPrompt } = require('../src/main/service/hesyn-workflow')
     plugins.requireService('prompts').add(context => hesynWorkflowPrompt(repo, context))
     const connector = plugins.requireService('hostConnector')
+    const direct = directKey ? { key: directKey, owner: '', context: null, projectId: null } : null
+    function directAuthorized(req, url) {
+      if (!direct) return false
+      const header = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+      const supplied = header || String(req.headers['x-agent-key'] || '') || url.searchParams.get('key') || ''
+      if (!supplied) return false
+      return crypto.timingSafeEqual(Buffer.from(hash(supplied), 'hex'), Buffer.from(hash(direct.key), 'hex'))
+    }
+    function requireDirect(req, url) {
+      if (!direct) throw problem(404, 'DIRECT_DISABLED')
+      if (!directAuthorized(req, url)) throw problem(401, 'DIRECT_KEY_INVALID')
+    }
+    function ensureDirectOwner(clientId) {
+      if (!/^[0-9a-f-]{36}$/.test(clientId || '')) throw problem(400, 'CLIENT_ID_INVALID')
+      if (direct.owner && direct.owner !== clientId) throw problem(409, 'HOST_ALREADY_ACTIVE')
+      direct.owner = clientId
+    }
+    // 浏览器就是宿主：这些工具由页面执行，Service 只负责会话、审批和转发。
+    const DIRECT_TOOLS = [
+      ['get_context', 'read', '读取当前工作台的只读上下文'],
+      ['list_equipment', 'read', '读取当前场景装备列表'],
+      ['get_selected_entity', 'read', '读取当前选中装备'],
+      ['entity_list', 'read', '列出当前场景全部装备（id、名称、revision、显隐）'],
+      ['resource_search', 'read', '按名称或 ID 搜索可部署的装备资源'],
+      ['entity_create', 'write', '在场景中部署装备实体'],
+      ['entity_update', 'write', '按字段修改装备，必须携带当前 revision'],
+      ['entity_delete', 'write', '删除装备，必须携带当前 revision'],
+      ['hesyn_capabilities', 'read', '列出场景可执行能力'],
+      ['hesyn_call', 'command', '调用场景能力']
+    ].map(([name, permission, description]) => {
+      const schemas = {
+        get_context: { type: 'object', properties: {}, additionalProperties: false },
+        list_equipment: { type: 'object', properties: {}, additionalProperties: false },
+        get_selected_entity: { type: 'object', properties: {}, additionalProperties: false },
+        entity_list: { type: 'object', properties: {}, additionalProperties: false },
+        hesyn_capabilities: { type: 'object', properties: { capabilityId: { type: 'string' } }, additionalProperties: false },
+        resource_search: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer' } }, additionalProperties: false },
+        entity_create: { type: 'object', properties: { resourceId: { type: 'string' }, point: { type: 'object' }, operationId: { type: 'string' } }, required: ['resourceId', 'point'], additionalProperties: false },
+        entity_update: { type: 'object', properties: { id: { type: 'string' }, expectedRevision: { type: 'integer' }, patch: { type: 'object' }, operationId: { type: 'string' } }, required: ['id', 'expectedRevision', 'patch'], additionalProperties: false },
+        entity_delete: { type: 'object', properties: { id: { type: 'string' }, expectedRevision: { type: 'integer' }, operationId: { type: 'string' } }, required: ['id', 'expectedRevision'], additionalProperties: false },
+        hesyn_call: { type: 'object', properties: { capabilityId: { type: 'string' }, input: { type: 'object' }, operationId: { type: 'string' }, confirmed: { type: 'boolean' } }, required: ['capabilityId', 'input'], additionalProperties: false }
+      }
+      return { name, permission, description, parameters: schemas[name] }
+    })
+    let directHostReady = false
+    async function ensureDirectHost() {
+      if (!direct || directHostReady) return
+      const definitions = await connector.register('hesyn', DIRECT_TOOLS)
+      repo.data.hosts.hesyn = { tools: definitions }
+      for (const session of Object.values(repo.data.sessions)) {
+        if (session.hostId !== 'hesyn' || !session.tools) continue
+        const tools = {}
+        for (const definition of definitions) {
+          const name = 'host__hesyn__' + definition.name, tool = plugins.tools.get(name)
+          if (tool) tools[name] = fingerprint(tool)
+        }
+        session.tools = tools
+      }
+      repo.save()
+      directHostReady = true
+    }
+    function directLanding(input) {
+      const key = String(input.searchParams.get('key') || '')
+      const ok = key && directAuthorized({ headers: {} }, input)
+      const origin = publicUrl.origin
+      const shownKey = input.searchParams.get('key') || '未提供'
+      return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent 服务</title>' +
+        '<style>body{margin:0;font-family:system-ui,"Segoe UI",sans-serif;background:#0e1c2b;color:#dbe9f5;display:grid;place-items:center;min-height:100vh}main{width:min(620px,calc(100vw - 48px))}h1{font-size:20px;margin:0 0 12px}p{line-height:1.7;color:#9fb8cc;margin:6px 0}code{display:block;margin:10px 0;padding:10px 12px;border-radius:6px;background:#132b40;color:#8fd8ff;word-break:break-all}strong{color:' + (ok ? '#59d98f' : '#ffb066') + '}</style></head><body><main>' +
+        '<h1>Agent 服务</h1><p>状态：<strong>' + (ok ? '连接密钥有效' : '缺少或无效的连接密钥') + '</strong></p>' +
+        '<p>把这一个地址粘贴到 HESYN 的 AI 助手设置即可。</p>' +
+        '<code>' + origin + '/?key=' + shownKey + '</code></main></body></html>'
+    }
     function identity(req, sessionId) {
       const user = authenticate(req.headers.authorization, users)
       if (user) return user.id
@@ -250,6 +347,40 @@ async function createService(options) {
       }
       if (Object.keys(patch).length) settings.update(patch)
     }
+    // 模型配置以桌面 Agent 为唯一来源：每条消息前重新读取，不再维护第二套。
+    function refreshModels() {
+      if (!config.modelsFile) return
+      try {
+        const source = JSON.parse(fs.readFileSync(config.modelsFile, 'utf8'))
+        const fields = ['models', 'currentModelId', 'maxIterations', 'contextWindowTokens', 'maxTokens', 'baseURL', 'apiKey', 'model', 'thinking']
+        const patch = {}
+        for (const field of fields) if (source[field] !== undefined) patch[field] = source[field]
+        if (Object.keys(patch).length) settings.update(patch)
+      } catch (error) {}
+    }
+
+    // 面板切换/编辑模型后写回桌面 Agent 的同一份设置，保持单一来源。
+    function persistModels() {
+      if (!config.modelsFile) return
+      try {
+        const source = JSON.parse(fs.readFileSync(config.modelsFile, 'utf8'))
+        const data = settings.data
+        const next = {
+          ...source,
+          models: data.models,
+          currentModelId: data.currentModelId,
+          maxIterations: data.maxIterations,
+          baseURL: data.baseURL,
+          apiKey: data.apiKey,
+          model: data.model,
+          thinking: data.thinking
+        }
+        const temporary = config.modelsFile + '.tmp'
+        fs.writeFileSync(temporary, JSON.stringify(next, null, 2) + String.fromCharCode(10))
+        fs.renameSync(temporary, config.modelsFile)
+      } catch (error) {}
+    }
+
     function prepare(binding) {
       const worker = pool.acquire(binding.id)
       worker.serviceBinding = binding
@@ -267,6 +398,82 @@ async function createService(options) {
         if (!panelOrigin(origin)) throw problem(403, 'ORIGIN_DENIED')
         res.writeHead(204, { 'access-control-allow-origin': origin, 'access-control-allow-methods': 'GET, POST, PUT, OPTIONS', 'access-control-allow-headers': 'authorization, content-type', 'access-control-max-age': '600', vary: 'Origin' })
         res.end(); return
+      }
+      if (direct && req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff' })
+        res.end(directLanding(url)); return
+      }
+      if (pathname === '/api/v1/direct/info' && req.method === 'GET') {
+        requireDirect(req, url)
+        json(res, 200, { ok: true, service: 'hesyn', panelVersion: PANEL_VERSION, origin: publicUrl.origin, online: Boolean(direct.owner) })
+        return
+      }
+      if (pathname === '/api/v1/direct/stream' && req.method === 'GET') {
+        requireDirect(req, url)
+        const clientId = url.searchParams.get('clientId') || ''
+        ensureDirectOwner(clientId)
+        await ensureDirectHost()
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no', ...(req.headers.origin ? { 'access-control-allow-origin': req.headers.origin, vary: 'Origin' } : {}) })
+        res.write(': connected\n\n')
+        connector.connect('hesyn', res)
+        const heartbeat = setInterval(() => { if (!res.write(': heartbeat\n\n')) res.destroy() }, 15000)
+        res.on('close', () => {
+          clearInterval(heartbeat)
+          if (direct.owner === clientId) { direct.owner = ''; direct.context = null; direct.projectId = null }
+        })
+        return
+      }
+      if (pathname === '/api/v1/direct/context' && req.method === 'POST') {
+        requireDirect(req, url)
+        const input = await body(req)
+        const clientId = input && input.clientId
+        if (!input || !/^[0-9a-f-]{36}$/.test(clientId || '')) throw problem(400, 'CLIENT_ID_INVALID')
+        if (input.active === false) {
+          if (direct.owner === clientId) { direct.owner = ''; direct.context = null; direct.projectId = null }
+          json(res, 200, { ok: true }); return
+        }
+        ensureDirectOwner(clientId)
+        const context = { ...input }
+        delete context.clientId
+        direct.context = context
+        direct.projectId = typeof input.sceneId === 'string' ? input.sceneId : null
+        json(res, 200, { ok: true }); return
+      }
+      if (pathname === '/api/v1/direct/tool-result' && req.method === 'POST') {
+        requireDirect(req, url)
+        const input = await body(req)
+        if (!input || direct.owner !== input.clientId) throw problem(409, 'HOST_NOT_ACTIVE')
+        const result = { ...input }
+        delete result.clientId
+        connector.result('hesyn', result)
+        json(res, 200, { ok: true }); return
+      }
+      if (pathname === '/api/v1/direct/session' && req.method === 'POST') {
+        requireDirect(req, url)
+        const input = await body(req)
+        await ensureDirectHost()
+        if (!connector.online('hesyn')) throw problem(409, 'HOST_OFFLINE')
+        const projectId = typeof input.projectId === 'string' && input.projectId ? input.projectId.slice(0, 128) : null
+        if (input.sessionId) {
+          const binding = repo.data.sessions[input.sessionId]
+          if (!binding || binding.hostId !== 'hesyn' || binding.userId !== 'direct') throw problem(404, 'SESSION_NOT_FOUND')
+          if (binding.projectId && projectId && binding.projectId !== projectId) throw problem(409, 'SESSION_PROJECT_MISMATCH')
+          const credential = crypto.randomBytes(32).toString('base64url'), expiresAt = Date.now() + 60000
+          repo.data.tickets[hash(credential)] = { sessionId: input.sessionId, userId: 'direct', expiresAt }; repo.save()
+          json(res, 200, { sessionId: input.sessionId, credential }); return
+        }
+        const id = crypto.randomUUID(), workspace = path.join(home, 'service-workspaces', id)
+        fs.mkdirSync(workspace, { recursive: true })
+        const tools = {}, definitions = repo.data.hosts.hesyn.tools || []
+        for (const definition of definitions) {
+          const name = 'host__hesyn__' + definition.name, tool = plugins.tools.get(name)
+          if (tool) tools[name] = fingerprint(tool)
+        }
+        repo.data.sessions[id] = { id, userId: 'direct', hostId: 'hesyn', workspace, tools, ...(projectId ? { projectId } : {}) }
+        const credential = crypto.randomBytes(32).toString('base64url'), expiresAt = Date.now() + 60000
+        repo.data.tickets[hash(credential)] = { sessionId: id, userId: 'direct', expiresAt }
+        repo.save(); repo.audit('session.created', { sessionId: id, userId: 'direct', hostId: 'hesyn' })
+        json(res, 201, { sessionId: id, credential }); return
       }
       if (req.method === 'GET' && pathname.startsWith('/panel/')) {
         const panel = /^\/panel\/(\d+\.\d+\.\d+)\/([A-Za-z0-9._-]+)$/.exec(pathname)
@@ -337,9 +544,10 @@ async function createService(options) {
         const user = settingsUser(req)
         if (!user) throw problem(401, 'AUTH_REQUIRED')
         if (config.allowPanelSettings !== true) throw problem(403, 'SETTINGS_DISABLED')
-        if (req.method === 'GET') { json(res, 200, modelView()); return }
+        if (req.method === 'GET') { refreshModels(); json(res, 200, modelView()); return }
         if (req.method === 'PUT' || req.method === 'POST') {
           updateModels(await body(req))
+          persistModels()
           repo.audit('settings.models.updated', { userId: user.id })
           json(res, 200, modelView()); return
         }
@@ -446,6 +654,7 @@ async function createService(options) {
         const input = contract.message(await body(req, messageBodyMaxBytes)), key = hash('message:' + id + ':' + input.requestId), digest = hash({ text: input.text, history: input.history })
         const old = repo.data.receipts[key]
         if (old) { if (old.digest !== digest) throw problem(409, 'REQUEST_CONFLICT'); json(res, 200, { requestId: input.requestId, status: old.status }); return }
+        refreshModels()
         if (runs.has(id) || pool.isRunning(id)) throw problem(409, 'SESSION_BUSY')
         const controller = new AbortController()
         controller.requestId = input.requestId

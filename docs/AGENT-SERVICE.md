@@ -77,7 +77,7 @@ Tools 的可见性和执行均须受同一会话策略限制；审批后重新�
 }
 ```
 
-`panelOrigins` 是允许跨源加载 AgentPanel 并调用会话 API 的宿主 Origin；非回环地址必须为 HTTPS。未列出的 Origin 会被拒绝。
+`panelOrigins` 是允许跨源加载 AgentPanel 并调用会话 API 的宿主 Origin；非回环地址必须为 HTTPS。桌面启动的 Agent Service 固定把它设为 `*`，即对所有来源放行：面板是公开静态资源，调用接口仍需每会话票据与令牌。需要收紧时可在配置中改为显式列表。服务默认监听 `127.0.0.1:18090`（被占用时顺延，实际地址以设置页为准），前端代理应指向该地址。
 
 令牌必须是至少 32 位随机字符；示例中的文字不是有效摘要。远程连接必须使用 HTTPS 和配置 `tls.key`、`tls.cert` 文件；明文 HTTP 仅限服务端和客户端均显式配置的回环测试。模型配置复用现有 SettingsStore，不内置或猜测真实模型接口。Host 可调用 `src/main/host-connector/client.js` 暴露的 `HostConnector`，提供本地上下文和工具实现；该类不是 HESYN 实现。
 

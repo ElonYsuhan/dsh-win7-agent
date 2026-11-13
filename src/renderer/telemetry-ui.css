@@ -1,0 +1,227 @@
+/* Runtime Telemetry UI（第三阶段）——状态栏三指标 + 浮动详情面板
+   全部走主题变量，深色/浅色自适应；不依赖任何外部资源。 */
+
+.tm-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.tm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.tm-pill:hover {
+  background: var(--hover-bg);
+  border-color: var(--hover-border);
+  color: var(--text);
+}
+
+.tm-pill:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.tm-pill-label {
+  color: inherit;
+  opacity: 0.75;
+  letter-spacing: 0.2px;
+}
+
+.tm-pill-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* 运行中：三指标轻微点亮，让"在跑"可感知 */
+.tm-running .tm-pill {
+  border-color: var(--hover-border);
+  color: var(--text);
+}
+
+.tm-ring {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.tm-ring-bg {
+  fill: none;
+  stroke: var(--divider);
+  stroke-width: 2;
+}
+
+.tm-ring-fg {
+  fill: none;
+  stroke: var(--focus);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 200ms ease;
+}
+
+/* ── 浮动详情面板 ───────────────────────────────────────────── */
+.tm-panel {
+  position: fixed;
+  z-index: 1200;
+  width: 340px;
+  max-height: 62vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--hover-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.tm-panel.hidden { display: none; }
+
+.tm-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.tm-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tm-panel-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tm-panel-close:hover { background: var(--hover-bg); color: var(--text); }
+
+.tm-panel-body {
+  padding: 8px 10px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.tm-panel-foot {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.tm-section {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.tm-section:last-child { border-bottom: none; margin-bottom: 0; }
+
+.tm-section-title {
+  margin: 0 0 6px 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.3px;
+}
+
+.tm-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+.tm-k { color: var(--muted); }
+
+.tm-v {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  word-break: break-word;
+}
+
+.tm-note {
+  margin: 6px 0 0 0;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.tm-empty {
+  margin: 8px 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.tm-tool-list {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.tm-tool-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 10px;
+}
+
+.tm-tool-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-tool-status { color: var(--muted); }
+.tm-tool-status.state-completed { color: var(--result-border); }
+.tm-tool-status.state-failed { color: var(--error-text); }
+.tm-tool-status.state-cancelled { color: var(--warning-text); }
+
+.tm-tool-dur, .tm-tool-size {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tm-tool-more {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* 浅色主题微调：环与分隔线在浅底上要够可见 */
+html[data-theme="light"] .tm-ring-bg { stroke: #c8c8c8; }
+html[data-theme="light"] .tm-ring-fg { stroke: #5a5a5a; }
+html[data-theme="light"] .tm-pill { border-color: #cfcfcf; }
+html[data-theme="light"] .tm-pill:hover { border-color: #9a9a9a; }

@@ -49,10 +49,15 @@ function main() {
   const failed = []
   for (const file of files) {
     const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' })
-    if (result.status !== 0) {
-      const error = String(result.stderr || result.stdout || '').trim()
-      failed.push({ file, error })
+    if (result.status === 0) continue
+    /* 浏览器 ES 模块（面板、服务会话页）在 Node 16 下不会被自动识别为 module，
+       按源码判断模块语法后用 stdin + --input-type=module 再检查一次。 */
+    if (/^(?:import|export)\s/m.test(fs.readFileSync(file, 'utf8'))) {
+      const moduleResult = spawnSync(process.execPath, ['--check', '--input-type=module'], { encoding: 'utf8', input: fs.readFileSync(file, 'utf8') })
+      if (moduleResult.status === 0) continue
     }
+    const error = String(result.stderr || result.stdout || '').trim()
+    failed.push({ file, error })
   }
 
   if (failed.length > 0) {

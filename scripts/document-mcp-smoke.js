@@ -44,8 +44,11 @@ async function main(){
   ok('拒绝陈旧版本编辑',await rejected('docx_edit',{path:'原文.docx',output:'conflict.docx',revision:'stale',changes:[{index:0,text:'x'}]},/REVISION_CONFLICT/))
   ok('输出禁止覆盖现有文件',await rejected('docx_create',{output:'原文.docx',paragraphs:[{text:'overwrite'}]},/EEXIST/))
   ok('路径越界拒绝',await rejected('docx_read',{path:'../outside.docx'},/PATH_ESCAPE/))
-  fs.mkdirSync(path.join(root,'outside'));fs.symlinkSync(path.join(root,'outside'),path.join(workspace,'link'),'dir')
-  ok('符号链接逃逸拒绝',await rejected('docx_create',{output:'link/escape.docx',paragraphs:[{text:'x'}]},/PATH_ESCAPE/))
+  fs.mkdirSync(path.join(root,'outside'))
+  let linkCreated=true
+  try{fs.symlinkSync(path.join(root,'outside'),path.join(workspace,'link'),'dir')}
+  catch(error){linkCreated=false;console.log('SKIP  符号链接逃逸拒绝：当前环境不允许创建目录符号链接（'+(error.code||error.message)+'）')}
+  if(linkCreated)ok('符号链接逃逸拒绝',await rejected('docx_create',{output:'link/escape.docx',paragraphs:[{text:'x'}]},/PATH_ESCAPE/))
   await call('xlsx_create',{output:'账目.xlsx',sheets:[{name:'收入',cells:[{cell:'A1',value:'金额',bold:true},{cell:'B1',value:12.5,numberFormat:'number'},{cell:'C1',formula:'B1*2'},{cell:'A2',value:'=literal'},{cell:'B2',value:true}]},{name:'空表',cells:[]}]})
   const sheet=await call('xlsx_read',{path:'账目.xlsx',sheet:'收入',range:'A1:C3'})
   ok('Excel 工作表、数字、布尔、公式和样式',sheet.sheets.length===2&&sheet.cells.find(c=>c.cell==='B1').value===12.5&&sheet.cells.find(c=>c.cell==='C1').formula==='B1*2'&&sheet.cells.find(c=>c.cell==='A1').styleId===4&&sheet.cells.find(c=>c.cell==='A2').value==='=literal'&&sheet.cells.find(c=>c.cell==='B2').value===true)

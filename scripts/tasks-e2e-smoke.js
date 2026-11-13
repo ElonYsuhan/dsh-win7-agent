@@ -22,7 +22,7 @@ async function main(){
   ok('通知入口已移除，侧栏可直接打开设置',await driver.evaluate('!document.getElementById("taskNoticeBell")&&!document.getElementById("taskNoticeList")&&!!document.getElementById("openSettings")'))
   await driver.click('#openCustomize');await driver.click('#capTabTasks');await wait(()=>driver.evaluate('document.getElementById("taskHost")'),'task list')
   ok('能力中心有任务页（执行机器说明已搬进系统设置）',await driver.evaluate('!document.getElementById("capTasks").classList.contains("hidden")'))
-  ok('执行环境在系统设置里且排在模型下面',await driver.evaluate('Array.from(document.querySelectorAll("[data-settings-tab]")).map(b=>b.dataset.settingsTab).join(",")==="general,model,environment,license"&&!!document.querySelector(\'[data-settings-panel="environment"] #taskKeepRunning\')'))
+  ok('执行环境并入通用设置面板',await driver.evaluate('Array.from(document.querySelectorAll("[data-settings-tab]")).map(b=>b.dataset.settingsTab).join(",")==="general,model,memory,license"&&!!document.querySelector(\'[data-settings-panel="general"] #taskKeepRunning\')'))
   /* 2026-10-17 起高级配置内收为内置默认：权限/工具白名单/补跑/限额都不在界面上了 */
   await driver.click('#taskNew');ok('新建界面不再暴露权限/工具/补跑',await driver.evaluate('!document.getElementById("taskPermission")&&!document.getElementById("taskTools")&&!document.getElementById("taskCatchUp")&&!document.querySelector(".task-advanced")'))
   ok('默认保存即启用',await driver.evaluate('document.getElementById("taskEnabled").checked===true'))

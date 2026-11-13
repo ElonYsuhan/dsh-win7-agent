@@ -29,6 +29,7 @@ function defaultProfile(options) {
     require('./plugins/adaptive'),
     require('./plugins/workflow-tools')
   ]
+  if (options && options.enableAgentService) plugins.push(require('./plugins/agent-service'))
   if (options && options.serviceRepository) plugins.push(require('./plugins/host-connector'))
   return plugins
 }

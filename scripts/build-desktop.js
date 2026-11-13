@@ -373,6 +373,19 @@ function fillAppDir(appDir, mark, targetKey) {
     )
   }
 
+  /* Agent Service（宿主集成服务）与桌面自带 HTTP 服务是两套程序，不能共用 service/index.js。
+     它按 ../server 与 ../src 定位同级模块，因此复制到 agent-service/ 并补齐同级 server/、
+     agent-service/panel/。避免覆盖桌面服务，也保证打包后启动按钮能真正拉起它。 */
+  const agentServiceDir = path.join(appDir, 'agent-service')
+  mkdirp(agentServiceDir)
+  copyFile(path.join(ROOT, 'service', 'index.js'), path.join(agentServiceDir, 'index.js'))
+  copyDir(path.join(ROOT, 'service', 'panel'), path.join(agentServiceDir, 'panel'))
+  const serverLibDir = path.join(appDir, 'server')
+  mkdirp(serverLibDir)
+  for (const name of SERVICE_FILES) {
+    copyFile(path.join(ROOT, 'server', name), path.join(serverLibDir, name))
+  }
+
   // agent 实现 + Web 界面
   copyDir(path.join(ROOT, 'src'), path.join(appDir, 'src'))
   const nativeDir = path.join(appDir, 'src/main/knowledge/vendor/sqlite')

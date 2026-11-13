@@ -7813,3 +7813,6 @@ body.resizing-knowledge-list #knowledgeListResize::after {
 .gui-chat-bubble[hidden], .gui-chat-slot[hidden] { display: none !important; }
 .gui-chat-slot { min-width: 0; margin: 8px 0; }
 .gui-chat-text + .gui-chat-slot, .gui-chat-slot + .gui-chat-text { margin-top: 12px; }
+
+/* Service controls respect the native hidden state despite settings-row display rules. */
+#agentServiceToggle[hidden], #agentServiceAddressRow[hidden], #agentServiceAddress[hidden], #copyAgentServiceAddress[hidden] { display: none !important; }

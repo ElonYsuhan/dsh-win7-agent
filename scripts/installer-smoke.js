@@ -137,7 +137,11 @@ async function main() {
   write(path.join(srcTree, 'a.txt'), 'AAA')
   write(path.join(srcTree, 'nested', 'deep', 'b.txt'), 'BBB')
   fs.chmodSync(path.join(srcTree, 'a.txt'), 0o755)
-  fs.symlinkSync('a.txt', path.join(srcTree, 'link-to-a'))
+  /* Windows 没有符号链接权限（未启用开发者模式/非管理员）时无法创建链接，
+     此时跳过链接相关断言，但普通文件与目录的复制仍必须验证。 */
+  let linkCreated = true
+  try { fs.symlinkSync('a.txt', path.join(srcTree, 'link-to-a')) }
+  catch (error) { linkCreated = false; console.log('SKIP  copyTree: 当前环境不允许创建符号链接（' + (error.code || error.message) + '）') }
   const dstTree = path.join(ROOT_TMP, 'tree-dst')
   const stats = installer.copyTree(srcTree, dstTree, { files: 0, bytes: 0, dirs: 0, links: 0 })
   check('copyTree: 普通文件', read(path.join(dstTree, 'a.txt')) === 'AAA')
@@ -145,9 +149,11 @@ async function main() {
   check('copyTree: 统计文件数', stats.files === 2, stats.files)
   check('copyTree: 统计字节数', stats.bytes === 6, stats.bytes)
   check('copyTree: 统计目录数', stats.dirs === 2, stats.dirs)
-  const linkStat = fs.lstatSync(path.join(dstTree, 'link-to-a'))
-  check('copyTree: 符号链接仍是链接', linkStat.isSymbolicLink() === true)
-  check('copyTree: 符号链接目标保持相对', fs.readlinkSync(path.join(dstTree, 'link-to-a')) === 'a.txt')
+  if (linkCreated) {
+    const linkStat = fs.lstatSync(path.join(dstTree, 'link-to-a'))
+    check('copyTree: 符号链接仍是链接', linkStat.isSymbolicLink() === true)
+    check('copyTree: 符号链接目标保持相对', fs.readlinkSync(path.join(dstTree, 'link-to-a')) === 'a.txt')
+  }
   if (process.platform !== 'win32') {
     check(
       'copyTree: 可执行权限保留',

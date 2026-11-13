@@ -270,6 +270,7 @@ try {
   assert.strictEqual(transforms.length, 1)
   assert.throws(() => plugin.transform(upstream + ' ', rootFile), /GENERATIVE_UI_CSP_TRANSFORM_MISMATCH/, 'unknown upstream changes fail closed')
   assert.strictEqual(plugin.transform(upstream, rootFile + '.other'), null)
+  if (process.platform === 'win32') assert(!plugin.transform(upstream, rootFile.toUpperCase()).code.includes("Function('return this')"), 'Windows paths match regardless of drive or directory case')
   for (const code of ['eval("1")', 'new Function("return 1")', 'window["eval"]("1")', 'import("./module.js")']) {
     assert.throws(() => build.assertNoDynamicExecution(Buffer.from(code), 'test.js'), /GENERATIVE_UI_DYNAMIC_CODE/)
   }
